@@ -1,0 +1,56 @@
+# Firebase credentials (never commit)
+config/firebase-service-account.json
+firebase/*-firebase-adminsdk-*.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.Python
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Environment files
+.env
+.env.production
+.env.staging
+.venv/
+venv/
+env/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Media e static (serviti da DO Spaces in prod)
+media/
+static/
+staticfiles/
+
+# Logs
+logs/
+*.log
+
+# DO Managed MySQL CA cert
+*.crt
+
+# Argos Translate cache
+argos-translate/
+
+# DB
+*.sqlite3
+*.db
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
+# Coverage
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml

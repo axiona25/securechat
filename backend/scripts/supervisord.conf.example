@@ -1,0 +1,35 @@
+; ──────────────────────────────────────────────────────
+; Supervisord config per SecureChat su DigitalOcean
+; Copia in /etc/supervisor/conf.d/securechat.conf
+; ──────────────────────────────────────────────────────
+
+[program:securechat-daphne]
+directory=/opt/securechat
+command=/opt/securechat/venv/bin/daphne -b 127.0.0.1 -p 8000 config.asgi:application
+user=securechat
+autostart=true
+autorestart=true
+stderr_logfile=/var/log/securechat/daphne.err.log
+stdout_logfile=/var/log/securechat/daphne.out.log
+environment=DJANGO_SETTINGS_MODULE="config.settings.base"
+
+[program:securechat-celery-worker]
+directory=/opt/securechat
+command=/opt/securechat/venv/bin/celery -A config worker -l info --concurrency=4
+user=securechat
+autostart=true
+autorestart=true
+stderr_logfile=/var/log/securechat/celery-worker.err.log
+stdout_logfile=/var/log/securechat/celery-worker.out.log
+environment=DJANGO_SETTINGS_MODULE="config.settings.base"
+stopwaitsecs=600
+
+[program:securechat-celery-beat]
+directory=/opt/securechat
+command=/opt/securechat/venv/bin/celery -A config beat -l info --scheduler django_celery_beat.schedulers:DatabaseScheduler
+user=securechat
+autostart=true
+autorestart=true
+stderr_logfile=/var/log/securechat/celery-beat.err.log
+stdout_logfile=/var/log/securechat/celery-beat.out.log
+environment=DJANGO_SETTINGS_MODULE="config.settings.base"
