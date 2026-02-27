@@ -12,6 +12,7 @@ import '../../core/services/api_service.dart';
 import '../../core/services/auth_service.dart';
 import '../../core/services/chat_service.dart';
 import '../../core/services/crypto_service.dart';
+import '../../core/services/session_manager.dart';
 import '../../core/services/sound_service.dart';
 import '../../core/routes/app_router.dart';
 import '../../core/widgets/bottom_nav_bar.dart';
@@ -121,6 +122,23 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                   _typingConversations[convId] = isTyping && !isRecording;
                   _recordingConversations[convId] = isTyping && isRecording;
                 });
+              }
+            }
+            if (map['type'] == 'conversation.deleted') {
+              final convId = map['conversation_id']?.toString();
+              if (convId != null && mounted) {
+                setState(() => _conversations.removeWhere((c) => c.id == convId));
+              }
+            }
+            if (map['type'] == 'session.reset') {
+              final resetUserId = map['reset_user_id'];
+              if (resetUserId != null && mounted) {
+                final uid = resetUserId is int ? resetUserId : int.tryParse(resetUserId.toString());
+                if (uid != null) {
+                  SessionManager().deleteSession(uid).then((_) {
+                    debugPrint('[E2E] Session reset received for user $uid');
+                  });
+                }
               }
             }
           } catch (_) {}
@@ -810,7 +828,24 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     }
   }
 
-  void _onConversationTap(ConversationModel conversation) {
+  Future<void> _onConversationTap(ConversationModel conversation) async {
+    final other = conversation.otherParticipant(_currentUser?.id);
+    final otherUserId = other?.userId;
+    final isPrivate = !conversation.isGroup && otherUserId != null;
+
+    if (isPrivate) {
+      try {
+        final response = await _chatService.createPrivateConversation(otherUserId!);
+        if (response != null && response['session_reset'] == true) {
+          await SessionManager().deleteSession(otherUserId);
+          debugPrint('[E2E] Session reset before opening chat (re-activated hidden) for user $otherUserId');
+        }
+      } catch (_) {
+        // Se l'API fallisce (es. offline), apri comunque la chat
+      }
+      if (!mounted) return;
+    }
+
     Navigator.of(context).pushNamed(
       AppRouter.chatDetail,
       arguments: {
@@ -847,6 +882,15 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             onPressed: () async {
               Navigator.pop(ctx);
               setState(() => _conversations.removeWhere((c) => c.id == conv.id));
+
+              // Reset sessione E2E con l'altro utente
+              final other = conv.otherParticipant(_currentUser?.id);
+              final otherUserId = other?.userId;
+              if (otherUserId != null && !conv.isGroup) {
+                await SessionManager().deleteSession(otherUserId);
+                debugPrint('[E2E] Session deleted on conversation delete for user $otherUserId');
+              }
+
               try {
                 await ApiService().delete('/chat/conversations/${conv.id}/leave/');
               } catch (_) {
@@ -971,8 +1015,54 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 await _toggleFavorite(conv);
               },
             ),
+            _moreActionTile(
+              ctx,
+              Icons.delete_forever_outlined,
+              'Elimina per tutti',
+              Colors.red,
+              () async {
+                Navigator.pop(ctx);
+                _deleteForAll(conv);
+              },
+            ),
           ],
         ),
+      ),
+    );
+  }
+
+  void _deleteForAll(ConversationModel conv) {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text('Elimina per tutti', style: TextStyle(fontWeight: FontWeight.w700)),
+        content: const Text(
+          'Vuoi eliminare questa conversazione per tutti i partecipanti? L\'azione è irreversibile.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Annulla'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            onPressed: () async {
+              Navigator.pop(ctx);
+              setState(() => _conversations.removeWhere((c) => c.id == conv.id));
+              try {
+                await ApiService().delete('/chat/conversations/${conv.id}/delete-for-all/');
+              } catch (_) {
+                if (mounted) setState(() => _conversations.insert(0, conv));
+              }
+            },
+            child: const Text('Elimina'),
+          ),
+        ],
       ),
     );
   }
@@ -1306,6 +1396,19 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             chatService: _chatService,
             onConversationCreated: (conversation, [otherUser]) async {
               Navigator.of(ctx).pop();
+              if (!mounted) return;
+              // Chi riapre la chat (Alice) deve cancellare la propria sessione verso l'altro (Bob),
+              // così il prossimo messaggio farà un nuovo X3DH.
+              if (conversation['session_reset'] == true && otherUser != null) {
+                final otherUserId = otherUser['id'];
+                if (otherUserId != null) {
+                  final uid = otherUserId is int ? otherUserId : int.tryParse(otherUserId.toString());
+                  if (uid != null) {
+                    await SessionManager().deleteSession(uid);
+                    debugPrint('[E2E] Session reset after chat re-open (cleared local session toward $uid for new X3DH)');
+                  }
+                }
+              }
               if (!mounted) return;
               await _loadData();
               if (!mounted) return;

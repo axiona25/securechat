@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/routes/app_router.dart';
+import '../../../core/services/api_service.dart';
 import '../../../core/services/auth_service.dart';
+import '../../../core/services/crypto_service.dart';
 import '../../../core/widgets/securechat_text_field.dart';
 import '../../../core/widgets/securechat_button.dart';
 import '../../../core/widgets/social_login_button.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 class LoginForm extends StatefulWidget {
   const LoginForm({super.key});
@@ -72,6 +75,19 @@ class _LoginFormState extends State<LoginForm> {
     setState(() => _isLoading = false);
 
     if (result.success) {
+      // Dopo login success, inizializza le chiavi E2E
+      try {
+        final cryptoService = CryptoService(
+          apiService: ApiService(),
+          secureStorage: const FlutterSecureStorage(),
+        );
+        await cryptoService.initializeKeys();
+        debugPrint('[Auth] E2E keys initialized');
+      } catch (e) {
+        debugPrint('[Auth] E2E key init error: $e');
+        // Non bloccare il login se le chiavi falliscono
+      }
+      if (!mounted) return;
       Navigator.of(context).pushReplacementNamed(AppRouter.home);
     } else {
       setState(() => _errorMessage = result.error);

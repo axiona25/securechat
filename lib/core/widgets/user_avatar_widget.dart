@@ -36,7 +36,9 @@ class UserAvatarWidget extends StatelessWidget {
       if (parts.length >= 2) {
         return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
       }
-      return displayName![0].toUpperCase();
+      return displayName!.length >= 2
+          ? displayName!.substring(0, 2).toUpperCase()
+          : displayName!.toUpperCase();
     }
     return '?';
   }

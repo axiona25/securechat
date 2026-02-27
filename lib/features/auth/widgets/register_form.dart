@@ -2,9 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/routes/app_router.dart';
+import '../../../core/services/api_service.dart';
 import '../../../core/services/auth_service.dart';
+import '../../../core/services/crypto_service.dart';
 import '../../../core/widgets/securechat_text_field.dart';
 import '../../../core/widgets/securechat_button.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 class RegisterForm extends StatefulWidget {
   const RegisterForm({super.key});
@@ -110,6 +113,18 @@ class _RegisterFormState extends State<RegisterForm> {
     setState(() => _isLoading = false);
 
     if (result.success) {
+      // Dopo registrazione (login interno già eseguito), inizializza chiavi E2E prima di navigare
+      try {
+        final cryptoService = CryptoService(
+          apiService: ApiService(),
+          secureStorage: const FlutterSecureStorage(),
+        );
+        await cryptoService.initializeKeys();
+        debugPrint('[Auth] E2E keys initialized after register');
+      } catch (e) {
+        debugPrint('[Auth] E2E key init error: $e');
+      }
+      if (!mounted) return;
       Navigator.of(context).pushReplacementNamed(AppRouter.home);
     } else {
       setState(() => _errorMessage = result.error);

@@ -55,6 +55,7 @@ class ConversationParticipant(models.Model):
     unread_count = models.IntegerField(default=0)
     last_read_at = models.DateTimeField(null=True, blank=True)
     cleared_at = models.DateTimeField(null=True, blank=True)
+    is_hidden = models.BooleanField(default=False)
     is_locked = models.BooleanField(default=False)
 
     class Meta:

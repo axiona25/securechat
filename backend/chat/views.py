@@ -3,12 +3,14 @@ import re
 import subprocess
 import uuid
 import bcrypt
+from asgiref.sync import async_to_sync
+from channels.layers import get_channel_layer
 from datetime import timedelta
 from django.conf import settings
 from django.http import FileResponse, HttpResponse, JsonResponse
 from django.utils import timezone
 from django.db import models
-from django.db.models import Q, Prefetch
+from django.db.models import Q, Prefetch, Count
 from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -45,7 +47,8 @@ class ConversationListView(APIView):
     def get(self, request):
         """List all conversations for current user, ordered by last activity"""
         conversations = Conversation.objects.filter(
-            conversation_participants__user=request.user
+            conversation_participants__user=request.user,
+            conversation_participants__is_hidden=False,
         ).select_related('last_message', 'last_message__sender').prefetch_related(
             'conversation_participants__user',
             'group_info',
@@ -69,6 +72,38 @@ class ConversationListView(APIView):
         """Create a private conversation. Body: {"participants": [user_id], "conv_type": "private"}"""
         participants = request.data.get('participants')
         conv_type = request.data.get('conv_type', 'private')
+
+        # ── GROUP CREATION ──
+        if conv_type == 'group':
+            name = request.data.get('name', '').strip()
+            if not name:
+                return Response({'error': 'Il nome del gruppo è obbligatorio.'}, status=status.HTTP_400_BAD_REQUEST)
+
+            participants = request.data.get('participants', [])
+            if len(participants) < 2:
+                return Response({'error': 'Servono almeno 2 partecipanti.'}, status=status.HTTP_400_BAD_REQUEST)
+
+            from django.contrib.auth import get_user_model
+            User = get_user_model()
+            valid_users = User.objects.filter(id__in=participants)
+            if valid_users.count() != len(participants):
+                return Response({'error': 'Uno o più utenti non esistono.'}, status=status.HTTP_400_BAD_REQUEST)
+
+            conversation = Conversation.objects.create(conv_type='group')
+            from chat.models import Group
+            Group.objects.create(
+                conversation=conversation,
+                name=name,
+                description=request.data.get('description', ''),
+                created_by=request.user,
+            )
+            ConversationParticipant.objects.create(conversation=conversation, user=request.user, role='admin')
+            for user in valid_users:
+                if user.id != request.user.id:
+                    ConversationParticipant.objects.create(conversation=conversation, user=user, role='member')
+
+            serializer = ConversationDetailSerializer(conversation, context={'request': request})
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
 
         if not isinstance(participants, list) or len(participants) != 1:
             return Response(
@@ -95,19 +130,54 @@ class ConversationListView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # Check if conversation already exists
+        # Cerca conversazione privata che ha other_user come partecipante (indipendentemente da is_hidden)
+        other_conv_ids = ConversationParticipant.objects.filter(
+            user_id=other_user_id,
+            conversation__conv_type='private'
+        ).values('conversation_id')
+
+        # Cerca se request.user è partecipante (anche hidden)
         existing = Conversation.objects.filter(
-            conv_type='private',
+            id__in=other_conv_ids,
             conversation_participants__user=request.user
-        ).filter(
-            conversation_participants__user_id=other_user_id
         ).first()
 
         if existing:
+            session_reset = False
+            # Riattiva entrambi i partecipanti se hidden
+            for uid in [request.user.id, other_user_id]:
+                participant, created = ConversationParticipant.objects.get_or_create(
+                    conversation=existing,
+                    user_id=uid,
+                    defaults={'role': 'member', 'cleared_at': timezone.now()}
+                )
+                if not created and participant.is_hidden:
+                    participant.is_hidden = False
+                    participant.cleared_at = timezone.now()
+                    participant.save()
+                    session_reset = True
             serializer = ConversationDetailSerializer(existing, context={'request': request})
-            return Response(serializer.data, status=status.HTTP_200_OK)
+            data = dict(serializer.data)
+            data['session_reset'] = session_reset
+            if session_reset:
+                channel_layer = get_channel_layer()
+                other_participant = ConversationParticipant.objects.filter(
+                    conversation=existing,
+                    is_hidden=False,
+                ).exclude(user=request.user).first()
+                if other_participant:
+                    user_group = f'user_{other_participant.user.id}'
+                    async_to_sync(channel_layer.group_send)(
+                        user_group,
+                        {
+                            'type': 'session.reset',
+                            'conversation_id': str(existing.id),
+                            'reset_user_id': request.user.id,
+                        },
+                    )
+            return Response(data, status=status.HTTP_200_OK)
 
-        # Create new conversation
+        # Nessuna conversazione esistente — crea nuova
         conversation = Conversation.objects.create(conv_type='private')
         ConversationParticipant.objects.create(conversation=conversation, user=request.user, role='member')
         ConversationParticipant.objects.create(conversation=conversation, user_id=other_user_id, role='member')
@@ -129,19 +199,54 @@ class CreatePrivateConversationView(APIView):
             return Response({'error': 'Non puoi chattare con te stesso.'},
                           status=status.HTTP_400_BAD_REQUEST)
 
-        # Check if conversation already exists
+        # Cerca conversazione privata che ha other_user come partecipante (indipendentemente da is_hidden)
+        other_conv_ids = ConversationParticipant.objects.filter(
+            user_id=other_user_id,
+            conversation__conv_type='private'
+        ).values('conversation_id')
+
+        # Cerca se request.user è partecipante (anche hidden)
         existing = Conversation.objects.filter(
-            conv_type='private',
+            id__in=other_conv_ids,
             conversation_participants__user=request.user
-        ).filter(
-            conversation_participants__user_id=other_user_id
         ).first()
 
         if existing:
+            session_reset = False
+            # Riattiva entrambi i partecipanti se hidden
+            for uid in [request.user.id, other_user_id]:
+                participant, created = ConversationParticipant.objects.get_or_create(
+                    conversation=existing,
+                    user_id=uid,
+                    defaults={'role': 'member', 'cleared_at': timezone.now()}
+                )
+                if not created and participant.is_hidden:
+                    participant.is_hidden = False
+                    participant.cleared_at = timezone.now()
+                    participant.save()
+                    session_reset = True
             serializer = ConversationDetailSerializer(existing, context={'request': request})
-            return Response(serializer.data, status=status.HTTP_200_OK)
+            data = dict(serializer.data)
+            data['session_reset'] = session_reset
+            if session_reset:
+                channel_layer = get_channel_layer()
+                other_participant = ConversationParticipant.objects.filter(
+                    conversation=existing,
+                    is_hidden=False,
+                ).exclude(user=request.user).first()
+                if other_participant:
+                    user_group = f'user_{other_participant.user.id}'
+                    async_to_sync(channel_layer.group_send)(
+                        user_group,
+                        {
+                            'type': 'session.reset',
+                            'conversation_id': str(existing.id),
+                            'reset_user_id': request.user.id,
+                        },
+                    )
+            return Response(data, status=status.HTTP_200_OK)
 
-        # Create new conversation
+        # Nessuna conversazione esistente — crea nuova
         conversation = Conversation.objects.create(conv_type='private')
         ConversationParticipant.objects.create(conversation=conversation, user=request.user, role='member')
         ConversationParticipant.objects.create(conversation=conversation, user_id=other_user_id, role='member')
@@ -258,6 +363,26 @@ class MessageListView(APIView):
             unread_count=models.F('unread_count') + 1
         )
 
+        # Non inviare broadcast per messaggi con allegati legacy: sarà l'endpoint di upload a farlo
+        attachment_ids = request.data.get('attachment_ids') or []
+        has_legacy_attachment = not attachment_ids and message_type in ('image', 'video', 'audio', 'voice', 'file')
+
+        if not has_legacy_attachment:
+            try:
+                channel_layer = get_channel_layer()
+                conv_group = f'conv_{conversation_id}'
+                message_data = MessageSerializer(message, context={'request': request}).data
+                payload = {
+                    'type': 'chat.message',
+                    'message': message_data,
+                    'sender_id': request.user.id,
+                }
+                if content_plain:
+                    payload['content'] = content_plain
+                async_to_sync(channel_layer.group_send)(conv_group, payload)
+            except Exception as e:
+                print(f'[MSG-BROADCAST] group_send error: {e}')
+
         serializer = MessageSerializer(message, context={'request': request})
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
@@ -338,7 +463,7 @@ class ConversationClearView(APIView):
 
 
 class ConversationLeaveView(APIView):
-    """Elimina la chat per l'utente corrente (rimuove il partecipante)."""
+    """Elimina la chat per l'utente corrente (nasconde il partecipante)."""
     permission_classes = [IsAuthenticated]
 
     def delete(self, request, conversation_id):
@@ -346,7 +471,36 @@ class ConversationLeaveView(APIView):
             participant = ConversationParticipant.objects.get(
                 conversation_id=conversation_id, user=request.user
             )
-            participant.delete()
+            participant.is_hidden = True
+            participant.cleared_at = timezone.now()
+            participant.save()
+            return Response({'hidden': True}, status=status.HTTP_200_OK)
+        except ConversationParticipant.DoesNotExist:
+            return Response({'error': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
+
+
+class ConversationDeleteForAllView(APIView):
+    """Elimina la conversazione per tutti i partecipanti."""
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request, conversation_id):
+        try:
+            participant = ConversationParticipant.objects.get(
+                conversation_id=conversation_id, user=request.user
+            )
+            # Notifica tutti i partecipanti prima di eliminare
+            channel_layer = get_channel_layer()
+            room_group_name = f'conv_{conversation_id}'
+            async_to_sync(channel_layer.group_send)(
+                room_group_name,
+                {
+                    'type': 'conversation.deleted',
+                    'conversation_id': str(conversation_id),
+                    'deleted_by': request.user.id,
+                }
+            )
+            # Elimina la conversazione
+            participant.conversation.delete()
             return Response({'deleted': True}, status=status.HTTP_200_OK)
         except ConversationParticipant.DoesNotExist:
             return Response({'error': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
@@ -548,6 +702,22 @@ class AttachmentUploadView(APIView):
             height=height,
             duration=duration,
         )
+
+        # Broadcast WebSocket: messaggio ora ha l'allegato, notifica i partecipanti
+        try:
+            message.refresh_from_db()
+            message_data = MessageSerializer(message, context={'request': request}).data
+            channel_layer = get_channel_layer()
+            if channel_layer:
+                conv_group = f'conv_{message.conversation_id}'
+                async_to_sync(channel_layer.group_send)(conv_group, {
+                    'type': 'chat.message',
+                    'message': message_data,
+                    'sender_id': request.user.id,
+                })
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(f'WS broadcast error (upload): {e}')
 
         serializer = AttachmentSerializer(attachment, context={'request': request})
         return Response(serializer.data, status=status.HTTP_201_CREATED)

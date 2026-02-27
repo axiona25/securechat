@@ -3,8 +3,12 @@ import 'package:flutter/services.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/routes/app_router.dart';
+import '../../core/services/api_service.dart';
+import '../../core/services/auth_service.dart';
+import '../../core/services/crypto_service.dart';
 import 'widgets/animated_feature_icon.dart';
 import 'widgets/dashed_line_painter.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -181,9 +185,25 @@ class _SplashScreenState extends State<SplashScreen>
     await Future.delayed(const Duration(milliseconds: 400));
     _shimmerController.repeat();
 
-    // 8. Navigate after total ~3500ms
+    // 8. Navigate after total ~3500ms (o a home se già autenticato)
     await Future.delayed(const Duration(milliseconds: 1000));
-    if (mounted) {
+    if (!mounted) return;
+    if (AuthService().isLoggedIn) {
+      // Utente già autenticato che riapre l'app — inizializza chiavi E2E
+      try {
+        final cryptoService = CryptoService(
+          apiService: ApiService(),
+          secureStorage: const FlutterSecureStorage(),
+        );
+        await cryptoService.initializeKeys();
+        debugPrint('[Splash] E2E keys initialized for returning user');
+      } catch (e) {
+        debugPrint('[Splash] E2E key init error: $e');
+      }
+      if (mounted) {
+        Navigator.of(context).pushReplacementNamed(AppRouter.home);
+      }
+    } else {
       Navigator.of(context).pushReplacementNamed(AppRouter.login);
     }
   }

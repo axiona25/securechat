@@ -221,7 +221,7 @@ class ConversationModel {
     return ConversationModel(
       id: json['id']?.toString() ?? '',
       convType: json['conv_type'] ?? 'private',
-      name: json['name']?.toString(),
+      name: json['name']?.toString() ?? json['group_name']?.toString(),
       participants: participantsList,
       lastMessage: json['last_message'] != null
           ? LastMessage.fromJson(

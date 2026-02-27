@@ -83,6 +83,7 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
             'delivered': self._handle_delivered,
             'edit_message': self._handle_edit_message,
             'delete_message': self._handle_delete_message,
+            'attachment_ready': self._handle_attachment_ready,
             'react': self._handle_reaction,
         }
         
@@ -103,6 +104,7 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
         conversation_id = data.get('conversation_id')
         message_type = data.get('message_type', 'text')
         content_encrypted = data.get('content_encrypted', '')
+        content = data.get('content', '')
         reply_to_id = data.get('reply_to_id')
         attachment_id = data.get('attachment_id')
         encrypted_file_key = data.get('encrypted_file_key', '')
@@ -111,6 +113,7 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
         message_data = await self._save_message(
             conversation_id=conversation_id,
             message_type=message_type,
+            content=content,
             content_encrypted=content_encrypted,
             reply_to_id=reply_to_id,
             attachment_id=attachment_id,
@@ -225,6 +228,35 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
                 'deleted_by': self.user.id,
             })
 
+    async def _handle_attachment_ready(self, data):
+        """Notifica i partecipanti che un allegato è stato caricato"""
+        import json
+        message_id = data.get('message_id', '')
+        conversation_id = data.get('conversation_id', '')
+        if not message_id or not conversation_id:
+            return
+
+        from chat.models import Message
+        from chat.serializers import MessageSerializer
+        try:
+            message = await database_sync_to_async(
+                lambda: Message.objects.select_related('sender', 'conversation').prefetch_related('attachments').get(id=message_id)
+            )()
+
+            def sync_get_message_data():
+                return json.loads(json.dumps(MessageSerializer(message).data, default=str))
+
+            message_data = await database_sync_to_async(sync_get_message_data)()
+
+            conv_group = f'conv_{conversation_id}'
+            await self.channel_layer.group_send(conv_group, {
+                'type': 'chat.message',
+                'message': message_data,
+                'sender_id': self.user.id,
+            })
+        except Exception as e:
+            print(f'[CONSUMER] attachment_ready error: {e}')
+
     async def _handle_reaction(self, data):
         """Add or remove a reaction"""
         message_id = data.get('message_id')
@@ -304,6 +336,22 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
             'action': event['action'],
         })
 
+    async def conversation_deleted(self, event):
+        """Notifica il client che la conversazione è stata eliminata."""
+        await self.send_json({
+            'type': 'conversation.deleted',
+            'conversation_id': event['conversation_id'],
+            'deleted_by': event['deleted_by'],
+        })
+
+    async def session_reset(self, event):
+        """Notifica il client di resettare la sessione E2E con l'utente indicato."""
+        await self.send_json({
+            'type': 'session.reset',
+            'conversation_id': event['conversation_id'],
+            'reset_user_id': event['reset_user_id'],
+        })
+
     # ── DATABASE OPERATIONS ──
 
     @database_sync_to_async
@@ -381,6 +429,7 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
         attachment_id=None,
         encrypted_file_key='',
         encrypted_file_keys=None,
+        content='',
     ):
         """Save a message to the database. Link E2EE attachment if attachment_id provided."""
         from .models import Conversation, Message, MessageStatus, ConversationParticipant, Attachment
@@ -417,6 +466,7 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
                 sender=self.user,
                 message_type=message_type,
                 content_encrypted=encrypted_bytes,
+                content_for_translation=content or '',
                 reply_to_id=reply_to_id,
             )
 
@@ -450,6 +500,7 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
                 'sender_avatar': self.user.avatar.url if self.user.avatar else None,
                 'message_type': message_type,
                 'content_encrypted': content_encrypted,
+                'content': content,
                 'reply_to_id': str(reply_to_id) if reply_to_id else None,
                 'is_forwarded': False,
                 'created_at': message.created_at.isoformat(),

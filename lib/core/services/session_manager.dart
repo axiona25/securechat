@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -12,7 +13,11 @@ import 'crypto_service.dart';
 
 /// Manages E2E encryption sessions between users.
 /// Each pair of users has one session (identified by the other user's ID).
+/// Singleton so that deleteSession (e.g. on session reset) clears the same in-memory
+/// state used by ChatDetailScreen for encrypt/decrypt.
 class SessionManager {
+  static SessionManager? _instance;
+
   static const String _sessionPrefix = 'scp_session_';
   static const String _cachePrefix = 'scp_msg_cache_';
   static const String _failedPrefix = 'e2e_failed_';
@@ -29,7 +34,20 @@ class SessionManager {
   /// Log Cache MISS only once per messageId to avoid console flooding.
   final Set<String> _loggedCacheMisses = {};
 
-  SessionManager({
+  factory SessionManager({
+    ApiService? apiService,
+    CryptoService? cryptoService,
+    FlutterSecureStorage? secureStorage,
+  }) {
+    _instance ??= SessionManager._internal(
+      apiService: apiService ?? ApiService(),
+      cryptoService: cryptoService ?? CryptoService(apiService: apiService ?? ApiService()),
+      secureStorage: secureStorage,
+    );
+    return _instance!;
+  }
+
+  SessionManager._internal({
     required ApiService apiService,
     required CryptoService cryptoService,
     FlutterSecureStorage? secureStorage,
@@ -181,6 +199,7 @@ class SessionManager {
   /// Encrypt a plaintext message for a specific user.
   /// Returns the complete wire-format payload (ready to base64-encode and send).
   Future<Uint8List> encryptMessage(int otherUserId, String plaintext) async {
+    debugPrint('[SessionManager] encrypt called, instance hashCode: ${hashCode}');
     final session = await _getOrCreateSession(otherUserId);
     final plaintextBytes = Uint8List.fromList(utf8.encode(plaintext));
     final encrypted = session.encrypt(plaintextBytes);
@@ -200,7 +219,12 @@ class SessionManager {
 
   /// Decrypt a received message from a specific user.
   /// [combinedPayload] is the full wire format: [2B headerLen][header][nonce+ciphertext].
-  Future<String> decryptMessage(int senderUserId, Uint8List combinedPayload) async {
+  /// [messageId] optional: if provided and decrypt fails, message is marked as irrecuperable (no session rollback).
+  Future<String> decryptMessage(
+    int senderUserId,
+    Uint8List combinedPayload, {
+    String? messageId,
+  }) async {
     if (combinedPayload.length < 3) {
       throw Exception('Message too short');
     }
@@ -217,10 +241,16 @@ class SessionManager {
 
     final parsedHeader = _DoubleRatchetSession.parseHeader(header);
     final isInitial = parsedHeader['isInitial'] as bool;
+    final isInitialMessage = headerLen >= 100 || isInitial;
 
     _DoubleRatchetSession session;
 
-    if (_sessions.containsKey(senderUserId)) {
+    // Un messaggio iniziale (X3DH) sovrascrive sempre la sessione esistente (session reset).
+    if (isInitialMessage) {
+      debugPrint('[SessionManager] Creating receiver session from initial message (overwriting if any)');
+      session = await _createReceiverSession(senderUserId, parsedHeader);
+      _sessions[senderUserId] = session;
+    } else if (_sessions.containsKey(senderUserId)) {
       session = _sessions[senderUserId]!;
       debugPrint('[SessionManager] Using existing session for user $senderUserId');
     } else {
@@ -247,9 +277,6 @@ class SessionManager {
       }
     }
 
-    // Backup state from storage before decrypt — on failure we rollback to avoid ratchet corruption
-    final backupJson = await _secureStorage.read(key: '$_sessionPrefix$senderUserId');
-
     try {
       final plaintext = session.decrypt(encryptedPayload, header);
       await _saveSession(senderUserId, session);
@@ -259,13 +286,8 @@ class SessionManager {
       );
       return result;
     } catch (e) {
-      if (backupJson != null) {
-        try {
-          _sessions[senderUserId] =
-              _DoubleRatchetSession.fromJson(jsonDecode(backupJson) as Map<String, dynamic>);
-          debugPrint('[SessionManager] Rolled back session for user $senderUserId after decrypt failure');
-        } catch (_) {}
-      }
+      if (messageId != null) await markDecryptFailed(messageId);
+      debugPrint('[SessionManager] Decrypt failed for $messageId: $e');
       rethrow;
     }
   }
@@ -318,8 +340,14 @@ class SessionManager {
       final dh3 = _x25519DH(mySignedPreKeyPrivate, senderEphemeralPub);
       debugPrint('[X3DH-RX] DH3 done');
 
+      final int? otpKeyId = parsedHeader['otpKeyId'] as int?;
       Uint8List dhConcat;
-      final myOtpPrivate = await _cryptoService.getFirstAvailableOneTimePreKeyPrivate();
+      Uint8List? myOtpPrivate;
+      if (otpKeyId != null) {
+        myOtpPrivate = await _cryptoService.getOneTimePreKeyPrivate(otpKeyId);
+      } else {
+        myOtpPrivate = await _cryptoService.getFirstAvailableOneTimePreKeyPrivate();
+      }
       if (myOtpPrivate != null) {
         final dh4 = _x25519DH(myOtpPrivate, senderEphemeralPub);
         dhConcat = Uint8List.fromList([...dh1, ...dh2, ...dh3, ...dh4]);
@@ -345,6 +373,9 @@ class SessionManager {
       );
       session.doDhRatchetStep(senderDhPublic);
       await _saveSession(senderUserId, session);
+      if (otpKeyId != null) {
+        await _cryptoService.deleteOneTimePreKey(otpKeyId);
+      }
       debugPrint('[SessionManager] Receiver session created and saved for sender $senderUserId');
       return session;
     } catch (e) {
@@ -357,6 +388,14 @@ class SessionManager {
     if (_sessions.containsKey(otherUserId)) return true;
     final stored = await _secureStorage.read(key: '$_sessionPrefix$otherUserId');
     return stored != null;
+  }
+
+  /// Remove the E2E session for one user (e.g. after chat re-open from hidden).
+  Future<void> deleteSession(int otherUserId) async {
+    debugPrint('[SessionManager] deleteSession called, instance hashCode: ${hashCode}');
+    _sessions.remove(otherUserId);
+    await _secureStorage.delete(key: '$_sessionPrefix$otherUserId');
+    debugPrint('[SessionManager] Session deleted for user $otherUserId');
   }
 
   Future<void> clearAllSessions() async {
@@ -394,6 +433,10 @@ class SessionManager {
     final otherOneTimePreKey = bundleResponse['one_time_prekey'] != null
         ? Uint8List.fromList(base64Decode(bundleResponse['one_time_prekey'] as String))
         : null;
+    final otpKeyIdRaw = bundleResponse['one_time_prekey_id'];
+    final int? otpKeyId = otpKeyIdRaw is int
+        ? otpKeyIdRaw
+        : (otpKeyIdRaw != null ? int.tryParse(otpKeyIdRaw.toString()) : null);
 
     try {
       final verifyKey = VerifyKey(otherIdentityKeyPub);
@@ -453,6 +496,7 @@ class SessionManager {
       remotePublicKey: otherSignedPreKeyPub,
       ephemeralPublicKey: Uint8List.fromList(ephemeralPublic.asTypedList),
       identityDhPublicKey: myIdentityDhPublic,
+      otpKeyId: otpKeyId,
     );
     debugPrint('[SessionManager] Double Ratchet initialized as sender');
     return session;
@@ -528,6 +572,7 @@ class _DoubleRatchetSession {
   Uint8List? remoteDhPublicKey;
   Uint8List? ephemeralPublicKey;
   Uint8List? identityDhPublicKey;
+  int? _otpKeyId;
   bool isInitialMessage = true;
   final Map<String, Uint8List> _skippedMessageKeys = {};
   static const int maxSkip = 100;
@@ -541,13 +586,15 @@ class _DoubleRatchetSession {
     this.remoteDhPublicKey,
     this.ephemeralPublicKey,
     this.identityDhPublicKey,
-  });
+    int? otpKeyId,
+  }) : _otpKeyId = otpKeyId;
 
   factory _DoubleRatchetSession.initSender({
     required Uint8List sharedSecret,
     required Uint8List remotePublicKey,
     required Uint8List ephemeralPublicKey,
     required Uint8List identityDhPublicKey,
+    int? otpKeyId,
   }) {
     final newDh = PrivateKey.generate();
     final newDhPrivate = Uint8List.fromList(newDh.asTypedList);
@@ -565,6 +612,7 @@ class _DoubleRatchetSession {
       remoteDhPublicKey: remotePublicKey,
       ephemeralPublicKey: ephemeralPublicKey,
       identityDhPublicKey: identityDhPublicKey,
+      otpKeyId: otpKeyId,
     );
   }
 
@@ -614,6 +662,7 @@ class _DoubleRatchetSession {
       isInitial: isInitialMessage,
       ephemeralPublicKey: isInitialMessage ? ephemeralPublicKey : null,
       identityDhPublicKey: isInitialMessage ? identityDhPublicKey : null,
+      otpKeyId: isInitialMessage ? _otpKeyId : null,
     );
     if (isInitialMessage) {
       isInitialMessage = false;
@@ -683,8 +732,9 @@ class _DoubleRatchetSession {
     bool isInitial = false,
     Uint8List? ephemeralPublicKey,
     Uint8List? identityDhPublicKey,
+    int? otpKeyId,
   }) {
-    final flags = isInitial ? 0x01 : 0x00;
+    final flags = (isInitial && ephemeralPublicKey != null) ? 0x01 : 0x00;
     final msgNumBytes = ByteData(4)..setUint32(0, messageNumber);
     final parts = <int>[
       flags,
@@ -694,6 +744,10 @@ class _DoubleRatchetSession {
     if (isInitial && ephemeralPublicKey != null && identityDhPublicKey != null) {
       parts.addAll(ephemeralPublicKey);
       parts.addAll(identityDhPublicKey);
+    }
+    if (isInitial && otpKeyId != null) {
+      final otpIdBytes = ByteData(4)..setUint32(0, otpKeyId, Endian.big);
+      parts.addAll(otpIdBytes.buffer.asUint8List());
     }
     return Uint8List.fromList(parts);
   }
@@ -705,9 +759,13 @@ class _DoubleRatchetSession {
     final dhPublic = header.sublist(5, 37);
     List<int>? ephemeralPublic;
     List<int>? identityDhPublic;
+    int? otpKeyId;
     if (isInitial && header.length >= 101) {
       ephemeralPublic = header.sublist(37, 69);
       identityDhPublic = header.sublist(69, 101);
+    }
+    if (isInitial && header.length >= 105) {
+      otpKeyId = ByteData.sublistView(header, 101, 105).getUint32(0, Endian.big);
     }
     return {
       'isInitial': isInitial,
@@ -715,6 +773,7 @@ class _DoubleRatchetSession {
       'dhPublic': dhPublic,
       'ephemeralPublic': ephemeralPublic,
       'identityDhPublic': identityDhPublic,
+      'otpKeyId': otpKeyId,
     };
   }
 

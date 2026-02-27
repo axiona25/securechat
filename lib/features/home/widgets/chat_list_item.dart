@@ -269,65 +269,66 @@ class ChatListItem extends StatelessWidget {
   }
 
   Widget _buildGroupAvatar() {
-    final avatars = conversation.groupAvatars;
-    return SizedBox(
-      width: 54,
-      height: 54,
-      child: Stack(
-        children: [
-          Positioned(
-            left: 0,
-            top: 0,
-            child: _buildMiniAvatar(
-              avatars.length > 1 ? avatars[1] : null,
-              size: 36,
+    final groupName = conversation.displayNameFor(currentUserId);
+    final groupAvatar = conversation.groupAvatars.isNotEmpty ? conversation.groupAvatars.first : null;
+    final participantCount = conversation.participants.length;
+
+    final parts = groupName.trim().split(RegExp(r'\s+'));
+    String initials;
+    if (parts.length >= 2) {
+      initials = '${parts[0][0]}${parts[1][0]}'.toUpperCase();
+    } else if (groupName.length >= 2) {
+      initials = groupName.substring(0, 2).toUpperCase();
+    } else {
+      initials = groupName.toUpperCase();
+    }
+
+    return CustomPaint(
+      painter: _SegmentedBorderPainter(
+        segmentCount: participantCount,
+        strokeWidth: 2.0,
+      ),
+      child: Container(
+        width: 54,
+        height: 54,
+        padding: const EdgeInsets.all(3.5),
+        child: ClipOval(
+          child: Container(
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: groupAvatar == null
+                  ? const LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        Color(0xFFB0E0D4), // teal200
+                        Color(0xFF8DD4C6), // teal300
+                        Color(0xFF6EC8B8), // teal400
+                      ],
+                    )
+                  : null,
+              image: groupAvatar != null
+                  ? DecorationImage(
+                      image: NetworkImage(groupAvatar),
+                      fit: BoxFit.cover,
+                    )
+                  : null,
             ),
-          ),
-          Positioned(
-            right: 0,
-            bottom: 0,
-            child: Container(
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                border: Border.all(
-                  color: AppColors.surface,
-                  width: 2,
-                ),
-              ),
-              child: _buildMiniAvatar(
-                avatars.isNotEmpty ? avatars[0] : null,
-                size: 36,
-              ),
-            ),
-          ),
-          if (conversation.participants.length > 2)
-            Positioned(
-              right: 0,
-              top: 0,
-              child: Container(
-                width: 20,
-                height: 20,
-                decoration: BoxDecoration(
-                  color: AppColors.teal100,
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: AppColors.surface,
-                    width: 1.5,
-                  ),
-                ),
-                child: Center(
-                  child: Text(
-                    '+${conversation.participants.length - 2}',
-                    style: const TextStyle(
-                      fontSize: 8,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.primary,
+            child: groupAvatar == null
+                ? Center(
+                    child: Text(
+                      initials,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 17,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.5,
+                      ),
                     ),
-                  ),
-                ),
-              ),
-            ),
-        ],
+                  )
+                : null,
+          ),
+        ),
       ),
     );
   }
@@ -381,5 +382,64 @@ class ChatListItem extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+class _SegmentedBorderPainter extends CustomPainter {
+  final int segmentCount;
+  final double strokeWidth;
+
+  static const List<Color> _palette = [
+    AppColors.teal500,
+    AppColors.blue500,
+    AppColors.green600,
+    AppColors.navy700,
+    AppColors.teal300,
+    AppColors.blue300,
+    AppColors.green400,
+    AppColors.teal700,
+    AppColors.blue700,
+    AppColors.navy600,
+  ];
+
+  _SegmentedBorderPainter({
+    required this.segmentCount,
+    this.strokeWidth = 2.0,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (segmentCount <= 0) return;
+
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = (size.width - strokeWidth) / 2;
+    const double pi = 3.14159265358979;
+    const gapAngle = 0.08;
+    final totalGap = gapAngle * segmentCount;
+    final sweepAngle = (2 * pi - totalGap) / segmentCount;
+    final startOffset = -pi / 2;
+
+    for (int i = 0; i < segmentCount; i++) {
+      final paint = Paint()
+        ..color = _palette[i % _palette.length]
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = strokeWidth
+        ..strokeCap = StrokeCap.round;
+
+      final start = startOffset + i * (sweepAngle + gapAngle);
+      canvas.drawArc(
+        Rect.fromCircle(center: center, radius: radius),
+        start,
+        sweepAngle,
+        false,
+        paint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _SegmentedBorderPainter oldDelegate) {
+    return oldDelegate.segmentCount != segmentCount ||
+        oldDelegate.strokeWidth != strokeWidth;
   }
 }

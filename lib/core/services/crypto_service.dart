@@ -54,6 +54,7 @@ class CryptoService {
   /// Generate complete key bundle and store private keys securely.
   /// Call this once at registration or first login.
   Future<Map<String, dynamic>> generateAndStoreKeyBundle() async {
+    debugPrint('[CryptoService] generateAndStoreKeyBundle START');
     // 1. Generate Ed25519 identity keypair (for signing)
     final signingKey = SigningKey.generate();
     final identityPrivate = Uint8List.fromList(signingKey.seed.asTypedList);
@@ -140,6 +141,7 @@ class CryptoService {
 
     await _secureStorage.write(key: _keysGenerated, value: 'true');
 
+    debugPrint('[CryptoService] generateAndStoreKeyBundle SUCCESS');
     // 7. Return public bundle for upload
     return {
       'crypto_version': cryptoVersion,
@@ -160,22 +162,19 @@ class CryptoService {
   /// Call after generateAndStoreKeyBundle().
   Future<bool> uploadKeyBundle(Map<String, dynamic> publicBundle) async {
     try {
-      print('[CryptoService] Upload payload keys: ${publicBundle.keys.toList()}');
-      print('[CryptoService] identity_key_public is null: ${publicBundle['identity_key_public'] == null}');
-      final _ik = publicBundle['identity_key_public']?.toString();
-      print('[CryptoService] identity_key_public value: ${_ik != null && _ik.length > 20 ? '${_ik.substring(0, 20)}...' : _ik}');
+      debugPrint('[CryptoService] uploadKeyBundle START - keys: ${publicBundle.keys.toList()}');
       await _apiService.post(
         '/encryption/keys/upload/',
         body: publicBundle,
       );
       await _secureStorage.write(key: _keysUploaded, value: 'true');
-      debugPrint('[CryptoService] Key bundle uploaded successfully');
+      debugPrint('[CryptoService] uploadKeyBundle SUCCESS');
       return true;
     } on ApiException catch (e) {
-      debugPrint('[CryptoService] Key upload failed: ${e.statusCode} - ${e.message} ${e.errors}');
+      debugPrint('[CryptoService] uploadKeyBundle FAILED: $e');
       return false;
     } catch (e) {
-      debugPrint('[CryptoService] Key upload error: $e');
+      debugPrint('[CryptoService] uploadKeyBundle FAILED: $e');
       return false;
     }
   }
@@ -183,14 +182,25 @@ class CryptoService {
   /// Generate keys and upload in one step.
   Future<bool> initializeKeys() async {
     try {
+      // Prima verifica sempre il server
+      final serverHasKeys = await _verifyKeysOnServer();
+      debugPrint('[CryptoService] serverHasKeys: $serverHasKeys');
+
+      if (!serverHasKeys) {
+        // Server non ha le chiavi — resetta i flag locali e forza re-upload
+        debugPrint('[CryptoService] Server missing keys, clearing local flags...');
+        await _secureStorage.delete(key: _keysUploaded);
+        await _secureStorage.delete(key: _keysGenerated);
+      }
+
       final alreadyGenerated = await _secureStorage.read(key: _keysGenerated);
       final alreadyUploaded = await _secureStorage.read(key: _keysUploaded);
-
-      // Verify keys actually exist (not just flags)
       final hasPrivateKey = await _secureStorage.read(key: _identityPrivateKey) != null;
 
+      debugPrint('[CryptoService] alreadyGenerated: $alreadyGenerated, alreadyUploaded: $alreadyUploaded, hasPrivateKey: $hasPrivateKey');
+
       if (alreadyGenerated == 'true' && alreadyUploaded == 'true' && hasPrivateKey) {
-        debugPrint('[CryptoService] Keys already initialized');
+        debugPrint('[CryptoService] Keys already initialized and verified on server');
         _initialized = true;
         return true;
       }
@@ -200,6 +210,7 @@ class CryptoService {
         debugPrint('[CryptoService] Generating new key bundle...');
         publicBundle = await generateAndStoreKeyBundle();
       } else {
+        debugPrint('[CryptoService] Rebuilding public bundle...');
         publicBundle = await _rebuildPublicBundle();
       }
 
@@ -207,6 +218,19 @@ class CryptoService {
       return await uploadKeyBundle(publicBundle);
     } catch (e) {
       debugPrint('[CryptoService] initializeKeys error: $e');
+      return false;
+    }
+  }
+
+  Future<bool> _verifyKeysOnServer() async {
+    try {
+      final data = await _apiService.get('/encryption/keys/count/');
+      final hasBundle = data['has_key_bundle'] == true;
+      final preKeyCount = data['available_prekeys'] ?? 0;
+      debugPrint('[CryptoService] serverHasKeys: hasBundle=$hasBundle, prekeys=$preKeyCount');
+      return hasBundle;
+    } catch (e) {
+      debugPrint('[CryptoService] _verifyKeysOnServer error: $e');
       return false;
     }
   }
@@ -259,13 +283,17 @@ class CryptoService {
   }
 
   /// Get the first available one-time prekey private key (for receiver X3DH).
-  /// Returns null if none stored. Used when decrypting first message — server may have assigned any OTP.
+  /// Consumes the key: reads it and deletes it from storage (forward secrecy).
+  /// Returns null if none stored. Used when decrypting first message without otpKeyId in header.
   Future<Uint8List?> getFirstAvailableOneTimePreKeyPrivate() async {
     final countStr = await _secureStorage.read(key: _otpkCount);
     final count = int.tryParse(countStr ?? '0') ?? 0;
     for (int i = 0; i < count && i < 100; i++) {
       final b64 = await _secureStorage.read(key: '$_otpkPrefix${i}_private');
-      if (b64 != null) return base64Decode(b64);
+      if (b64 != null) {
+        await deleteOneTimePreKey(i);
+        return base64Decode(b64);
+      }
     }
     return null;
   }
