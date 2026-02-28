@@ -53,6 +53,7 @@ class _GroupInfoScreenState extends State<GroupInfoScreen> {
       if (response != null && mounted) {
         debugPrint('[GROUP-INFO] Response: $response');
         debugPrint('[GROUP-INFO] Participants info count: ${(response['participants_info'] as List?)?.length ?? 0}');
+        debugPrint('[GROUP-INFO] group_avatar: ${response['group_avatar']}');
         final prefs = await SharedPreferences.getInstance();
         // Recupera current user id dalle prefs (potrebbe essere salvato come int o String)
         final rawUserId = prefs.get('user_id') ?? prefs.get('userId') ?? prefs.get('current_user_id');
@@ -76,11 +77,20 @@ class _GroupInfoScreenState extends State<GroupInfoScreen> {
             'last_name': user['last_name'] ?? '',
             'username': user['username'] ?? '',
             'email': user['email'] ?? '',
-            'avatar': user['profile_picture'] ?? user['avatar'] ?? user['avatar_url'],
+            'avatar': _toAbsoluteUrl(user['profile_picture']?.toString() ?? user['avatar']?.toString() ?? user['avatar_url']?.toString()),
             'role': pMap['role'] ?? 'member',
             'is_online': user['is_online'] ?? false,
           };
         }).toList();
+
+        final blockedIds = <int>{};
+        for (final p in participantsRaw) {
+          if (p is Map && p['is_blocked'] == true) {
+            final user = p['user'];
+            final uid = user is Map ? (user['id'] is int ? user['id'] as int : int.tryParse(user['id']?.toString() ?? '')) : null;
+            if (uid != null) blockedIds.add(uid);
+          }
+        }
 
         final myRole = participants
             .where((p) => p['user_id'] == _currentUserId || p['id'] == _currentUserId)
@@ -111,6 +121,8 @@ class _GroupInfoScreenState extends State<GroupInfoScreen> {
           _groupDescription = response['group_description']?.toString() ?? response['description']?.toString() ?? '';
           final avatarRaw = response['group_avatar']?.toString() ?? response['avatar']?.toString();
           _groupAvatar = (avatarRaw != null && avatarRaw != 'null' && avatarRaw.isNotEmpty) ? avatarRaw : null;
+          _blockedUserIds.clear();
+          _blockedUserIds.addAll(blockedIds);
           _loading = false;
         });
       }
@@ -258,7 +270,7 @@ class _GroupInfoScreenState extends State<GroupInfoScreen> {
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: Text(isBlocked ? 'Sblocca utente' : 'Blocca utente', style: const TextStyle(fontWeight: FontWeight.w700)),
-        content: Text(isBlocked ? 'Vuoi sbloccare questo utente?' : 'Vuoi bloccare questo utente? Non potrà inviarti messaggi.'),
+        content: Text(isBlocked ? 'Vuoi sbloccare questo utente?' : 'Vuoi bloccare questo utente? Non potrà inviare messaggi nel gruppo.'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Annulla')),
           ElevatedButton(
@@ -270,20 +282,31 @@ class _GroupInfoScreenState extends State<GroupInfoScreen> {
       ),
     );
     if (confirm != true) return;
-    setState(() {
-      if (isBlocked) {
-        _blockedUserIds.remove(userId);
-      } else {
-        _blockedUserIds.add(userId);
-      }
-    });
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(isBlocked ? 'Utente sbloccato' : 'Utente bloccato'),
-          backgroundColor: isBlocked ? _teal : Colors.orange,
-        ),
+    try {
+      await ApiService().put(
+        '/chat/conversations/${widget.conversationId}/participants/$userId/',
+        body: {'action': isBlocked ? 'unblock' : 'block'},
       );
+      setState(() {
+        if (isBlocked) _blockedUserIds.remove(userId);
+        else _blockedUserIds.add(userId);
+      });
+      widget.onGroupUpdated?.call();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(isBlocked ? 'Utente sbloccato' : 'Utente bloccato'),
+            backgroundColor: isBlocked ? _teal : Colors.orange,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Block participant error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Errore: $e'), backgroundColor: Colors.red),
+        );
+      }
     }
   }
 
@@ -354,8 +377,6 @@ class _GroupInfoScreenState extends State<GroupInfoScreen> {
     switch (role) {
       case 'admin':
         return 'Admin';
-      case 'moderator':
-        return 'Moderatore';
       default:
         return 'Membro';
     }
@@ -365,8 +386,6 @@ class _GroupInfoScreenState extends State<GroupInfoScreen> {
     switch (role) {
       case 'admin':
         return _teal;
-      case 'moderator':
-        return Colors.orange;
       default:
         return _subtitleGray;
     }
@@ -383,6 +402,15 @@ class _GroupInfoScreenState extends State<GroupInfoScreen> {
   String _displayName(Map<String, dynamic> p) {
     final name = '${p['first_name'] ?? ''} ${p['last_name'] ?? ''}'.trim();
     return name.isNotEmpty ? name : p['username']?.toString() ?? p['email']?.toString() ?? '?';
+  }
+
+  static String? _toAbsoluteUrl(String? url) {
+    if (url == null || url.isEmpty || url == 'null') return null;
+    if (url.startsWith('http')) return url;
+    final baseUrl = AppConstants.baseUrl;
+    final uri = Uri.parse(baseUrl);
+    final domainOnly = '${uri.scheme}://${uri.host}${uri.port != 80 && uri.port != 443 ? ':${uri.port}' : ''}';
+    return '$domainOnly$url';
   }
 
   @override
@@ -552,8 +580,12 @@ class _GroupInfoScreenState extends State<GroupInfoScreen> {
                               ],
                             ),
                             subtitle: Text(p['email']?.toString() ?? '', style: const TextStyle(fontSize: 12, color: _subtitleGray)),
-                            trailing: !isMe
-                                ? PopupMenuButton<String>(
+                            trailing: !isMe && userId != _creatorUserId
+                                ? Theme(
+                                    data: Theme.of(context).copyWith(
+                                      dividerTheme: const DividerThemeData(color: Color(0xFFEEEEEE), thickness: 0.5),
+                                    ),
+                                    child: PopupMenuButton<String>(
                                     icon: const Icon(Icons.more_vert, color: _subtitleGray, size: 22),
                                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                                     onSelected: (value) {
@@ -597,7 +629,7 @@ class _GroupInfoScreenState extends State<GroupInfoScreen> {
                                         ),
                                       ),
                                       if (_isAdmin) ...[
-                                        const PopupMenuDivider(),
+                                        const PopupMenuDivider(height: 0.5),
                                         if (role != 'admin')
                                           const PopupMenuItem(
                                             value: 'admin',
@@ -606,17 +638,6 @@ class _GroupInfoScreenState extends State<GroupInfoScreen> {
                                                 Icon(Icons.shield_rounded, color: Color(0xFF2ABFBF), size: 20),
                                                 SizedBox(width: 12),
                                                 Text('Promuovi ad Admin'),
-                                              ],
-                                            ),
-                                          ),
-                                        if (role != 'moderator')
-                                          const PopupMenuItem(
-                                            value: 'moderator',
-                                            child: Row(
-                                              children: [
-                                                Icon(Icons.security_rounded, color: Color(0xFFFF9800), size: 20),
-                                                SizedBox(width: 12),
-                                                Text('Rendi Moderatore'),
                                               ],
                                             ),
                                           ),
@@ -631,7 +652,7 @@ class _GroupInfoScreenState extends State<GroupInfoScreen> {
                                               ],
                                             ),
                                           ),
-                                        const PopupMenuDivider(),
+                                        const PopupMenuDivider(height: 0.5),
                                         if (uid != _creatorUserId)
                                           const PopupMenuItem(
                                             value: 'remove',
@@ -645,7 +666,8 @@ class _GroupInfoScreenState extends State<GroupInfoScreen> {
                                           ),
                                       ],
                                     ],
-                                  )
+                                  ),
+                                )
                                 : null,
                               ),
                               const Divider(height: 1, thickness: 0.5, indent: 72, endIndent: 16, color: Color(0xFFEEEEEE)),

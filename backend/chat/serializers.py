@@ -134,7 +134,7 @@ class ParticipantSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ConversationParticipant
-        fields = ['user', 'role', 'joined_at', 'muted_until', 'is_pinned', 'unread_count']
+        fields = ['user', 'role', 'joined_at', 'muted_until', 'is_pinned', 'unread_count', 'is_blocked']
 
 
 class ConversationListSerializer(serializers.ModelSerializer):
@@ -228,14 +228,17 @@ class ConversationListSerializer(serializers.ModelSerializer):
         return None
 
     def get_group_avatar(self, obj):
-        if obj.conv_type == 'group':
-            group = getattr(obj, 'group_info', None)
+        try:
+            group = obj.group_info
             if group and group.avatar:
                 request = self.context.get('request')
                 if request:
                     return request.build_absolute_uri(group.avatar.url)
+                # Fallback: restituisci URL con dominio hardcoded o solo il path
                 return group.avatar.url
-        return None
+            return None
+        except Exception:
+            return None
 
 
 class ConversationDetailSerializer(ConversationListSerializer):

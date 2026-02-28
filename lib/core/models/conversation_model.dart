@@ -1,3 +1,5 @@
+import '../constants/app_constants.dart';
+
 class LastMessage {
   final String? id;
   String? content;
@@ -58,6 +60,7 @@ class ConversationModel {
   final String id;
   final String convType;
   final String? name;
+  final String? groupAvatarUrl;
   final List<ConversationParticipant> participants;
   final LastMessage? lastMessage;
   final int unreadCount;
@@ -70,6 +73,7 @@ class ConversationModel {
     required this.id,
     required this.convType,
     this.name,
+    this.groupAvatarUrl,
     this.participants = const [],
     this.lastMessage,
     this.unreadCount = 0,
@@ -138,6 +142,10 @@ class ConversationModel {
 
   List<String?> get groupAvatars {
     if (isGroup) {
+      // Se c'è un avatar dedicato del gruppo, usalo come primo
+      if (groupAvatarUrl != null && groupAvatarUrl!.isNotEmpty && groupAvatarUrl != 'null') {
+        return [groupAvatarUrl];
+      }
       return participants.take(3).map((p) => p.avatar).toList();
     }
     return [];
@@ -152,6 +160,11 @@ class ConversationModel {
     final type = lastMessage!.messageType ?? '';
     final isMe = currentUserId != null && lastMessage!.senderId == currentUserId;
     final prefix = isMe ? 'Tu: ' : '';
+
+    // Preview uniforme per messaggi E2E: stesso testo su tutti i device
+    if (content.contains('🔒') || content.contains('Messaggio cifrato')) {
+      return '$prefix🔒 Messaggio cifrato';
+    }
 
     if (lastMessage!.hasEncryptedAttachment) {
       return '$prefix📎 Allegato cifrato';
@@ -210,6 +223,16 @@ class ConversationModel {
     return '${msgTime.day.toString().padLeft(2, '0')}/${msgTime.month.toString().padLeft(2, '0')}';
   }
 
+  static String? toAbsoluteUrl(String? url) {
+    if (url == null || url.isEmpty || url == 'null') return null;
+    if (url.startsWith('http')) return url;
+    // Usa solo il dominio (senza /api) per path come /media/
+    final baseUrl = AppConstants.baseUrl;
+    final uri = Uri.parse(baseUrl);
+    final domainOnly = '${uri.scheme}://${uri.host}${uri.port != 80 && uri.port != 443 ? ':${uri.port}' : ''}';
+    return '$domainOnly$url';
+  }
+
   factory ConversationModel.fromJson(Map<String, dynamic> json) {
     // Backend usa participants_info (lista con { user, role, unread_count }), fallback a participants
     final rawList = json['participants_info'] as List<dynamic>? ?? json['participants'] as List<dynamic>?;
@@ -222,6 +245,7 @@ class ConversationModel {
       id: json['id']?.toString() ?? '',
       convType: json['conv_type'] ?? 'private',
       name: json['name']?.toString() ?? json['group_name']?.toString(),
+      groupAvatarUrl: toAbsoluteUrl(json['group_avatar']?.toString()),
       participants: participantsList,
       lastMessage: json['last_message'] != null
           ? LastMessage.fromJson(
@@ -270,7 +294,7 @@ class ConversationParticipant {
       userId: user['id'] ?? 0,
       username: username,
       displayName: display,
-      avatar: user['avatar']?.toString(),
+      avatar: ConversationModel.toAbsoluteUrl(user['avatar']?.toString()),
       isOnline: user['is_online'] ?? false,
     );
   }

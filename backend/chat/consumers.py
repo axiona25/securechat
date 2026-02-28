@@ -388,6 +388,8 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
     @database_sync_to_async
     def _set_online(self, is_online):
         """Update user online status"""
+        from django.utils import timezone
+        self.user.refresh_from_db()
         self.user.is_online = is_online
         self.user.last_seen = timezone.now()
         self.user.save(update_fields=['is_online', 'last_seen'])

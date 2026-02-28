@@ -1,3 +1,5 @@
+import '../constants/app_constants.dart';
+
 class UserModel {
   final int id;
   final String username;
@@ -30,6 +32,15 @@ class UserModel {
     return username;
   }
 
+  static String? _toAbsoluteUrl(String? url) {
+    if (url == null || url.isEmpty || url == 'null') return null;
+    if (url.startsWith('http')) return url;
+    final baseUrl = AppConstants.baseUrl;
+    final uri = Uri.parse(baseUrl);
+    final domainOnly = '${uri.scheme}://${uri.host}${uri.port != 80 && uri.port != 443 ? ':${uri.port}' : ''}';
+    return '$domainOnly$url';
+  }
+
   String get initials {
     final name = displayName;
     final parts = name.split(' ');
@@ -48,7 +59,7 @@ class UserModel {
       email: json['email'] ?? '',
       firstName: json['first_name'] ?? '',
       lastName: json['last_name'] ?? '',
-      avatar: json['avatar'],
+      avatar: _toAbsoluteUrl(json['avatar']?.toString()),
       phoneNumber: json['phone_number'],
       isOnline: json['is_online'] ?? false,
       lastSeen: json['last_seen'] != null

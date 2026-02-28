@@ -1,4 +1,7 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:http/http.dart' as http;
 import '../../core/constants/app_constants.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/services/api_service.dart';
@@ -116,6 +119,153 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  Future<void> _editProfile() async {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(margin: const EdgeInsets.only(top: 10, bottom: 8), width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2))),
+            ListTile(
+              leading: const Icon(Icons.camera_alt_rounded, color: Color(0xFF2ABFBF)),
+              title: const Text('Cambia foto profilo'),
+              onTap: () { Navigator.pop(ctx); _pickAndUploadAvatar(); },
+            ),
+            ListTile(
+              leading: const Icon(Icons.person_rounded, color: Color(0xFF2ABFBF)),
+              title: const Text('Modifica nome'),
+              onTap: () { Navigator.pop(ctx); _editName(); },
+            ),
+            if (_avatarUrl != null)
+              ListTile(
+                leading: const Icon(Icons.delete_rounded, color: Colors.red),
+                title: const Text('Rimuovi foto', style: TextStyle(color: Colors.red)),
+                onTap: () { Navigator.pop(ctx); _removeAvatar(); },
+              ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pickAndUploadAvatar() async {
+    final picker = ImagePicker();
+    final picked = await picker.pickImage(source: ImageSource.gallery, maxWidth: 512, maxHeight: 512, imageQuality: 80);
+    if (picked == null) return;
+
+    try {
+      final token = ApiService().accessToken;
+      if (token == null) return;
+
+      final request = http.MultipartRequest(
+        'POST',
+        Uri.parse('${AppConstants.baseUrl}/auth/avatar/'),
+      );
+      request.headers['Authorization'] = 'Bearer $token';
+      request.files.add(await http.MultipartFile.fromPath('avatar', picked.path));
+
+      debugPrint('[AVATAR] Uploading to: ${request.url}');
+      final response = await request.send();
+      final responseBody = await response.stream.bytesToString();
+      debugPrint('[AVATAR] Status: ${response.statusCode}, Body: $responseBody');
+      if (response.statusCode == 200) {
+        await _loadProfile();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Foto profilo aggiornata'), backgroundColor: Color(0xFF2ABFBF)),
+          );
+        }
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Errore nel caricamento della foto'), backgroundColor: Colors.red),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('Upload avatar error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Errore: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  Future<void> _editName() async {
+    final firstNameController = TextEditingController(text: _profile?['first_name']?.toString() ?? '');
+    final lastNameController = TextEditingController(text: _profile?['last_name']?.toString() ?? '');
+
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Modifica nome', style: TextStyle(fontWeight: FontWeight.w700)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: firstNameController,
+              decoration: InputDecoration(
+                labelText: 'Nome',
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: lastNameController,
+              decoration: InputDecoration(
+                labelText: 'Cognome',
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Annulla')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2ABFBF), foregroundColor: Colors.white),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Salva'),
+          ),
+        ],
+      ),
+    );
+
+    if (result != true) return;
+    try {
+      await ApiService().patch('/auth/profile/', body: {
+        'first_name': firstNameController.text.trim(),
+        'last_name': lastNameController.text.trim(),
+      });
+      await _loadProfile();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Nome aggiornato'), backgroundColor: Color(0xFF2ABFBF)),
+        );
+      }
+    } catch (e) {
+      debugPrint('Edit name error: $e');
+    }
+  }
+
+  Future<void> _removeAvatar() async {
+    try {
+      await ApiService().delete('/auth/avatar/');
+      await _loadProfile();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Foto profilo rimossa'), backgroundColor: Color(0xFF2ABFBF)),
+        );
+      }
+    } catch (e) {
+      debugPrint('Remove avatar error: $e');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -153,11 +303,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           ),
                         ),
                         GestureDetector(
-                          onTap: () {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('Modifica profilo - Coming soon')),
-                            );
-                          },
+                          onTap: _editProfile,
                           child: const Text(
                             'Modifica',
                             style: TextStyle(
@@ -172,30 +318,47 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     const SizedBox(height: 24),
 
                     // Avatar
-                    Stack(
-                      children: [
-                        UserAvatarWidget(
-                          avatarUrl: _avatarUrl,
-                          firstName: _profile?['first_name']?.toString(),
-                          lastName: _profile?['last_name']?.toString(),
-                          size: 100,
-                          borderWidth: 3,
-                          borderColor: _teal.withOpacity(0.3),
-                        ),
-                        Positioned(
-                          bottom: 4,
-                          right: 4,
-                          child: Container(
-                            width: 20,
-                            height: 20,
-                            decoration: BoxDecoration(
-                              color: _statusColor,
-                              shape: BoxShape.circle,
-                              border: Border.all(color: Colors.white, width: 2.5),
+                    GestureDetector(
+                      onTap: _pickAndUploadAvatar,
+                      child: Stack(
+                        children: [
+                          UserAvatarWidget(
+                            avatarUrl: _avatarUrl,
+                            firstName: _profile?['first_name']?.toString(),
+                            lastName: _profile?['last_name']?.toString(),
+                            size: 100,
+                            borderWidth: 3,
+                            borderColor: _teal.withOpacity(0.3),
+                          ),
+                          Positioned(
+                            bottom: 0,
+                            right: 0,
+                            child: Container(
+                              width: 32,
+                              height: 32,
+                              decoration: BoxDecoration(
+                                color: _teal,
+                                shape: BoxShape.circle,
+                                border: Border.all(color: Colors.white, width: 2),
+                              ),
+                              child: const Icon(Icons.camera_alt, color: Colors.white, size: 16),
                             ),
                           ),
-                        ),
-                      ],
+                          Positioned(
+                            bottom: 4,
+                            left: 4,
+                            child: Container(
+                              width: 20,
+                              height: 20,
+                              decoration: BoxDecoration(
+                                color: _statusColor,
+                                shape: BoxShape.circle,
+                                border: Border.all(color: Colors.white, width: 2.5),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                     const SizedBox(height: 12),
 

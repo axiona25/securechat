@@ -23,6 +23,12 @@ from .serializers import (
     ChangePasswordSerializer, UserProfileSerializer
 )
 
+try:
+    from pillow_heif import register_heif_opener
+    register_heif_opener()
+except ImportError:
+    pass
+
 logger = logging.getLogger(__name__)
 
 
@@ -291,7 +297,7 @@ class AvatarUploadView(APIView):
             return Response({'error': 'Nessun file caricato.'}, status=status.HTTP_400_BAD_REQUEST)
 
         # Validate file type
-        allowed_types = ['image/jpeg', 'image/png', 'image/webp']
+        allowed_types = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif', 'application/octet-stream']
         if avatar_file.content_type not in allowed_types:
             return Response({'error': 'Formato non supportato. Usa JPG, PNG o WebP.'}, status=status.HTTP_400_BAD_REQUEST)
 

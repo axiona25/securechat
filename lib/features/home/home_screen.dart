@@ -171,6 +171,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       await AuthService.setCurrentUserId(user.id);
     }
     final conversations = results[0] as List<ConversationModel>;
+    for (final conv in conversations) {
+      if (conv.isGroup) {
+        debugPrint('[HOME] group: ${conv.displayNameFor(0)} groupAvatarUrl=${conv.groupAvatarUrl}');
+      }
+    }
     // E2E: encrypted last message preview — use home preview only if timestamp matches last message
     final prefs = await SharedPreferences.getInstance();
     for (final conv in conversations) {
@@ -231,6 +236,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         await AuthService.setCurrentUserId(user.id);
       }
       final newConversations = results[0] as List<ConversationModel>;
+      for (final conv in newConversations) {
+        if (conv.isGroup) {
+          debugPrint('[HOME] group: ${conv.displayNameFor(0)} groupAvatarUrl=${conv.groupAvatarUrl}');
+        }
+      }
       if (mounted && _conversations.isNotEmpty) {
         for (final newConv in newConversations) {
           ConversationModel? oldConv;
@@ -302,6 +312,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           id: newConv.id,
           convType: newConv.convType,
           name: newConv.name,
+          groupAvatarUrl: newConv.groupAvatarUrl,
           participants: newConv.participants,
           lastMessage: newConv.lastMessage,
           unreadCount: newConv.unreadCount,
@@ -311,8 +322,25 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           createdAt: newConv.createdAt,
         );
       }).toList();
+      // Evita rebuild inutili se la lista non è cambiata
+      bool conversationsChanged = false;
+      if (updatedConversations.length != _conversations.length) {
+        conversationsChanged = true;
+      } else {
+        for (int i = 0; i < updatedConversations.length; i++) {
+          if (updatedConversations[i].id != _conversations[i].id ||
+              updatedConversations[i].lastMessage?.id != _conversations[i].lastMessage?.id ||
+              updatedConversations[i].unreadCount != _conversations[i].unreadCount ||
+              updatedConversations[i].groupAvatarUrl != _conversations[i].groupAvatarUrl ||
+              updatedConversations[i].name != _conversations[i].name ||
+              updatedConversations[i].isOtherOnlineFor(_currentUser?.id) != _conversations[i].isOtherOnlineFor(_currentUser?.id)) {
+            conversationsChanged = true;
+            break;
+          }
+        }
+      }
       setState(() {
-        _conversations = updatedConversations;
+        if (conversationsChanged) _conversations = updatedConversations;
         _currentUser = user;
         _notificationCount = results[2] as int;
       });

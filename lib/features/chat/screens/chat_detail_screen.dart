@@ -3741,6 +3741,18 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       }
     } catch (e) {
       debugPrint('=== ERROR SENDING: $e ===');
+      if (e.toString().contains('403') || e.toString().contains('bloccato')) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Sei stato bloccato in questo gruppo. Non puoi inviare messaggi.'),
+              backgroundColor: Colors.red,
+              duration: Duration(seconds: 4),
+            ),
+          );
+        }
+        return;
+      }
       _textController.text = savedText;
       setState(() {});
     }
@@ -4510,6 +4522,15 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   }
 
   Widget _buildGroupAvatarAppBar() {
+    // Se c'è un avatar dedicato del gruppo, mostralo come cerchio semplice
+    if (_conversation != null && _conversation!.groupAvatarUrl != null && _conversation!.groupAvatarUrl!.isNotEmpty && _conversation!.groupAvatarUrl != 'null') {
+      return CircleAvatar(
+        radius: 20,
+        backgroundColor: const Color(0xFFB0E0D4),
+        backgroundImage: NetworkImage(_conversation!.groupAvatarUrl!),
+      );
+    }
+
     final groupName = _displayName;
     final groupAvatar = _conversation != null && _conversation!.groupAvatars.isNotEmpty
         ? _conversation!.groupAvatars.first

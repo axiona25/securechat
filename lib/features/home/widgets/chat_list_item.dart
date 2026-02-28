@@ -233,6 +233,7 @@ class ChatListItem extends StatelessWidget {
 
   Widget _buildSingleAvatar() {
     final avatarUrl = conversation.avatarUrlFor(currentUserId) ?? conversation.avatarUrl;
+    debugPrint('[CHAT-ITEM] name=${conversation.displayNameFor(currentUserId)} avatarUrl=$avatarUrl');
     final conversationName = conversation.displayNameFor(currentUserId);
     final isOnline = conversation.isOtherOnlineFor(currentUserId);
     final statusColor = _getStatusColor(isOnline);
@@ -270,9 +271,46 @@ class ChatListItem extends StatelessWidget {
 
   Widget _buildGroupAvatar() {
     final groupName = conversation.displayNameFor(currentUserId);
-    final groupAvatar = conversation.groupAvatars.isNotEmpty ? conversation.groupAvatars.first : null;
     final participantCount = conversation.participants.length;
 
+    // Se c'è un avatar dedicato del gruppo, mostralo con bordo segmentato
+    if (conversation.groupAvatarUrl != null && conversation.groupAvatarUrl!.isNotEmpty && conversation.groupAvatarUrl != 'null') {
+      final participantCount = conversation.participants.length;
+      return CustomPaint(
+        painter: _SegmentedBorderPainter(
+          segmentCount: participantCount,
+          strokeWidth: 2.0,
+        ),
+        child: Container(
+          width: 56,
+          height: 56,
+          padding: const EdgeInsets.all(3),
+          child: ClipOval(
+            child: Image.network(
+              conversation.groupAvatarUrl!,
+              fit: BoxFit.cover,
+              width: 50,
+              height: 50,
+              gaplessPlayback: true,
+              errorBuilder: (_, __, ___) => Container(
+                color: const Color(0xFFB0E0D4),
+                child: Center(
+                  child: Text(
+                    conversation.displayNameFor(currentUserId).length >= 2
+                        ? conversation.displayNameFor(currentUserId).substring(0, 2).toUpperCase()
+                        : conversation.displayNameFor(currentUserId).toUpperCase(),
+                    style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    // Altrimenti mostra gli avatar dei partecipanti con bordo segmentato
+    final groupAvatar = conversation.groupAvatars.isNotEmpty ? conversation.groupAvatars.first : null;
     final parts = groupName.trim().split(RegExp(r'\s+'));
     String initials;
     if (parts.length >= 2) {
@@ -289,9 +327,9 @@ class ChatListItem extends StatelessWidget {
         strokeWidth: 2.0,
       ),
       child: Container(
-        width: 54,
-        height: 54,
-        padding: const EdgeInsets.all(3.5),
+        width: 56,
+        height: 56,
+        padding: const EdgeInsets.all(3),
         child: ClipOval(
           child: Container(
             decoration: BoxDecoration(
@@ -301,9 +339,9 @@ class ChatListItem extends StatelessWidget {
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
                       colors: [
-                        Color(0xFFB0E0D4), // teal200
-                        Color(0xFF8DD4C6), // teal300
-                        Color(0xFF6EC8B8), // teal400
+                        Color(0xFFB0E0D4),
+                        Color(0xFF8DD4C6),
+                        Color(0xFF6EC8B8),
                       ],
                     )
                   : null,
@@ -320,7 +358,7 @@ class ChatListItem extends StatelessWidget {
                       initials,
                       style: const TextStyle(
                         color: Colors.white,
-                        fontSize: 17,
+                        fontSize: 18,
                         fontWeight: FontWeight.w700,
                         letterSpacing: 0.5,
                       ),

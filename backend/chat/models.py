@@ -42,7 +42,6 @@ class Conversation(models.Model):
 class ConversationParticipant(models.Model):
     ROLES = [
         ('admin', 'Admin'),
-        ('moderator', 'Moderator'),
         ('member', 'Member'),
     ]
     conversation = models.ForeignKey(
@@ -61,6 +60,7 @@ class ConversationParticipant(models.Model):
     cleared_at = models.DateTimeField(null=True, blank=True)
     is_hidden = models.BooleanField(default=False)
     is_locked = models.BooleanField(default=False)
+    is_blocked = models.BooleanField(default=False)
 
     class Meta:
         db_table = 'conversation_participants'

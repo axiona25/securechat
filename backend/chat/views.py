@@ -305,7 +305,7 @@ class ConversationParticipantsView(APIView):
         try:
             conversation = Conversation.objects.get(id=conversation_id)
             my_part = ConversationParticipant.objects.get(conversation=conversation, user=request.user)
-            if my_part.role not in ('admin', 'moderator'):
+            if my_part.role != 'admin':
                 return Response({'error': 'Solo admin e moderatori possono aggiungere membri'}, status=status.HTTP_403_FORBIDDEN)
             user_id = request.data.get('user_id')
             if not user_id:
@@ -333,7 +333,7 @@ class ConversationParticipantDetailView(APIView):
                 return Response({'error': 'Solo gli admin possono cambiare ruoli'}, status=status.HTTP_403_FORBIDDEN)
             target = ConversationParticipant.objects.get(conversation=conversation, user_id=user_id)
             new_role = request.data.get('role', target.role)
-            if new_role not in ('admin', 'moderator', 'member'):
+            if new_role not in ('admin', 'member'):
                 return Response({'error': 'Ruolo non valido'}, status=status.HTTP_400_BAD_REQUEST)
             target.role = new_role
             target.save()
@@ -355,6 +355,23 @@ class ConversationParticipantDetailView(APIView):
                 return Response({'error': 'Non puoi rimuovere te stesso'}, status=status.HTTP_400_BAD_REQUEST)
             target.delete()
             return Response({'removed': True}, status=status.HTTP_200_OK)
+        except Conversation.DoesNotExist:
+            return Response({'error': 'Conversazione non trovata'}, status=status.HTTP_404_NOT_FOUND)
+        except ConversationParticipant.DoesNotExist:
+            return Response({'error': 'Partecipante non trovato'}, status=status.HTTP_404_NOT_FOUND)
+
+    def put(self, request, conversation_id, user_id):
+        """Blocca o sblocca un partecipante (solo admin)."""
+        try:
+            conversation = Conversation.objects.get(id=conversation_id)
+            my_part = ConversationParticipant.objects.get(conversation=conversation, user=request.user)
+            if my_part.role != 'admin':
+                return Response({'error': 'Solo gli admin possono bloccare'}, status=status.HTTP_403_FORBIDDEN)
+            target = ConversationParticipant.objects.get(conversation=conversation, user_id=user_id)
+            action = request.data.get('action', 'block')
+            target.is_blocked = (action == 'block')
+            target.save()
+            return Response({'is_blocked': target.is_blocked}, status=status.HTTP_200_OK)
         except Conversation.DoesNotExist:
             return Response({'error': 'Conversazione non trovata'}, status=status.HTTP_404_NOT_FOUND)
         except ConversationParticipant.DoesNotExist:
@@ -395,6 +412,19 @@ class MessageListView(APIView):
             conversation_id=conversation_id, user=request.user
         ).exists():
             return Response({'error': 'Accesso negato.'}, status=status.HTTP_403_FORBIDDEN)
+
+        conversation = Conversation.objects.get(id=conversation_id)
+        # Controlla se l'utente è bloccato nel gruppo
+        if conversation.conv_type == 'group':
+            try:
+                participant = ConversationParticipant.objects.get(conversation=conversation, user=request.user)
+                if participant.is_blocked:
+                    return Response(
+                        {'error': 'Sei stato bloccato in questo gruppo. Non puoi inviare messaggi.'},
+                        status=status.HTTP_403_FORBIDDEN
+                    )
+            except ConversationParticipant.DoesNotExist:
+                pass
 
         message_type = request.data.get('message_type', 'text')
         content_plain = request.data.get('content', '')
