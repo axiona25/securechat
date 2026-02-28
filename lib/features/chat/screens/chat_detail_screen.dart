@@ -35,6 +35,7 @@ import '../../../core/services/session_manager.dart';
 import '../../../core/services/sound_service.dart';
 import '../widgets/audio_player_widget.dart';
 import 'document_viewer_screen.dart';
+import 'group_info_screen.dart';
 
 class ChatDetailScreen extends StatefulWidget {
   const ChatDetailScreen({super.key});
@@ -1595,8 +1596,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         onForwardToUsers: (List<int> userIds) async {
           await _sendForwardToUsers(message, userIds);
         },
-        onShareExternal: () {
-          _shareExternal(message);
+        onShareExternal: () async {
+          await _shareExternal(message);
         },
       ),
     );
@@ -1644,21 +1645,77 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     }
   }
 
-  void _shareExternal(Map<String, dynamic> message) {
+  Future<void> _shareExternal(Map<String, dynamic> message) async {
     final content = message['content']?.toString() ?? '';
     final messageType = message['message_type']?.toString() ?? 'text';
 
-    String shareText = content;
-    if (messageType != 'text') {
-      final fileUrl = message['file']?.toString() ?? '';
-      if (fileUrl.isNotEmpty) {
-        shareText = '$content\n$fileUrl';
-      }
+    // Per messaggi di testo, posizione, contatti: condividi come testo
+    if (messageType == 'text' || messageType == 'location' || messageType == 'contact') {
+      await SharePlus.instance.share(
+        ShareParams(text: content, subject: 'SecureChat'),
+      );
+      return;
     }
 
-    SharePlus.instance.share(
-      ShareParams(text: shareText, subject: 'SecureChat'),
-    );
+    // Per allegati (image, video, audio, voice, file): scarica e condividi il file
+    final attachments = message['attachments'] as List? ?? [];
+    if (attachments.isEmpty) {
+      await SharePlus.instance.share(
+        ShareParams(text: content, subject: 'SecureChat'),
+      );
+      return;
+    }
+
+    try {
+      final att = attachments[0] is Map ? attachments[0] as Map<String, dynamic> : null;
+      if (att == null) return;
+
+      final isEncrypted = att['is_encrypted'] == true;
+      File? fileToShare;
+
+      if (isEncrypted) {
+        // File cifrato: usa il metodo di decifratura esistente
+        fileToShare = await _decryptAttachmentToFile(att, message);
+      } else {
+        // File in chiaro: scarica direttamente
+        final fileUrl = att['file']?.toString() ?? '';
+        if (fileUrl.isEmpty) return;
+
+        final token = ApiService().accessToken;
+        final uri = fileUrl.startsWith('http') ? fileUrl : '${AppConstants.baseUrl}$fileUrl';
+        final response = await http.get(
+          Uri.parse(uri),
+          headers: token != null ? {'Authorization': 'Bearer $token'} : {},
+        );
+
+        if (response.statusCode == 200) {
+          final fileName = att['file_name']?.toString() ?? att['original_filename']?.toString() ?? 'file';
+          final tempDir = await getTemporaryDirectory();
+          fileToShare = File('${tempDir.path}/share_$fileName');
+          await fileToShare.writeAsBytes(response.bodyBytes);
+        }
+      }
+
+      if (fileToShare != null && await fileToShare.exists()) {
+        await SharePlus.instance.share(
+          ShareParams(
+            files: [XFile(fileToShare.path)],
+            text: content.isNotEmpty && content != '🔒 Messaggio cifrato' ? content : null,
+            subject: 'SecureChat',
+          ),
+        );
+      } else {
+        // Fallback: condividi come testo
+        await SharePlus.instance.share(
+          ShareParams(text: content, subject: 'SecureChat'),
+        );
+      }
+    } catch (e) {
+      debugPrint('Share external error: $e');
+      await SharePlus.instance.share(
+        ShareParams(text: content, subject: 'SecureChat'),
+      );
+    }
   }
 
   Future<void> _addReaction(Map<String, dynamic> message, String emoji) async {
@@ -3776,10 +3833,11 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   Future<void> _sendLocation() async {
     if (_conversationId == null || _conversationId!.isEmpty) return;
     final otherUser = _getOtherUserId();
-    if (otherUser == null) {
+    final isGroup = _conversation != null && _conversation!.isGroup;
+    if (otherUser == null && !isGroup) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Posizione non disponibile in chat di gruppo'), backgroundColor: Color(0xFF2ABFBF)),
+          const SnackBar(content: Text('Posizione non disponibile'), backgroundColor: Color(0xFF2ABFBF)),
         );
       }
       return;
@@ -3801,12 +3859,18 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         'lng': position.longitude,
         'address': '',
       });
-      final encrypted = await _sessionManager.encryptMessage(otherUser, payload);
       final body = <String, dynamic>{
         'message_type': 'location',
         'content': '',
-        'content_encrypted': base64Encode(encrypted),
       };
+
+      if (isGroup) {
+        body['content'] = payload;
+      } else {
+        final encrypted = await _sessionManager.encryptMessage(otherUser!, payload);
+        body['content_encrypted'] = base64Encode(encrypted);
+      }
+
       if (_replyToMessage != null) {
         body['reply_to_id'] = _replyToMessage!['id']?.toString() ?? '';
       }
@@ -3965,10 +4029,11 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   Future<void> _sendContactMessage({required String name, String phone = '', String email = ''}) async {
     final convId = _conversationId;
     final otherUserId = _getOtherUserId();
-    if (convId == null || convId.isEmpty || otherUserId == null) {
+    final isGroup = _conversation != null && _conversation!.isGroup;
+    if (convId == null || convId.isEmpty || (otherUserId == null && !isGroup)) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Contatto non disponibile in chat di gruppo'), backgroundColor: Color(0xFF2ABFBF)),
+          const SnackBar(content: Text('Contatto non disponibile'), backgroundColor: Color(0xFF2ABFBF)),
         );
       }
       return;
@@ -3977,14 +4042,18 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     final payload = jsonEncode({'type': 'contact', 'name': name, 'phone': phone, 'email': email});
 
     try {
-      final encrypted = await _sessionManager.encryptMessage(otherUserId, payload);
-      final encryptedB64 = base64Encode(encrypted);
-
       final body = <String, dynamic>{
         'message_type': 'contact',
         'content': '',
-        'content_encrypted': encryptedB64,
       };
+
+      if (isGroup) {
+        body['content'] = payload;
+      } else {
+        final encrypted = await _sessionManager.encryptMessage(otherUserId!, payload);
+        body['content_encrypted'] = base64Encode(encrypted);
+      }
+
       if (_replyToMessage != null) {
         body['reply_to_id'] = _replyToMessage!['id']?.toString() ?? '';
       }
@@ -4519,43 +4588,57 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           icon: const Icon(Icons.arrow_back, color: AppColors.blue700),
           onPressed: () => Navigator.of(context).pop(),
         ),
-        title: Row(
-          children: [
-            _conversation != null && _conversation!.isGroup
-                ? _buildGroupAvatarAppBar()
-                : UserAvatarWidget(
-                    avatarUrl: _otherAvatarUrl,
-                    displayName: _displayName,
-                    size: 40,
-                  ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    _displayName,
-                    style: const TextStyle(
-                      color: _navy,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
+        title: GestureDetector(
+          onTap: _conversation != null && _conversation!.isGroup
+              ? () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => GroupInfoScreen(
+                        conversationId: _conversationId ?? '',
+                      ),
                     ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  Text(
-                    _getStatusText(_isOtherOnline),
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w400,
-                      color: _getStatusColor(_isOtherOnline),
+                  ).then((_) => _loadConversationAndMessages());
+                }
+              : null,
+          child: Row(
+            children: [
+              _conversation != null && _conversation!.isGroup
+                  ? _buildGroupAvatarAppBar()
+                  : UserAvatarWidget(
+                      avatarUrl: _otherAvatarUrl,
+                      displayName: _displayName,
+                      size: 40,
                     ),
-                  ),
-                ],
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      _displayName,
+                      style: const TextStyle(
+                        color: _navy,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    Text(
+                      _getStatusText(_isOtherOnline),
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w400,
+                        color: _getStatusColor(_isOtherOnline),
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
         actions: [
           IconButton(
@@ -4873,7 +4956,7 @@ class _ForwardSheet extends StatefulWidget {
   final Map<String, dynamic> message;
   final int? currentUserId;
   final Future<void> Function(List<int> userIds) onForwardToUsers;
-  final VoidCallback onShareExternal;
+  final Future<void> Function() onShareExternal;
 
   const _ForwardSheet({
     required this.message,
@@ -4887,86 +4970,97 @@ class _ForwardSheet extends StatefulWidget {
 }
 
 class _ForwardSheetState extends State<_ForwardSheet> {
-  List<Map<String, dynamic>> _contacts = [];
-  List<Map<String, dynamic>> _filtered = [];
+  List<Map<String, dynamic>> _users = [];
+  List<Map<String, dynamic>> _filteredUsers = [];
   final Set<int> _selectedIds = {};
   bool _loading = true;
   final _searchController = TextEditingController();
+  Timer? _debounce;
+
+  static const Color _teal = Color(0xFF2ABFBF);
+  static const Color _navy = Color(0xFF1A2B4A);
+  static const Color _subtitleGray = Color(0xFF9E9E9E);
 
   @override
   void initState() {
     super.initState();
-    _loadContacts();
+    _loadUsers();
   }
 
-  Future<void> _loadContacts() async {
+  Future<void> _loadUsers() async {
     try {
       final response = await ApiService().get('/auth/users/search/?q=');
       final users = response is List ? response : (response['results'] ?? response['users'] ?? []);
-
       final List<Map<String, dynamic>> contacts = [];
       for (final u in users) {
         final userMap = u is Map<String, dynamic> ? u : Map<String, dynamic>.from(u as Map);
         final userId = userMap['id'];
         final id = userId is int ? userId : int.tryParse(userId?.toString() ?? '0');
-        if (id == null || id == 0) continue;
+        if (id == null || id == 0 || id == widget.currentUserId) continue;
         final firstName = userMap['first_name']?.toString() ?? '';
         final lastName = userMap['last_name']?.toString() ?? '';
         contacts.add({
           'id': id,
           'display_name': '$firstName $lastName'.trim(),
+          'email': userMap['email']?.toString() ?? '',
           'username': userMap['username'] ?? '',
-          'profile_picture': userMap['profile_picture'] ?? userMap['avatar'],
+          'avatar': userMap['profile_picture'] ?? userMap['avatar'] ?? userMap['avatar_url'],
         });
       }
-
+      contacts.sort((a, b) {
+        final na = (a['display_name'] ?? a['email'] ?? '').toString().toLowerCase();
+        final nb = (b['display_name'] ?? b['email'] ?? '').toString().toLowerCase();
+        return na.compareTo(nb);
+      });
       if (mounted) {
         setState(() {
-          _contacts = contacts;
-          _filtered = contacts;
+          _users = contacts;
+          _filteredUsers = contacts;
           _loading = false;
         });
       }
     } catch (e) {
-      debugPrint('Errore caricamento utenti: $e');
-      if (mounted) {
-        setState(() {
-          _contacts = [];
-          _filtered = [];
-          _loading = false;
-        });
-      }
+      debugPrint('Errore caricamento utenti per inoltro: $e');
+      if (mounted) setState(() { _users = []; _filteredUsers = []; _loading = false; });
     }
   }
 
-  void _filterContacts(String query) {
-    setState(() {
-      if (query.isEmpty) {
-        _filtered = _contacts;
-      } else {
-        final q = query.toLowerCase();
-        _filtered = _contacts.where((c) {
-          final name = (c['display_name'] ?? c['username'] ?? '').toString().toLowerCase();
-          return name.contains(q);
-        }).toList();
-      }
+  void _onSearchChanged(String value) {
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 300), () {
+      if (!mounted) return;
+      final q = value.trim().toLowerCase();
+      setState(() {
+        if (q.isEmpty) {
+          _filteredUsers = List.from(_users);
+        } else {
+          _filteredUsers = _users.where((c) {
+            final name = (c['display_name'] ?? '').toString().toLowerCase();
+            final email = (c['email'] ?? '').toString().toLowerCase();
+            return name.contains(q) || email.contains(q);
+          }).toList();
+        }
+      });
     });
   }
 
-  String _getInitials(Map<String, dynamic> contact) {
-    final name = contact['display_name'] ?? contact['username'] ?? '?';
-    final str = name.toString().trim();
-    final parts = str.split(RegExp(r'\s+'));
+  String _initials(Map<String, dynamic> u) {
+    final name = (u['display_name'] ?? u['username'] ?? '').toString().trim();
+    final parts = name.split(RegExp(r'\s+'));
     if (parts.length >= 2 && parts[0].isNotEmpty && parts[1].isNotEmpty) {
       return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
     }
-    return str.isNotEmpty ? str.substring(0, 1).toUpperCase() : '?';
+    return name.isNotEmpty ? name[0].toUpperCase() : '?';
   }
 
-  int _getContactId(Map<String, dynamic> contact) {
-    final id = contact['id'] ?? contact['user_id'];
-    if (id is int) return id;
-    return int.tryParse(id?.toString() ?? '0') ?? 0;
+  Map<String, List<Map<String, dynamic>>> _groupByLetter(List<Map<String, dynamic>> users) {
+    final map = <String, List<Map<String, dynamic>>>{};
+    for (final u in users) {
+      final name = (u['display_name'] ?? '').toString().trim();
+      final letter = name.isEmpty ? '?' : name[0].toUpperCase();
+      map.putIfAbsent(letter, () => []).add(u);
+    }
+    return map;
   }
 
   @override
@@ -4975,7 +5069,7 @@ class _ForwardSheetState extends State<_ForwardSheet> {
     final bottomPadding = MediaQuery.of(context).viewInsets.bottom;
 
     return Container(
-      height: MediaQuery.of(context).size.height * 0.75,
+      height: MediaQuery.of(context).size.height * 0.8,
       padding: EdgeInsets.only(bottom: bottomPadding),
       decoration: const BoxDecoration(
         color: Colors.white,
@@ -4983,29 +5077,20 @@ class _ForwardSheetState extends State<_ForwardSheet> {
       ),
       child: Column(
         children: [
+          // Handle
           Container(
             margin: const EdgeInsets.only(top: 10, bottom: 6),
-            width: 40,
-            height: 4,
-            decoration: BoxDecoration(
-              color: const Color(0xFFE0E0E0),
-              borderRadius: BorderRadius.circular(2),
-            ),
+            width: 40, height: 4,
+            decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2)),
           ),
+          // Header
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             child: Row(
               children: [
-                const Icon(Icons.shortcut_rounded, color: Color(0xFF2ABFBF), size: 24),
+                const Icon(Icons.shortcut_rounded, color: _teal, size: 24),
                 const SizedBox(width: 10),
-                const Text(
-                  'Inoltra messaggio',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w700,
-                    color: Color(0xFF1A2B4A),
-                  ),
-                ),
+                const Text('Inoltra messaggio', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: _navy)),
                 const Spacer(),
                 if (_selectedIds.isNotEmpty)
                   GestureDetector(
@@ -5016,246 +5101,198 @@ class _ForwardSheetState extends State<_ForwardSheet> {
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF2ABFBF),
+                        color: _teal,
                         borderRadius: BorderRadius.circular(20),
                       ),
                       child: Text(
                         'Invia (${_selectedIds.length})',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w600,
-                          fontSize: 14,
-                        ),
+                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14),
                       ),
                     ),
                   ),
               ],
             ),
           ),
+          // Preview messaggio
           Container(
             margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
               color: const Color(0xFFF5F8FA),
               borderRadius: BorderRadius.circular(10),
-              border: const Border(
-                left: BorderSide(color: Color(0xFF2ABFBF), width: 3),
-              ),
+              border: const Border(left: BorderSide(color: _teal, width: 3)),
             ),
             child: Row(
               children: [
-                const Icon(Icons.format_quote_rounded, color: Color(0xFF9E9E9E), size: 18),
+                const Icon(Icons.format_quote_rounded, color: _teal, size: 20),
                 const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    preview,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 13, color: Color(0xFF6B7280)),
-                  ),
-                ),
+                Expanded(child: Text(preview, maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(color: _navy.withValues(alpha: 0.7), fontSize: 13))),
               ],
             ),
           ),
           const SizedBox(height: 8),
+          // Condividi fuori app
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: GestureDetector(
-              onTap: () {
-                Navigator.pop(context);
-                widget.onShareExternal();
-              },
+              onTap: () async { Navigator.pop(context); await widget.onShareExternal(); },
               child: Container(
                 padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 14),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF5F8FA),
-                  borderRadius: BorderRadius.circular(12),
-                ),
+                decoration: BoxDecoration(color: const Color(0xFFF5F8FA), borderRadius: BorderRadius.circular(12)),
                 child: Row(
                   children: [
                     Container(
-                      width: 40,
-                      height: 40,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF2ABFBF).withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: const Icon(Icons.ios_share_rounded, color: Color(0xFF2ABFBF), size: 20),
+                      width: 36, height: 36,
+                      decoration: BoxDecoration(color: _teal.withValues(alpha: 0.1), shape: BoxShape.circle),
+                      child: const Icon(Icons.ios_share_rounded, color: _teal, size: 20),
                     ),
                     const SizedBox(width: 12),
                     const Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          'Condividi fuori app',
-                          style: TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w600,
-                            color: Color(0xFF1A2B4A),
-                          ),
-                        ),
-                        Text(
-                          'WhatsApp, Telegram, Mail, AirDrop...',
-                          style: TextStyle(fontSize: 12, color: Color(0xFF9E9E9E)),
-                        ),
+                        Text('Condividi fuori app', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: _navy)),
+                        Text('WhatsApp, Telegram, Mail...', style: TextStyle(fontSize: 12, color: _subtitleGray)),
                       ],
                     ),
                     const Spacer(),
-                    const Icon(Icons.chevron_right_rounded, color: Color(0xFF9E9E9E)),
+                    const Icon(Icons.chevron_right_rounded, color: _subtitleGray),
                   ],
                 ),
               ),
             ),
           ),
           const SizedBox(height: 10),
+          // Ricerca
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: TextField(
-              controller: _searchController,
-              onChanged: _filterContacts,
-              decoration: InputDecoration(
-                hintText: 'Cerca contatto...',
-                hintStyle: const TextStyle(color: Color(0xFF9E9E9E), fontSize: 14),
-                prefixIcon: const Icon(Icons.search_rounded, color: Color(0xFF9E9E9E), size: 20),
-                filled: true,
-                fillColor: const Color(0xFFF5F8FA),
-                contentPadding: const EdgeInsets.symmetric(vertical: 10),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide.none,
+            child: Container(
+              decoration: BoxDecoration(color: const Color(0xFFF5F5F5), borderRadius: BorderRadius.circular(12)),
+              child: TextField(
+                controller: _searchController,
+                onChanged: _onSearchChanged,
+                decoration: const InputDecoration(
+                  hintText: 'Cerca per nome o email...',
+                  hintStyle: TextStyle(color: _subtitleGray, fontSize: 15),
+                  prefixIcon: Icon(Icons.search, color: _subtitleGray, size: 22),
+                  border: InputBorder.none,
+                  contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                 ),
               ),
             ),
           ),
           const SizedBox(height: 8),
+          // Chip selezionati
           if (_selectedIds.isNotEmpty)
             SizedBox(
-              height: 40,
+              height: 44,
               child: ListView(
                 scrollDirection: Axis.horizontal,
                 padding: const EdgeInsets.symmetric(horizontal: 16),
-                children: _selectedIds.map((id) {
-                  Map<String, dynamic> contact;
-                  try {
-                    contact = _contacts.firstWhere((c) => _getContactId(c) == id);
-                  } on StateError {
-                    contact = <String, dynamic>{'display_name': '?'};
-                  }
-                  final name = contact['display_name'] ?? contact['username'] ?? '?';
-                  return Container(
-                    margin: const EdgeInsets.only(right: 8),
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF2ABFBF).withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          name.toString(),
-                          style: const TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                            color: Color(0xFF2ABFBF),
-                          ),
-                        ),
-                        const SizedBox(width: 4),
-                        GestureDetector(
-                          onTap: () => setState(() => _selectedIds.remove(id)),
-                          child: const Icon(Icons.close_rounded, size: 16, color: Color(0xFF2ABFBF)),
-                        ),
-                      ],
+                children: _users.where((u) => _selectedIds.contains(u['id'])).map((u) {
+                  final avatar = u['avatar']?.toString();
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: Chip(
+                      avatar: CircleAvatar(
+                        backgroundColor: _teal,
+                        backgroundImage: avatar != null && avatar.isNotEmpty ? NetworkImage(avatar) : null,
+                        child: avatar == null || avatar.isEmpty
+                            ? Text(_initials(u), style: const TextStyle(color: Colors.white, fontSize: 11))
+                            : null,
+                      ),
+                      label: Text(
+                        (u['display_name'] ?? u['username'] ?? '').toString(),
+                        style: const TextStyle(fontSize: 13),
+                      ),
+                      onDeleted: () => setState(() => _selectedIds.remove(u['id'])),
+                      deleteIconColor: _teal,
                     ),
                   );
                 }).toList(),
               ),
             ),
+          // Lista utenti raggruppata per lettera
           Expanded(
             child: _loading
-                ? const Center(
-                    child: CircularProgressIndicator(color: Color(0xFF2ABFBF)),
-                  )
-                : _filtered.isEmpty
-                    ? const Center(
-                        child: Text(
-                          'Nessun contatto trovato',
-                          style: TextStyle(color: Color(0xFF9E9E9E)),
-                        ),
-                      )
-                    : ListView.builder(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        itemCount: _filtered.length,
-                        itemBuilder: (context, index) {
-                          final contact = _filtered[index];
-                          final contactId = _getContactId(contact);
-                          final name = contact['display_name'] ?? contact['username'] ?? '?';
-                          final isSelected = _selectedIds.contains(contactId);
-                          final avatar = contact['profile_picture'];
-
-                          return ListTile(
-                            contentPadding: EdgeInsets.zero,
-                            leading: CircleAvatar(
-                              radius: 22,
-                              backgroundColor: const Color(0xFF2ABFBF).withValues(alpha: 0.15),
-                              backgroundImage: avatar != null && avatar.toString().isNotEmpty
-                                  ? NetworkImage(avatar.toString())
-                                  : null,
-                              child: avatar == null || avatar.toString().isEmpty
-                                  ? Text(
-                                      _getInitials(contact),
-                                      style: const TextStyle(
-                                        color: Color(0xFF2ABFBF),
-                                        fontWeight: FontWeight.w700,
-                                        fontSize: 14,
-                                      ),
-                                    )
-                                  : null,
-                            ),
-                            title: Text(
-                              name.toString(),
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w600,
-                                fontSize: 15,
-                                color: Color(0xFF1A2B4A),
-                              ),
-                            ),
-                            trailing: AnimatedContainer(
-                              duration: const Duration(milliseconds: 200),
-                              width: 26,
-                              height: 26,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: isSelected ? const Color(0xFF2ABFBF) : Colors.transparent,
-                                border: Border.all(
-                                  color: isSelected ? const Color(0xFF2ABFBF) : const Color(0xFFD1D5DB),
-                                  width: 2,
-                                ),
-                              ),
-                              child: isSelected
-                                  ? const Icon(Icons.check_rounded, color: Colors.white, size: 16)
-                                  : null,
-                            ),
-                            onTap: () {
-                              setState(() {
-                                if (isSelected) {
-                                  _selectedIds.remove(contactId);
-                                } else {
-                                  _selectedIds.add(contactId);
-                                }
-                              });
-                            },
-                          );
-                        },
-                      ),
+                ? const Center(child: CircularProgressIndicator(color: _teal, strokeWidth: 2.5))
+                : _filteredUsers.isEmpty
+                    ? const Center(child: Text('Nessun utente trovato', style: TextStyle(color: _subtitleGray)))
+                    : _buildGroupedList(),
           ),
         ],
       ),
     );
   }
 
+  Widget _buildGroupedList() {
+    final grouped = _groupByLetter(_filteredUsers);
+    final letters = grouped.keys.toList()..sort();
+    return ListView.builder(
+      itemCount: letters.fold<int>(0, (sum, l) => sum + 1 + (grouped[l]!.length)),
+      itemBuilder: (context, index) {
+        int offset = 0;
+        for (final letter in letters) {
+          final list = grouped[letter]!;
+          if (index == offset) {
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+              child: Text(letter, style: const TextStyle(color: _teal, fontSize: 16, fontWeight: FontWeight.bold)),
+            );
+          }
+          offset++;
+          final idx = index - offset;
+          if (idx < list.length) {
+            final u = list[idx];
+            final id = u['id'] as int;
+            final isSelected = _selectedIds.contains(id);
+            final avatar = u['avatar']?.toString();
+            return Column(
+              children: [
+                ListTile(
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                  leading: CircleAvatar(
+                    backgroundColor: _teal,
+                    backgroundImage: avatar != null && avatar.isNotEmpty ? NetworkImage(avatar) : null,
+                    child: avatar == null || avatar.isEmpty
+                        ? Text(_initials(u), style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w700))
+                        : null,
+                  ),
+                  title: Text(
+                    (u['display_name'] ?? u['username'] ?? '').toString(),
+                    style: const TextStyle(color: _navy, fontSize: 15, fontWeight: FontWeight.w500),
+                  ),
+                  subtitle: Text(u['email']?.toString() ?? '', style: const TextStyle(color: _subtitleGray, fontSize: 13)),
+                  trailing: AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    width: 26, height: 26,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: isSelected ? _teal : Colors.transparent,
+                      border: Border.all(color: isSelected ? _teal : const Color(0xFFDDDDDD), width: 2),
+                    ),
+                    child: isSelected ? const Icon(Icons.check_rounded, color: Colors.white, size: 16) : null,
+                  ),
+                  onTap: () {
+                    setState(() {
+                      if (isSelected) _selectedIds.remove(id);
+                      else _selectedIds.add(id);
+                    });
+                  },
+                ),
+                const Divider(height: 1, thickness: 0.5, indent: 72, endIndent: 16, color: Color(0xFFEEEEEE)),
+              ],
+            );
+          }
+          offset += list.length;
+        }
+        return const SizedBox.shrink();
+      },
+    );
+  }
+
   @override
   void dispose() {
+    _debounce?.cancel();
     _searchController.dispose();
     super.dispose();
   }

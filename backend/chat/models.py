@@ -40,7 +40,11 @@ class Conversation(models.Model):
 
 
 class ConversationParticipant(models.Model):
-    ROLES = [('admin', 'Admin'), ('member', 'Member')]
+    ROLES = [
+        ('admin', 'Admin'),
+        ('moderator', 'Moderator'),
+        ('member', 'Member'),
+    ]
     conversation = models.ForeignKey(
         Conversation, on_delete=models.CASCADE, related_name='conversation_participants'
     )

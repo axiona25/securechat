@@ -15,6 +15,9 @@ urlpatterns = [
     path('conversations/<uuid:conversation_id>/clear/', views.ConversationClearView.as_view(), name='conversation-clear'),
     path('conversations/<uuid:conversation_id>/leave/', views.ConversationLeaveView.as_view(), name='conversation-leave'),
     path('conversations/<uuid:conversation_id>/delete-for-all/', views.ConversationDeleteForAllView.as_view()),
+    path('conversations/<uuid:conversation_id>/avatar/', views.ConversationAvatarView.as_view(), name='conversation-avatar'),
+    path('conversations/<uuid:conversation_id>/participants/', views.ConversationParticipantsView.as_view(), name='conversation-participants'),
+    path('conversations/<uuid:conversation_id>/participants/<int:user_id>/', views.ConversationParticipantDetailView.as_view(), name='conversation-participant-detail'),
     # Chat features
     path('conversations/<uuid:conversation_id>/lock/', views.ConversationLockView.as_view(), name='conversation-lock'),
     path('conversations/<uuid:conversation_id>/favorite/', views.ConversationFavoriteView.as_view(), name='conversation-favorite'),

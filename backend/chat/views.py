@@ -270,6 +270,96 @@ class ConversationDetailView(APIView):
         serializer = ConversationDetailSerializer(conversation, context={'request': request})
         return Response(serializer.data)
 
+    def patch(self, request, conversation_id):
+        """Modifica nome/descrizione del gruppo (solo admin)."""
+        try:
+            conversation = Conversation.objects.get(id=conversation_id)
+            my_part = ConversationParticipant.objects.get(conversation=conversation, user=request.user)
+            if my_part.role != 'admin':
+                return Response({'error': 'Solo gli admin possono modificare'}, status=status.HTTP_403_FORBIDDEN)
+            try:
+                group = conversation.group_info
+            except Group.DoesNotExist:
+                return Response({'error': 'Non è un gruppo'}, status=status.HTTP_400_BAD_REQUEST)
+            name = request.data.get('name')
+            description = request.data.get('description')
+            if name is not None:
+                group.name = name
+            if description is not None:
+                group.description = description
+            group.save()
+            serializer = ConversationDetailSerializer(conversation, context={'request': request})
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        except Conversation.DoesNotExist:
+            return Response({'error': 'Conversazione non trovata'}, status=status.HTTP_404_NOT_FOUND)
+        except ConversationParticipant.DoesNotExist:
+            return Response({'error': 'Non sei partecipante'}, status=status.HTTP_403_FORBIDDEN)
+
+
+class ConversationParticipantsView(APIView):
+    """Gestione partecipanti di una conversazione di gruppo."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, conversation_id):
+        """Aggiunge un membro al gruppo (solo admin)."""
+        try:
+            conversation = Conversation.objects.get(id=conversation_id)
+            my_part = ConversationParticipant.objects.get(conversation=conversation, user=request.user)
+            if my_part.role not in ('admin', 'moderator'):
+                return Response({'error': 'Solo admin e moderatori possono aggiungere membri'}, status=status.HTTP_403_FORBIDDEN)
+            user_id = request.data.get('user_id')
+            if not user_id:
+                return Response({'error': 'user_id richiesto'}, status=status.HTTP_400_BAD_REQUEST)
+            if ConversationParticipant.objects.filter(conversation=conversation, user_id=user_id).exists():
+                return Response({'error': 'Utente già nel gruppo'}, status=status.HTTP_400_BAD_REQUEST)
+            ConversationParticipant.objects.create(conversation=conversation, user_id=user_id, role='member')
+            return Response({'added': True}, status=status.HTTP_201_CREATED)
+        except Conversation.DoesNotExist:
+            return Response({'error': 'Conversazione non trovata'}, status=status.HTTP_404_NOT_FOUND)
+        except ConversationParticipant.DoesNotExist:
+            return Response({'error': 'Non sei partecipante'}, status=status.HTTP_403_FORBIDDEN)
+
+
+class ConversationParticipantDetailView(APIView):
+    """Modifica ruolo o rimuovi un partecipante."""
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request, conversation_id, user_id):
+        """Cambia ruolo di un partecipante (solo admin)."""
+        try:
+            conversation = Conversation.objects.get(id=conversation_id)
+            my_part = ConversationParticipant.objects.get(conversation=conversation, user=request.user)
+            if my_part.role != 'admin':
+                return Response({'error': 'Solo gli admin possono cambiare ruoli'}, status=status.HTTP_403_FORBIDDEN)
+            target = ConversationParticipant.objects.get(conversation=conversation, user_id=user_id)
+            new_role = request.data.get('role', target.role)
+            if new_role not in ('admin', 'moderator', 'member'):
+                return Response({'error': 'Ruolo non valido'}, status=status.HTTP_400_BAD_REQUEST)
+            target.role = new_role
+            target.save()
+            return Response({'role': new_role}, status=status.HTTP_200_OK)
+        except Conversation.DoesNotExist:
+            return Response({'error': 'Conversazione non trovata'}, status=status.HTTP_404_NOT_FOUND)
+        except ConversationParticipant.DoesNotExist:
+            return Response({'error': 'Partecipante non trovato'}, status=status.HTTP_404_NOT_FOUND)
+
+    def delete(self, request, conversation_id, user_id):
+        """Rimuovi un partecipante (solo admin)."""
+        try:
+            conversation = Conversation.objects.get(id=conversation_id)
+            my_part = ConversationParticipant.objects.get(conversation=conversation, user=request.user)
+            if my_part.role != 'admin':
+                return Response({'error': 'Solo gli admin possono rimuovere membri'}, status=status.HTTP_403_FORBIDDEN)
+            target = ConversationParticipant.objects.get(conversation=conversation, user_id=user_id)
+            if target.user == request.user:
+                return Response({'error': 'Non puoi rimuovere te stesso'}, status=status.HTTP_400_BAD_REQUEST)
+            target.delete()
+            return Response({'removed': True}, status=status.HTTP_200_OK)
+        except Conversation.DoesNotExist:
+            return Response({'error': 'Conversazione non trovata'}, status=status.HTTP_404_NOT_FOUND)
+        except ConversationParticipant.DoesNotExist:
+            return Response({'error': 'Partecipante non trovato'}, status=status.HTTP_404_NOT_FOUND)
+
 
 class MessageListView(APIView):
     permission_classes = [IsAuthenticated]
@@ -540,6 +630,36 @@ class ConversationDeleteForAllView(APIView):
             return Response({'deleted': True}, status=status.HTTP_200_OK)
         except ConversationParticipant.DoesNotExist:
             return Response({'error': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
+
+
+class ConversationAvatarView(APIView):
+    """Upload avatar per una conversazione di gruppo."""
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser]
+
+    def post(self, request, conversation_id):
+        try:
+            conversation = Conversation.objects.get(id=conversation_id)
+        except Conversation.DoesNotExist:
+            return Response({'error': 'Conversazione non trovata'}, status=status.HTTP_404_NOT_FOUND)
+
+        if not ConversationParticipant.objects.filter(conversation=conversation, user=request.user).exists():
+            return Response({'error': 'Non sei partecipante'}, status=status.HTTP_403_FORBIDDEN)
+
+        avatar_file = request.FILES.get('avatar')
+        if not avatar_file:
+            return Response({'error': 'Nessun file fornito'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            group = conversation.group_info
+        except Group.DoesNotExist:
+            return Response({'error': 'Non è un gruppo'}, status=status.HTTP_400_BAD_REQUEST)
+
+        group.avatar = avatar_file
+        group.save()
+
+        avatar_url = request.build_absolute_uri(group.avatar.url) if group.avatar else None
+        return Response({'avatar': avatar_url}, status=status.HTTP_200_OK)
 
 
 class MediaServeView(APIView):

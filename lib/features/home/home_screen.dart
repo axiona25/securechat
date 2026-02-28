@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'package:image_picker/image_picker.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/theme/app_colors.dart';
@@ -2118,6 +2120,7 @@ class _GroupChatSheetContentState extends State<_GroupChatSheetContent> {
   bool _step2 = false;
   bool _creating = false;
   Timer? _debounce;
+  File? _groupImage;
 
   static const Color _teal = Color(0xFF2ABFBF);
   static const Color _navy = Color(0xFF1A2B4A);
@@ -2128,6 +2131,7 @@ class _GroupChatSheetContentState extends State<_GroupChatSheetContent> {
   void initState() {
     super.initState();
     _loadAllUsers();
+    _nameController.addListener(() { if (mounted) setState(() {}); });
   }
 
   @override
@@ -2208,6 +2212,14 @@ class _GroupChatSheetContentState extends State<_GroupChatSheetContent> {
     return map;
   }
 
+  Future<void> _pickGroupImage() async {
+    final picker = ImagePicker();
+    final picked = await picker.pickImage(source: ImageSource.gallery, maxWidth: 512, maxHeight: 512, imageQuality: 80);
+    if (picked != null && mounted) {
+      setState(() => _groupImage = File(picked.path));
+    }
+  }
+
   Future<void> _createGroup() async {
     final name = _nameController.text.trim();
     if (name.isEmpty) {
@@ -2223,6 +2235,26 @@ class _GroupChatSheetContentState extends State<_GroupChatSheetContent> {
       );
       if (!mounted) return;
       if (conv != null) {
+        // Upload foto gruppo se selezionata
+        if (_groupImage != null) {
+          try {
+            final convId = conv['id']?.toString();
+            if (convId != null) {
+              final token = ApiService().accessToken;
+              if (token != null) {
+                final request = http.MultipartRequest(
+                  'POST',
+                  Uri.parse('${AppConstants.baseUrl}/chat/conversations/$convId/avatar/'),
+                );
+                request.headers['Authorization'] = 'Bearer $token';
+                request.files.add(await http.MultipartFile.fromPath('avatar', _groupImage!.path));
+                await request.send();
+              }
+            }
+          } catch (e) {
+            debugPrint('Upload avatar gruppo fallito: $e');
+          }
+        }
         widget.onConversationCreated(conv);
       } else {
         widget.onError('Impossibile creare il gruppo');
@@ -2322,6 +2354,46 @@ class _GroupChatSheetContentState extends State<_GroupChatSheetContent> {
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Column(
               children: [
+                // Avatar foto gruppo
+                GestureDetector(
+                  onTap: _pickGroupImage,
+                  child: Center(
+                    child: Stack(
+                      children: [
+                        CircleAvatar(
+                          radius: 50,
+                          backgroundColor: const Color(0xFFB0E0D4),
+                          backgroundImage: _groupImage != null ? FileImage(_groupImage!) : null,
+                          child: _groupImage == null
+                              ? Text(
+                                  _nameController.text.trim().isNotEmpty
+                                      ? (_nameController.text.trim().length >= 2
+                                          ? _nameController.text.trim().substring(0, 2).toUpperCase()
+                                          : _nameController.text.trim().toUpperCase())
+                                      : 'GR',
+                                  style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.w700),
+                                )
+                              : null,
+                        ),
+                        Positioned(
+                          bottom: 0,
+                          right: 0,
+                          child: Container(
+                            width: 32,
+                            height: 32,
+                            decoration: BoxDecoration(
+                              color: _teal,
+                              shape: BoxShape.circle,
+                              border: Border.all(color: Colors.white, width: 2),
+                            ),
+                            child: const Icon(Icons.camera_alt, color: Colors.white, size: 16),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
                 TextField(
                   controller: _nameController,
                   decoration: const InputDecoration(

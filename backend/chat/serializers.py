@@ -230,7 +230,11 @@ class ConversationListSerializer(serializers.ModelSerializer):
     def get_group_avatar(self, obj):
         if obj.conv_type == 'group':
             group = getattr(obj, 'group_info', None)
-            return group.avatar.url if group and group.avatar else None
+            if group and group.avatar:
+                request = self.context.get('request')
+                if request:
+                    return request.build_absolute_uri(group.avatar.url)
+                return group.avatar.url
         return None
 
 
