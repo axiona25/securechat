@@ -129,6 +129,24 @@ class Message(models.Model):
         return (timezone.now() - self.created_at).total_seconds() < 900  # 15 min
 
 
+class MessageRecipient(models.Model):
+    """Per-recipient encrypted payload for group E2E messages (fan-out)."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    message = models.ForeignKey(Message, on_delete=models.CASCADE, related_name='recipients')
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='encrypted_messages')
+    content_encrypted = models.BinaryField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('message', 'user')
+        indexes = [
+            models.Index(fields=['message', 'user']),
+        ]
+
+    def __str__(self):
+        return f'MessageRecipient {self.message_id} → {self.user_id}'
+
+
 class Attachment(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     message = models.ForeignKey(

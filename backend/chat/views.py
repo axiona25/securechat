@@ -332,6 +332,23 @@ class MessageListView(APIView):
             reply_to_id=reply_to_id,
         )
 
+        # ── Salva payload cifrati per destinatario (E2E gruppi fan-out) ──
+        recipients_encrypted = request.data.get('recipients_encrypted')
+        if recipients_encrypted and isinstance(recipients_encrypted, dict):
+            from chat.models import MessageRecipient
+            for user_id_str, encrypted_b64 in recipients_encrypted.items():
+                try:
+                    user_id = int(user_id_str)
+                    encrypted_bytes_recipient = base64.b64decode(encrypted_b64)
+                    MessageRecipient.objects.create(
+                        message=message,
+                        user_id=user_id,
+                        content_encrypted=encrypted_bytes_recipient,
+                    )
+                except (ValueError, Exception) as e:
+                    import logging
+                    logging.getLogger(__name__).error(f'Failed to save recipient payload for user {user_id_str}: {e}')
+
         for att_id in attachment_ids:
             try:
                 att = Attachment.objects.filter(id=att_id).first()
@@ -370,16 +387,35 @@ class MessageListView(APIView):
         if not has_legacy_attachment:
             try:
                 channel_layer = get_channel_layer()
-                conv_group = f'conv_{conversation_id}'
                 message_data = MessageSerializer(message, context={'request': request}).data
-                payload = {
-                    'type': 'chat.message',
-                    'message': message_data,
-                    'sender_id': request.user.id,
-                }
-                if content_plain:
-                    payload['content'] = content_plain
-                async_to_sync(channel_layer.group_send)(conv_group, payload)
+                if channel_layer and recipients_encrypted and isinstance(recipients_encrypted, dict):
+                    # E2E gruppo: invia a ogni partecipante il suo payload cifrato
+                    conversation = message.conversation
+                    participants = conversation.conversation_participants.select_related('user').all()
+                    for cp in participants:
+                        if cp.user_id == request.user.id:
+                            continue  # Non inviare al mittente
+                        user_group = f'user_{cp.user_id}'
+                        per_user_payload = dict(message_data)
+                        user_enc = recipients_encrypted.get(str(cp.user_id), '')
+                        per_user_payload['content_encrypted'] = user_enc
+                        per_user_payload.pop('content', None)  # Rimuovi plaintext
+                        async_to_sync(channel_layer.group_send)(user_group, {
+                            'type': 'chat.message',
+                            'message': per_user_payload,
+                            'sender_id': request.user.id,
+                        })
+                elif channel_layer:
+                    # Messaggi normali (testo gruppi in chiaro, chat private)
+                    conv_group = f'conv_{conversation_id}'
+                    payload = {
+                        'type': 'chat.message',
+                        'message': message_data,
+                        'sender_id': request.user.id,
+                    }
+                    if content_plain:
+                        payload['content'] = content_plain
+                    async_to_sync(channel_layer.group_send)(conv_group, payload)
             except Exception as e:
                 print(f'[MSG-BROADCAST] group_send error: {e}')
 

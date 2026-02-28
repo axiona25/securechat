@@ -953,11 +953,14 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         return;
       }
       final prefsForCacheSilent = await SharedPreferences.getInstance();
+      bool contentDecrypted = false;
       for (final msg in newMessages) {
         final plainContent = msg['content']?.toString() ?? '';
         final encryptedB64 = msg['content_encrypted_b64']?.toString() ?? '';
         final messageId = msg['id']?.toString() ?? '';
-        if (plainContent.isNotEmpty) continue;
+        // Non saltare se è solo il placeholder E2E (gruppi): dobbiamo decifrare
+        final isPlaceholderOnly = plainContent == '🔒 Messaggio cifrato';
+        if (plainContent.isNotEmpty && !isPlaceholderOnly) continue;
         if (encryptedB64.isEmpty) continue;
 
         final senderIdRaw = msg['sender']?['id'] ?? msg['sender_id'];
@@ -1043,6 +1046,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             await _sessionManager.cacheSentMessage(messageId, decrypted);
           }
           _decryptedMessageIds.add(messageId);
+          contentDecrypted = true;
         } catch (e) {
           msg['content'] = '🔒 Messaggio non disponibile';
           _failedDecryptIds.add(messageId);
@@ -1050,8 +1054,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           await _persistFailedDecryptIds();
         }
       }
-      // 3. Only now compare (decrypted) newMessages with _messages
-      if (mounted && _hasChanges(newMessages)) {
+      // 3. Only now compare (decrypted) newMessages with _messages; aggiorna anche se solo il content è cambiato (decifratura)
+      if (mounted && (_hasChanges(newMessages) || contentDecrypted)) {
         if (newMessages.length > _messages.length && newMessages.isNotEmpty) {
           final lastMsg = newMessages.first;
           final sender = lastMsg['sender'];
@@ -1067,7 +1071,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         newMessages = newMessages.reversed.toList();
         final prevCount = _messages.length;
         setState(() {
-          // Aggiorna solo messaggi nuovi o con statuses cambiati; mantieni gli oggetti esistenti per evitare rebuild
+          // Aggiorna messaggi nuovi, statuses, e content (es. dopo decifratura E2E gruppi)
           final existingIds = {for (final m in _messages) m['id']?.toString(): m};
           _messages = newMessages.map((newMsg) {
             final id = newMsg['id']?.toString();
@@ -1076,7 +1080,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             existing['statuses'] = newMsg['statuses'];
             existing['is_deleted'] = newMsg['is_deleted'];
             existing['is_edited'] = newMsg['is_edited'];
-            return existing; // stesso oggetto = no rebuild del widget
+            if (newMsg['content'] != null) existing['content'] = newMsg['content'];
+            return existing;
           }).toList();
         });
         _preloadAttachmentCaptionsFromPrefs();
@@ -1159,7 +1164,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         final plainContent = msg['content']?.toString() ?? '';
         final encryptedB64 = msg['content_encrypted_b64']?.toString() ?? '';
         final messageId = msg['id']?.toString() ?? '';
-        if (plainContent.isNotEmpty) continue;
+        final isPlaceholderOnly = plainContent == '🔒 Messaggio cifrato';
+        if (plainContent.isNotEmpty && !isPlaceholderOnly) continue;
         if (encryptedB64.isEmpty) continue;
 
         final senderIdRaw = msg['sender']?['id'] ?? msg['sender_id'];
@@ -1336,7 +1342,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         final encryptedB64 = msg['content_encrypted_b64']?.toString() ?? '';
         final messageId = msg['id']?.toString() ?? '';
 
-        if (plainContent.isNotEmpty) continue;
+        final isPlaceholderOnly = plainContent == '🔒 Messaggio cifrato';
+        if (plainContent.isNotEmpty && !isPlaceholderOnly) continue;
         if (encryptedB64.isEmpty) continue;
 
         final senderIdRaw = msg['sender']?['id'] ?? msg['sender_id'];
@@ -2426,9 +2433,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     final attachments = message['attachments'] as List? ?? [];
     if (attachments.isEmpty) return const SizedBox.shrink();
     final att = attachments[0] as Map<String, dynamic>;
-    // Nei gruppi gli allegati non sono cifrati, anche se il backend li marca come tali
-    final isGroup = _conversation?.isGroup ?? false;
-    final isEncrypted = !isGroup && att['is_encrypted'] == true;
+    final isEncrypted = att['is_encrypted'] == true;
 
     if (isEncrypted) {
       return FutureBuilder<File?>(
@@ -3618,6 +3623,42 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           }
           return; // BLOCCA l'invio
         }
+      } else if (_conversation != null && _conversation!.isGroup) {
+        // E2E fan-out: cifra per ogni partecipante del gruppo
+        final recipientsEncrypted = <String, String>{};
+        bool encryptionFailed = false;
+
+        for (final participant in _conversation!.participants) {
+          if (participant.userId == _effectiveCurrentUserId) continue;
+          try {
+            final encrypted = await _sessionManager.encryptMessage(
+              participant.userId,
+              savedText,
+            );
+            recipientsEncrypted[participant.userId.toString()] = base64Encode(encrypted);
+          } catch (e) {
+            debugPrint('[E2E-GROUP] Failed to encrypt for user ${participant.userId}: $e');
+            encryptionFailed = true;
+            break;
+          }
+        }
+
+        if (encryptionFailed || recipientsEncrypted.isEmpty) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Impossibile cifrare il messaggio per tutti i partecipanti.'),
+                backgroundColor: Colors.red,
+                duration: Duration(seconds: 4),
+              ),
+            );
+          }
+          return;
+        }
+
+        body['recipients_encrypted'] = recipientsEncrypted;
+        // Invia anche content_encrypted con il primo payload per compatibilità
+        body['content_encrypted'] = recipientsEncrypted.values.first;
       } else {
         body['content'] = savedText;
       }
@@ -4170,7 +4211,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   Future<void> _uploadAndSendFile(File file, String messageType) async {
     if (_conversationId == null || _conversationId!.isEmpty) return;
     final otherUserId = _getOtherUserId();
-    if (otherUserId == null) {
+    final isGroup = _conversation != null && _conversation!.isGroup;
+
+    if (otherUserId == null && !isGroup) {
       await _uploadAndSendFileLegacy(file, messageType);
       return;
     }
@@ -4198,7 +4241,29 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         'file_key_b64': fileKeyB64,
         'caption': fileName,
       });
-      final encryptedPayload = await _sessionManager.encryptMessage(otherUserId, attachmentPayload);
+      Map<String, String>? recipientsEncrypted;
+      Uint8List? encryptedPayload;
+
+      if (isGroup) {
+        // Fan-out: cifra il payload (file_key + caption) per ogni partecipante
+        recipientsEncrypted = {};
+        for (final participant in _conversation!.participants) {
+          if (participant.userId == _effectiveCurrentUserId) continue;
+          try {
+            final encrypted = await _sessionManager.encryptMessage(
+              participant.userId,
+              attachmentPayload,
+            );
+            recipientsEncrypted[participant.userId.toString()] = base64Encode(encrypted);
+          } catch (e) {
+            debugPrint('[E2E-GROUP] Failed to encrypt attachment for user ${participant.userId}: $e');
+            throw Exception('Cifratura allegato fallita per utente ${participant.userId}');
+          }
+        }
+      } else {
+        encryptedPayload = await _sessionManager.encryptMessage(otherUserId!, attachmentPayload);
+      }
+
       final attachmentId = await _uploadEncryptedBlob(
         encryptedBytes: encryptedBytes,
         encryptedFileKeyB64: 'e2e-inline',
@@ -4213,7 +4278,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('scp_att_key_$attachmentId', fileKeyB64);
       await prefs.setString('scp_att_caption_$attachmentId', fileName);
-      final contentEncryptedB64 = base64Encode(encryptedPayload);
+      final contentEncryptedB64 = isGroup
+          ? (recipientsEncrypted!.values.isNotEmpty ? recipientsEncrypted.values.first : '')
+          : base64Encode(encryptedPayload!);
       await AuthService().refreshAccessTokenIfNeeded();
       final token = ApiService().accessToken;
       if (token == null) throw Exception('Non autenticato');
@@ -4224,6 +4291,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         'message_type': messageType,
         'attachment_ids': attachmentIds,
       };
+      if (isGroup && recipientsEncrypted != null) {
+        msgBody['recipients_encrypted'] = recipientsEncrypted;
+      }
       if (_replyToMessage != null) {
         msgBody['reply_to_id'] = _replyToMessage!['id']?.toString() ?? '';
       }

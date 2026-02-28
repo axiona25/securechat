@@ -76,6 +76,15 @@ class MessageSerializer(serializers.ModelSerializer):
         """Return plaintext content if available, empty string if E2E encrypted."""
         if obj.is_deleted:
             return ''
+        # Per E2E gruppi: restituisci il payload cifrato specifico per l'utente corrente
+        request = self.context.get('request')
+        if request and hasattr(request, 'user') and request.user.is_authenticated:
+            from chat.models import MessageRecipient
+            recipient = MessageRecipient.objects.filter(
+                message=obj, user=request.user
+            ).first()
+            if recipient:
+                return '🔒 Messaggio cifrato'
         if not obj.content_encrypted:
             return ''
         if obj.content_for_translation:
@@ -91,10 +100,23 @@ class MessageSerializer(serializers.ModelSerializer):
         return ''
 
     def get_content_encrypted_b64(self, obj):
+        """Restituisce il payload cifrato specifico per l'utente corrente (E2E gruppi)."""
         if obj.is_deleted:
             return None
+        request = self.context.get('request')
+        if request and hasattr(request, 'user') and request.user.is_authenticated:
+            from chat.models import MessageRecipient
+            recipient = MessageRecipient.objects.filter(
+                message=obj, user=request.user
+            ).first()
+            if recipient:
+                return base64.b64encode(bytes(recipient.content_encrypted)).decode('utf-8')
+        # Fallback: restituisci content_encrypted del messaggio se presente
         if obj.content_encrypted:
-            return base64.b64encode(bytes(obj.content_encrypted)).decode()
+            try:
+                return base64.b64encode(bytes(obj.content_encrypted)).decode('utf-8')
+            except Exception:
+                pass
         return None
 
     def get_reply_to_preview(self, obj):
