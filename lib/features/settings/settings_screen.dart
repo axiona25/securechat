@@ -167,10 +167,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       request.headers['Authorization'] = 'Bearer $token';
       request.files.add(await http.MultipartFile.fromPath('avatar', picked.path));
 
-      debugPrint('[AVATAR] Uploading to: ${request.url}');
       final response = await request.send();
       final responseBody = await response.stream.bytesToString();
-      debugPrint('[AVATAR] Status: ${response.statusCode}, Body: $responseBody');
       if (response.statusCode == 200) {
         await _loadProfile();
         if (mounted) {

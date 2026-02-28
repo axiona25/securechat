@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -65,6 +66,14 @@ class AuthService {
           print('[Auth] Crypto init FAILED: $e');
           print('[Auth] Stack: $stack');
         }
+        // Registra token FCM per notifiche push (dopo login abbiamo access token)
+        try {
+          final fcmToken = await FirebaseMessaging.instance.getToken();
+          if (fcmToken != null) {
+            await _api.post('/auth/fcm-token/', body: {'token': fcmToken});
+          }
+        } catch (_) {}
+
         return AuthResult(
           success: true,
           accessToken: access,

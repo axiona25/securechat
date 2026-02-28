@@ -36,6 +36,7 @@ class User(AbstractUser):
     last_seen = models.DateTimeField(null=True, blank=True)
     is_online = models.BooleanField(default=False)
     firebase_token = models.CharField(max_length=500, blank=True, default='')
+    fcm_token = models.CharField(max_length=500, null=True, blank=True)
     public_key = models.TextField(blank=True, default='')
 
     # Settings

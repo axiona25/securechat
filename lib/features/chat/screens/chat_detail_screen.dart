@@ -316,6 +316,37 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     return 'Assente';
   }
 
+  Widget _buildGroupStatusText() {
+    final participants = _conversation?.participants ?? [];
+    final onlineCount = participants.where((p) => p.isOnline).length;
+    final offlineCount = participants.length - onlineCount;
+
+    return Text.rich(
+      TextSpan(
+        children: [
+          TextSpan(
+            text: '● ',
+            style: TextStyle(fontSize: 9, color: Color(0xFF4CAF50)),
+          ),
+          TextSpan(
+            text: '$onlineCount online  ',
+            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: Color(0xFF4CAF50)),
+          ),
+          TextSpan(
+            text: '● ',
+            style: TextStyle(fontSize: 9, color: Color(0xFFBDBDBD)),
+          ),
+          TextSpan(
+            text: '$offlineCount offline',
+            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: Color(0xFFBDBDBD)),
+          ),
+        ],
+      ),
+      overflow: TextOverflow.ellipsis,
+      maxLines: 1,
+    );
+  }
+
   Future<void> _loadConversationAndMessages() async {
     if (_conversationId == null || _conversationId!.isEmpty) return;
     // Load persisted failed-decrypt IDs so we never retry after hot restart
@@ -4651,14 +4682,16 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
-                    Text(
-                      _getStatusText(_isOtherOnline),
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w400,
-                        color: _getStatusColor(_isOtherOnline),
-                      ),
-                    ),
+                    _conversation != null && _conversation!.isGroup
+                        ? _buildGroupStatusText()
+                        : Text(
+                            _getStatusText(_isOtherOnline),
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w400,
+                              color: _getStatusColor(_isOtherOnline),
+                            ),
+                          ),
                   ],
                 ),
               ),

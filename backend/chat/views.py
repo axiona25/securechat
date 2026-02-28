@@ -539,6 +539,30 @@ class MessageListView(APIView):
             except Exception as e:
                 print(f'[MSG-BROADCAST] group_send error: {e}')
 
+        # Invia notifica push ai partecipanti offline
+        try:
+            from chat.push_notifications import send_push_to_conversation_participants
+            sender_name = f"{request.user.first_name} {request.user.last_name}".strip() or request.user.username
+            if conversation.conv_type == 'group':
+                group_name = 'Gruppo'
+                try:
+                    group_name = conversation.group_info.name
+                except Exception:
+                    pass
+                push_title = group_name
+                push_body = f"{sender_name}: Nuovo messaggio"
+            else:
+                push_title = sender_name
+                push_body = "Nuovo messaggio"
+            push_data = {
+                'conversation_id': str(conversation.id),
+                'message_type': message_type or 'text',
+            }
+            send_push_to_conversation_participants(conversation, request.user, push_title, push_body, push_data)
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error('Push notification error: %s', e)
+
         serializer = MessageSerializer(message, context={'request': request})
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 

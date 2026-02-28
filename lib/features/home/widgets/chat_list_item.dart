@@ -233,7 +233,6 @@ class ChatListItem extends StatelessWidget {
 
   Widget _buildSingleAvatar() {
     final avatarUrl = conversation.avatarUrlFor(currentUserId) ?? conversation.avatarUrl;
-    debugPrint('[CHAT-ITEM] name=${conversation.displayNameFor(currentUserId)} avatarUrl=$avatarUrl');
     final conversationName = conversation.displayNameFor(currentUserId);
     final isOnline = conversation.isOtherOnlineFor(currentUserId);
     final statusColor = _getStatusColor(isOnline);

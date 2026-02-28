@@ -397,3 +397,16 @@ def search_users(request):
         }
         for u in users
     ])
+
+
+class FCMTokenView(APIView):
+    """Registra o aggiorna il token FCM dell'utente."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        token = request.data.get('token')
+        if not token:
+            return Response({'error': 'Token richiesto'}, status=status.HTTP_400_BAD_REQUEST)
+        request.user.fcm_token = token
+        request.user.save(update_fields=['fcm_token'])
+        return Response({'registered': True}, status=status.HTTP_200_OK)
