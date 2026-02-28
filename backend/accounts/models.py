@@ -47,6 +47,13 @@ class User(AbstractUser):
     last_seen_visible = models.BooleanField(default=True)
     lock_pin = models.CharField(max_length=128, blank=True, null=True)
 
+    approval_status = models.CharField(
+        max_length=20,
+        choices=[('approved', 'Approvato'), ('pending', 'Da approvare'), ('blocked', 'Bloccato')],
+        default='pending'
+    )
+    must_change_password = models.BooleanField(default=False)
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

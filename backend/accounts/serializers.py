@@ -86,6 +86,10 @@ class LoginSerializer(serializers.Serializer):
             raise serializers.ValidationError('Account non verificato. Controlla la tua email.')
         if not user.is_active:
             raise serializers.ValidationError('Account disattivato.')
+        if hasattr(user, 'approval_status') and user.approval_status == 'pending' and not user.is_staff:
+            raise serializers.ValidationError('Account in attesa di approvazione da parte dell\'amministratore.')
+        if hasattr(user, 'approval_status') and user.approval_status == 'blocked' and not user.is_staff:
+            raise serializers.ValidationError('Account bloccato. Contatta l\'amministratore.')
         attrs['user'] = user
         return attrs
 

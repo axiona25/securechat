@@ -48,6 +48,7 @@ urlpatterns = [
     path('api/translation/', include('translation.urls')),
     path('api/notifications/', include('notifications.urls')),
     path('api/admin-panel/', include('admin_api.urls')),
+    path('api/admin/', include('admin_api.urls_admin')),
     path('api/security/', include('security.urls')),
 ]
 
