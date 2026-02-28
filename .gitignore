@@ -4,6 +4,7 @@
 !.env.example
 
 # Firebase / Google credentials (never commit service account keys)
+backend/firebase-credentials.json
 backend/firebase/*.json
 !backend/firebase/GoogleService-Info.plist
 !backend/firebase/google-services.json
