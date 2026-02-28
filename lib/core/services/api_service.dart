@@ -42,6 +42,22 @@ class ApiService {
   String? get refreshToken => _refreshToken;
   bool get isAuthenticated => _accessToken != null;
 
+  /// Estrae il messaggio di errore dal body JSON (Django: non_field_errors, error, detail, email, password).
+  static String _extractErrorMessage(Map<String, dynamic> data, {String fallback = 'Request failed'}) {
+    if (data['non_field_errors'] != null && data['non_field_errors'] is List && (data['non_field_errors'] as List).isNotEmpty) {
+      return (data['non_field_errors'] as List).first.toString();
+    }
+    if (data['error'] != null) return data['error'].toString();
+    if (data['detail'] != null) return data['detail'].toString();
+    if (data['email'] != null && data['email'] is List && (data['email'] as List).isNotEmpty) {
+      return (data['email'] as List).first.toString();
+    }
+    if (data['password'] != null && data['password'] is List && (data['password'] as List).isNotEmpty) {
+      return (data['password'] as List).first.toString();
+    }
+    return fallback;
+  }
+
   Map<String, String> get _headers {
     final headers = <String, String>{
       'Content-Type': 'application/json',
@@ -73,9 +89,10 @@ class ApiService {
         return data;
       }
 
+      final message = _extractErrorMessage(data);
       throw ApiException(
         statusCode: response.statusCode,
-        message: data['detail'] ?? data['error'] ?? 'Request failed',
+        message: message,
         errors: data['errors'] as Map<String, dynamic>?,
       );
     } on ApiException {

@@ -534,6 +534,9 @@ function UsersPage() {
                 body: JSON.stringify({ approval_status: newStatus }),
               });
               setUsers(prev => prev.map(u => u.id === user.id ? { ...u, status: newStatus } : u));
+              if (selectedUser && selectedUser.id === user.id) {
+                setSelectedUser(prev => ({ ...prev, status: newStatus }));
+              }
             } catch (e) { console.error(e); }
             setConfirmAction(null);
           },
@@ -553,6 +556,23 @@ function UsersPage() {
             ],
           });
         } catch (e) { console.error(e); }
+        break;
+      case "resend_password":
+        try {
+          const res = await apiFetch(`/admin/users/${user.id}/reset-password/`, { method: "POST" });
+          const data = await res.json();
+          setInfoModal({
+            title: "Password Reinviata",
+            lines: [
+              { label: "Utente", value: `${user.firstName} ${user.lastName}` },
+              { label: "Email", value: user.email },
+              { label: "Nuova Password", value: data.temp_password, copyable: true },
+              { label: "Stato", value: "✅ Email inviata con nuova password temporanea" },
+            ],
+          });
+        } catch (e) {
+          setInfoModal({ title: "Errore", lines: [{ label: "Dettaglio", value: "Impossibile reinviare la password" }] });
+        }
         break;
       default: break;
     }
@@ -628,6 +648,22 @@ function UsersPage() {
           createdAt: u.date_joined || "2026-01-01", device: "-",
           status: u.approval_status || "active", avatar: u.avatar, isOnline: u.is_online, groups: u.groups || [],
         })));
+        // Aggiorna selectedUser con i dati freschi
+        if (selectedUser) {
+          const fresh = usersList.find(u => u.id === selectedUser.id);
+          if (fresh) {
+            setSelectedUser({
+              id: fresh.id, firstName: fresh.first_name || fresh.username, lastName: fresh.last_name || "",
+              email: fresh.email, group: fresh.groups?.length > 0 ? fresh.groups.map(g => g.name).join(", ") : "Nessun gruppo",
+              createdAt: fresh.date_joined || "2026-01-01", device: "-",
+              status: fresh.approval_status || "active", avatar: fresh.avatar, isOnline: fresh.is_online, groups: fresh.groups || [],
+            });
+          }
+        }
+      }
+      // Aggiorna anche selectedUser se è lo stesso utente
+      if (selectedUser && editForm.id === selectedUser.id) {
+        setSelectedUser({ ...editForm });
       }
       setEditingUser(null);
       setEditForm({});
@@ -677,7 +713,7 @@ function UsersPage() {
           </div>
         </div>
 
-        <div style={{ overflowX: "auto" }}>
+        <div style={{ overflowX: "auto", overflowY: "visible", position: "relative" }}>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr style={{ borderBottom: `1px solid ${T.border}` }}>
@@ -713,10 +749,11 @@ function UsersPage() {
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>
                       </button>
                       {openMenuId === user.id && (
-                        <div ref={menuRef} style={{ position: "absolute", right: 8, top: "100%", background: T.card, borderRadius: 12, boxShadow: "0 8px 30px rgba(0,0,0,0.12)", border: `1px solid ${T.border}`, padding: "6px", zIndex: 200, minWidth: 180, animation: "fadeIn 0.15s ease" }}>
+                        <div ref={menuRef} style={{ position: "fixed", right: 60, zIndex: 9999, background: T.card, borderRadius: 12, boxShadow: "0 8px 30px rgba(0,0,0,0.12)", border: `1px solid ${T.border}`, padding: "6px", minWidth: 180, animation: "fadeIn 0.15s ease" }}>
                           {[
                             { label: "Modifica", icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>, action: "edit" },
                             { label: "Reset Password", icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12.65 10C11.83 7.67 9.61 6 7 6c-3.31 0-6 2.69-6 6s2.69 6 6 6c2.61 0 4.83-1.67 5.65-4H17v4h4v-4h2v-4H12.65zM7 14c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z"/></svg>, action: "reset_password" },
+                            { label: "Reinvia Password", icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z"/></svg>, action: "resend_password" },
                             { label: user.status === "blocked" ? "Sblocca" : "Blocca", icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d={user.status === "blocked" ? "M12 17c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm6-9h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6h1.9c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm0 12H6V10h12v10z" : "M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"}/></svg>, action: "toggle_block" },
                             { label: "Elimina", icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>, action: "delete", danger: true },
                           ].map((item, i) => (

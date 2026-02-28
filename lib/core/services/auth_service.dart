@@ -89,6 +89,8 @@ class AuthService {
       String errorMsg;
       if (e.statusCode == 401) {
         errorMsg = 'Invalid email or password.';
+      } else if (e.statusCode == 400) {
+        errorMsg = e.message == 'Request failed' ? 'Credenziali non valide' : e.message;
       } else if (e.statusCode == 0) {
         errorMsg = e.message;
       } else {

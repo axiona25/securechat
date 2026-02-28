@@ -18,6 +18,140 @@ logger = logging.getLogger(__name__)
 ADMIN_AUTH = [AdminJWTAuthentication]
 
 
+def get_email_html(user_name, user_email, temp_password, is_new_user=True):
+    """Genera template HTML professionale per email SecureChat."""
+    title = "Benvenuto in SecureChat!" if is_new_user else "Password Aggiornata"
+    subtitle = "Il tuo account è stato creato dall'amministratore." if is_new_user else "La tua password è stata aggiornata dall'amministratore."
+
+    return f"""<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{title}</title>
+</head>
+<body style="margin:0;padding:0;background-color:#F4F7FA;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color:#F4F7FA;padding:40px 20px;">
+<tr><td align="center">
+<table role="presentation" width="520" cellspacing="0" cellpadding="0" style="background-color:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.06);">
+
+  <!-- Header con logo -->
+  <tr>
+    <td style="background:linear-gradient(135deg,#2ABFBF 0%,#1FA3A3 50%,#178F8F 100%);padding:36px 40px;text-align:center;">
+      <table role="presentation" cellspacing="0" cellpadding="0" style="margin:0 auto;">
+        <tr>
+          <td style="width:44px;height:44px;background:rgba(255,255,255,0.2);border-radius:12px;text-align:center;vertical-align:middle;">
+            <span style="color:#ffffff;font-size:22px;font-weight:bold;">&#9878;</span>
+          </td>
+          <td style="padding-left:14px;">
+            <span style="color:#ffffff;font-size:24px;font-weight:800;letter-spacing:-0.3px;">Secure</span><span style="color:rgba(255,255,255,0.85);font-size:24px;font-weight:800;">Chat</span>
+          </td>
+        </tr>
+      </table>
+      <div style="color:rgba(255,255,255,0.7);font-size:12px;letter-spacing:1.5px;text-transform:uppercase;margin-top:12px;">Messaggistica Sicura End-to-End</div>
+    </td>
+  </tr>
+
+  <!-- Titolo -->
+  <tr>
+    <td style="padding:36px 40px 0;">
+      <h1 style="margin:0;font-size:24px;font-weight:800;color:#1A2B3C;letter-spacing:-0.3px;">{title}</h1>
+      <p style="margin:8px 0 0;font-size:15px;color:#7B8794;line-height:1.5;">{subtitle}</p>
+    </td>
+  </tr>
+
+  <!-- Info utente -->
+  <tr>
+    <td style="padding:28px 40px 0;">
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#F8FAFB;border-radius:12px;border:1px solid #E8ECF0;">
+        <tr>
+          <td style="padding:20px 24px;">
+            <table role="presentation" width="100%" cellspacing="0" cellpadding="0">
+              <tr>
+                <td style="padding-bottom:14px;border-bottom:1px solid #E8ECF0;">
+                  <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#7B8794;font-weight:600;margin-bottom:4px;">Nome</div>
+                  <div style="font-size:15px;font-weight:600;color:#1A2B3C;">{user_name}</div>
+                </td>
+              </tr>
+              <tr>
+                <td style="padding:14px 0;border-bottom:1px solid #E8ECF0;">
+                  <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#7B8794;font-weight:600;margin-bottom:4px;">Email</div>
+                  <div style="font-size:15px;font-weight:600;color:#1A2B3C;">{user_email}</div>
+                </td>
+              </tr>
+              <tr>
+                <td style="padding-top:14px;">
+                  <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#7B8794;font-weight:600;margin-bottom:8px;">Password Temporanea</div>
+                  <div style="background:linear-gradient(135deg,#2ABFBF 0%,#1FA3A3 100%);color:#ffffff;font-size:18px;font-weight:800;letter-spacing:2px;padding:14px 20px;border-radius:10px;text-align:center;font-family:'Courier New',monospace;">{temp_password}</div>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+
+  <!-- Avviso cambio password -->
+  <tr>
+    <td style="padding:20px 40px 0;">
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#FFF8E1;border-radius:10px;border:1px solid #FFE082;">
+        <tr>
+          <td style="padding:14px 18px;">
+            <div style="font-size:13px;color:#F57F17;font-weight:600;">&#9888;&#65039; Al primo accesso ti verrà chiesto di cambiare la password.</div>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+
+  <!-- Download App Button -->
+  <tr>
+    <td style="padding:28px 40px 0;text-align:center;">
+      <a href="https://securechat.app/download" style="display:inline-block;background:linear-gradient(135deg,#2ABFBF 0%,#1FA3A3 100%);color:#ffffff;text-decoration:none;font-size:16px;font-weight:700;padding:14px 40px;border-radius:12px;letter-spacing:0.3px;">Scarica SecureChat</a>
+    </td>
+  </tr>
+
+  <!-- Store badges -->
+  <tr>
+    <td style="padding:16px 40px 0;text-align:center;">
+      <table role="presentation" cellspacing="0" cellpadding="0" style="margin:0 auto;">
+        <tr>
+          <td style="padding:0 6px;">
+            <a href="https://apps.apple.com/app/securechat" style="display:inline-block;background:#1A2B3C;color:#fff;text-decoration:none;font-size:12px;font-weight:600;padding:8px 16px;border-radius:8px;">
+              &#63743; App Store
+            </a>
+          </td>
+          <td style="padding:0 6px;">
+            <a href="https://play.google.com/store/apps/details?id=com.securechat" style="display:inline-block;background:#1A2B3C;color:#fff;text-decoration:none;font-size:12px;font-weight:600;padding:8px 16px;border-radius:8px;">
+              &#9654; Google Play
+            </a>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+
+  <!-- Footer -->
+  <tr>
+    <td style="padding:32px 40px;text-align:center;">
+      <div style="height:1px;background:#E8ECF0;margin-bottom:24px;"></div>
+      <div style="font-size:12px;color:#7B8794;line-height:1.6;">
+        Questa email è stata inviata automaticamente dal sistema SecureChat.<br>
+        Se non hai richiesto questo account, ignora questa email.<br><br>
+        <span style="color:#2ABFBF;font-weight:600;">SecureChat</span> — Comunicazione Sicura End-to-End<br>
+        <span style="font-size:11px;color:#A0ADB8;">© 2026 SecureChat. Tutti i diritti riservati.</span>
+      </div>
+    </td>
+  </tr>
+
+</table>
+</td></tr>
+</table>
+</body>
+</html>"""
+
+
 class AdminDashboardStatsView(APIView):
     authentication_classes = ADMIN_AUTH
     permission_classes = [IsAdminUser]
@@ -109,25 +243,20 @@ class AdminCreateUserView(APIView):
 
         # Invia email con credenziali
         try:
-            send_mail(
+            from django.core.mail import EmailMultiAlternatives
+
+            user_name = f"{first_name} {last_name}".strip() or username
+            html_content = get_email_html(user_name, email, temp_password, is_new_user=True)
+
+            msg = EmailMultiAlternatives(
                 subject='SecureChat - Il tuo account è stato creato',
-                message=f"""Ciao {first_name},
-
-Il tuo account SecureChat è stato creato.
-
-Email: {email}
-Password temporanea: {temp_password}
-
-Scarica l'app SecureChat e accedi con queste credenziali.
-Al primo accesso ti verrà chiesto di cambiare la password.
-
-Saluti,
-Il team SecureChat""",
+                body=f'Ciao {user_name}, il tuo account SecureChat è stato creato. Email: {email} - Password temporanea: {temp_password}',
                 from_email=settings.DEFAULT_FROM_EMAIL,
-                recipient_list=[email],
-                fail_silently=True,
+                to=[email],
             )
-            email_sent = True
+            msg.attach_alternative(html_content, "text/html")
+            result = msg.send(fail_silently=False)
+            email_sent = result > 0
         except Exception as e:
             logger.error(f"Email send error: {e}")
             email_sent = False
@@ -242,25 +371,26 @@ class AdminResetPasswordView(APIView):
         user.must_change_password = True
         user.save(update_fields=['password', 'must_change_password'])
 
+        email_sent = False
+        email_error = None
         try:
-            send_mail(
-                subject='SecureChat - Password resettata',
-                message=f"""Ciao {user.first_name},
+            from django.core.mail import EmailMultiAlternatives
 
-La tua password SecureChat è stata resettata dall'amministratore.
+            user_name = f"{user.first_name} {user.last_name}".strip() or user.username
+            html_content = get_email_html(user_name, user.email, temp_password, is_new_user=False)
 
-Nuova password temporanea: {temp_password}
-
-Al prossimo accesso ti verrà chiesto di cambiare la password.
-
-Saluti,
-Il team SecureChat""",
+            msg = EmailMultiAlternatives(
+                subject='SecureChat - La tua password è stata aggiornata',
+                body=f'Ciao {user_name}, la tua password SecureChat è stata aggiornata. Email: {user.email} - Nuova password: {temp_password}',
                 from_email=settings.DEFAULT_FROM_EMAIL,
-                recipient_list=[user.email],
-                fail_silently=True,
+                to=[user.email],
             )
-        except Exception:
-            pass
+            msg.attach_alternative(html_content, "text/html")
+            result = msg.send(fail_silently=False)
+            email_sent = result > 0
+        except Exception as e:
+            email_error = str(e)
+            logger.error(f"Email send error for user {user.email}: {e}")
 
         return Response({
             'temp_password': temp_password,

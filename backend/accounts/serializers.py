@@ -89,7 +89,7 @@ class LoginSerializer(serializers.Serializer):
         if hasattr(user, 'approval_status') and user.approval_status == 'pending' and not user.is_staff:
             raise serializers.ValidationError('Account in attesa di approvazione da parte dell\'amministratore.')
         if hasattr(user, 'approval_status') and user.approval_status == 'blocked' and not user.is_staff:
-            raise serializers.ValidationError('Account bloccato. Contatta l\'amministratore.')
+            raise serializers.ValidationError('Utente temporaneamente bloccato. Contatta l\'amministratore.')
         attrs['user'] = user
         return attrs
 
