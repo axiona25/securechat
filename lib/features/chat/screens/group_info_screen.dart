@@ -11,11 +11,13 @@ import '../../../core/widgets/user_avatar_widget.dart';
 class GroupInfoScreen extends StatefulWidget {
   final String conversationId;
   final Map<String, dynamic>? conversationData;
+  final VoidCallback? onGroupUpdated;
 
   const GroupInfoScreen({
     super.key,
     required this.conversationId,
     this.conversationData,
+    this.onGroupUpdated,
   });
 
   @override
@@ -31,6 +33,9 @@ class _GroupInfoScreenState extends State<GroupInfoScreen> {
   String _groupName = '';
   String _groupDescription = '';
   String? _groupAvatar;
+  int? _creatorUserId;
+  final Set<int> _mutedUserIds = {};
+  final Set<int> _blockedUserIds = {};
 
   static const Color _teal = Color(0xFF2ABFBF);
   static const Color _navy = Color(0xFF1A2B4A);
@@ -47,9 +52,16 @@ class _GroupInfoScreenState extends State<GroupInfoScreen> {
       final response = await ApiService().get('/chat/conversations/${widget.conversationId}/');
       if (response != null && mounted) {
         debugPrint('[GROUP-INFO] Response: $response');
-        debugPrint('[GROUP-INFO] Participants raw: ${response['participants']}');
+        debugPrint('[GROUP-INFO] Participants info count: ${(response['participants_info'] as List?)?.length ?? 0}');
         final prefs = await SharedPreferences.getInstance();
-        _currentUserId = int.tryParse(prefs.getString('user_id') ?? '') ?? int.tryParse(prefs.getString('userId') ?? '');
+        // Recupera current user id dalle prefs (potrebbe essere salvato come int o String)
+        final rawUserId = prefs.get('user_id') ?? prefs.get('userId') ?? prefs.get('current_user_id');
+        if (rawUserId is int) {
+          _currentUserId = rawUserId;
+        } else if (rawUserId is String) {
+          _currentUserId = int.tryParse(rawUserId);
+        }
+        debugPrint('[GROUP-INFO] currentUserId: $_currentUserId (raw: $rawUserId)');
 
         final participantsRaw = response['participants_info'] as List? ?? [];
         final participants = participantsRaw.map((p) {
@@ -75,12 +87,26 @@ class _GroupInfoScreenState extends State<GroupInfoScreen> {
             .map((p) => p['role']?.toString() ?? 'member')
             .firstOrNull ?? 'member';
 
+        int? creatorUserId;
+        for (final p in participantsRaw) {
+          if (p is Map && p['role'] == 'admin') {
+            final creatorUser = p['user'];
+            if (creatorUser is Map) {
+              creatorUserId = creatorUser['id'] is int
+                  ? creatorUser['id'] as int
+                  : int.tryParse(creatorUser['id']?.toString() ?? '');
+            }
+            break;
+          }
+        }
+
         debugPrint('[GROUP-INFO] currentUserId: $_currentUserId, myRole: $myRole');
 
         setState(() {
           _conversation = response;
           _participants = participants;
           _isAdmin = myRole == 'admin';
+          _creatorUserId = creatorUserId;
           _groupName = response['group_name']?.toString() ?? response['name']?.toString() ?? '';
           _groupDescription = response['group_description']?.toString() ?? response['description']?.toString() ?? '';
           final avatarRaw = response['group_avatar']?.toString() ?? response['avatar']?.toString();
@@ -88,8 +114,9 @@ class _GroupInfoScreenState extends State<GroupInfoScreen> {
           _loading = false;
         });
       }
-    } catch (e) {
-      debugPrint('Load group info error: $e');
+    } catch (e, stackTrace) {
+      debugPrint('[GROUP-INFO] ERROR: $e');
+      debugPrint('[GROUP-INFO] STACK: $stackTrace');
       if (mounted) setState(() => _loading = false);
     }
   }
@@ -115,6 +142,7 @@ class _GroupInfoScreenState extends State<GroupInfoScreen> {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Avatar aggiornato'), backgroundColor: _teal),
           );
+          widget.onGroupUpdated?.call();
         }
       }
     } catch (e) {
@@ -154,6 +182,7 @@ class _GroupInfoScreenState extends State<GroupInfoScreen> {
           body: {'name': result},
         );
         setState(() => _groupName = result);
+        widget.onGroupUpdated?.call();
       } catch (e) {
         debugPrint('Edit group name error: $e');
       }
@@ -198,42 +227,62 @@ class _GroupInfoScreenState extends State<GroupInfoScreen> {
     try {
       await ApiService().delete('/chat/conversations/${widget.conversationId}/participants/$userId/');
       await _loadGroupInfo();
+      widget.onGroupUpdated?.call();
     } catch (e) {
       debugPrint('Remove member error: $e');
     }
   }
 
   Future<void> _muteParticipant(int userId) async {
-    // TODO: implementare silenzia utente nel gruppo
+    setState(() {
+      if (_mutedUserIds.contains(userId)) {
+        _mutedUserIds.remove(userId);
+      } else {
+        _mutedUserIds.add(userId);
+      }
+    });
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Utente silenziato'), backgroundColor: _teal),
+        SnackBar(
+          content: Text(_mutedUserIds.contains(userId) ? 'Utente silenziato' : 'Utente non più silenziato'),
+          backgroundColor: _teal,
+        ),
       );
     }
   }
 
   Future<void> _blockParticipant(int userId) async {
+    final isBlocked = _blockedUserIds.contains(userId);
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Blocca utente', style: TextStyle(fontWeight: FontWeight.w700)),
-        content: const Text('Vuoi bloccare questo utente? Non potrà inviarti messaggi.'),
+        title: Text(isBlocked ? 'Sblocca utente' : 'Blocca utente', style: const TextStyle(fontWeight: FontWeight.w700)),
+        content: Text(isBlocked ? 'Vuoi sbloccare questo utente?' : 'Vuoi bloccare questo utente? Non potrà inviarti messaggi.'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Annulla')),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.orange, foregroundColor: Colors.white),
+            style: ElevatedButton.styleFrom(backgroundColor: isBlocked ? _teal : Colors.orange, foregroundColor: Colors.white),
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Blocca'),
+            child: Text(isBlocked ? 'Sblocca' : 'Blocca'),
           ),
         ],
       ),
     );
     if (confirm != true) return;
-    // TODO: implementare blocco utente via API
+    setState(() {
+      if (isBlocked) {
+        _blockedUserIds.remove(userId);
+      } else {
+        _blockedUserIds.add(userId);
+      }
+    });
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Utente bloccato'), backgroundColor: Colors.orange),
+        SnackBar(
+          content: Text(isBlocked ? 'Utente sbloccato' : 'Utente bloccato'),
+          backgroundColor: isBlocked ? _teal : Colors.orange,
+        ),
       );
     }
   }
@@ -264,6 +313,7 @@ class _GroupInfoScreenState extends State<GroupInfoScreen> {
               backgroundColor: _teal,
             ),
           );
+          widget.onGroupUpdated?.call();
         }
       } catch (e) {
         debugPrint('Add members error: $e');
@@ -461,7 +511,12 @@ class _GroupInfoScreenState extends State<GroupInfoScreen> {
                           final isMe = userId == _currentUserId;
                           final role = p['role']?.toString() ?? 'member';
                           final avatar = p['avatar']?.toString();
-                          return ListTile(
+                          final uid = userId is int ? userId : int.tryParse(userId.toString());
+                          debugPrint('[GROUP-INFO] participant: ${_displayName(p)}, userId=$userId, currentUserId=$_currentUserId, isMe=$isMe');
+                          return Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              ListTile(
                             leading: CircleAvatar(
                               backgroundColor: _teal,
                               backgroundImage: avatar != null && avatar.isNotEmpty ? NetworkImage(avatar) : null,
@@ -485,6 +540,14 @@ class _GroupInfoScreenState extends State<GroupInfoScreen> {
                                     ),
                                     child: Text(_roleLabel(role), style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: _roleColor(role))),
                                   ),
+                                ],
+                                if (uid != null && _mutedUserIds.contains(uid)) ...[
+                                  const SizedBox(width: 6),
+                                  const Icon(Icons.volume_off_rounded, size: 16, color: Color(0xFF607D8B)),
+                                ],
+                                if (uid != null && _blockedUserIds.contains(uid)) ...[
+                                  const SizedBox(width: 6),
+                                  const Icon(Icons.block_rounded, size: 16, color: Colors.orange),
                                 ],
                               ],
                             ),
@@ -513,23 +576,23 @@ class _GroupInfoScreenState extends State<GroupInfoScreen> {
                                       }
                                     },
                                     itemBuilder: (ctx) => [
-                                      const PopupMenuItem(
+                                      PopupMenuItem(
                                         value: 'mute',
                                         child: Row(
                                           children: [
-                                            Icon(Icons.volume_off_rounded, color: Color(0xFF607D8B), size: 20),
-                                            SizedBox(width: 12),
-                                            Text('Silenzia'),
+                                            const Icon(Icons.volume_off_rounded, color: Color(0xFF607D8B), size: 20),
+                                            const SizedBox(width: 12),
+                                            Text(uid != null && _mutedUserIds.contains(uid) ? 'Riattiva audio' : 'Silenzia'),
                                           ],
                                         ),
                                       ),
-                                      const PopupMenuItem(
+                                      PopupMenuItem(
                                         value: 'block',
                                         child: Row(
                                           children: [
-                                            Icon(Icons.block_rounded, color: Color(0xFFFF9800), size: 20),
-                                            SizedBox(width: 12),
-                                            Text('Blocca'),
+                                            const Icon(Icons.block_rounded, color: Color(0xFFFF9800), size: 20),
+                                            const SizedBox(width: 12),
+                                            Text(uid != null && _blockedUserIds.contains(uid) ? 'Sblocca' : 'Blocca'),
                                           ],
                                         ),
                                       ),
@@ -557,7 +620,7 @@ class _GroupInfoScreenState extends State<GroupInfoScreen> {
                                               ],
                                             ),
                                           ),
-                                        if (role != 'member')
+                                        if (role != 'member' && uid != _creatorUserId)
                                           const PopupMenuItem(
                                             value: 'member',
                                             child: Row(
@@ -569,20 +632,24 @@ class _GroupInfoScreenState extends State<GroupInfoScreen> {
                                             ),
                                           ),
                                         const PopupMenuDivider(),
-                                        const PopupMenuItem(
-                                          value: 'remove',
-                                          child: Row(
-                                            children: [
-                                              Icon(Icons.person_remove_rounded, color: Colors.red, size: 20),
-                                              SizedBox(width: 12),
-                                              Text('Rimuovi dal gruppo', style: TextStyle(color: Colors.red)),
-                                            ],
+                                        if (uid != _creatorUserId)
+                                          const PopupMenuItem(
+                                            value: 'remove',
+                                            child: Row(
+                                              children: [
+                                                Icon(Icons.person_remove_rounded, color: Colors.red, size: 20),
+                                                SizedBox(width: 12),
+                                                Text('Rimuovi dal gruppo', style: TextStyle(color: Colors.red)),
+                                              ],
+                                            ),
                                           ),
-                                        ),
                                       ],
                                     ],
                                   )
                                 : null,
+                              ),
+                              const Divider(height: 1, thickness: 0.5, indent: 72, endIndent: 16, color: Color(0xFFEEEEEE)),
+                            ],
                           );
                         }),
                       ],

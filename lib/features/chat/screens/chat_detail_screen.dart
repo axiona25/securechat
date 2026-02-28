@@ -4578,6 +4578,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
+    debugPrint('[APPBAR] isGroup=${_conversation?.isGroup}, convType=${_conversation?.convType}, conversationId=$_conversationId');
     return Scaffold(
       backgroundColor: _bodyBg,
       appBar: AppBar(
@@ -4596,6 +4597,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                     MaterialPageRoute(
                       builder: (_) => GroupInfoScreen(
                         conversationId: _conversationId ?? '',
+                        onGroupUpdated: () {
+                          _loadConversationAndMessages();
+                        },
                       ),
                     ),
                   ).then((_) => _loadConversationAndMessages());
