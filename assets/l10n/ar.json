@@ -185,5 +185,12 @@
   "terms_coming_soon": "شروط الخدمة — قريباً",
   "privacy_coming_soon": "سياسة الخصوصية — قريباً",
   "google_signin_soon": "تسجيل الدخول عبر Google — قريباً",
-  "apple_signin_soon": "تسجيل الدخول عبر Apple — قريباً"
+  "apple_signin_soon": "تسجيل الدخول عبر Apple — قريباً",
+  "auto_translate": "الترجمة الفورية",
+  "auto_translate_enabled": "تم تفعيل الترجمة الفورية. سيتم ترجمة الرسائل الواردة تلقائياً.",
+  "auto_translate_disabled": "تم إيقاف الترجمة الفورية.",
+  "translated_from": "مترجم من {lang}",
+  "original_message": "الرسالة الأصلية",
+  "translation_error": "خطأ في الترجمة",
+  "encryption_error": "تعذر تشفير الرسالة. يرجى المحاولة مرة أخرى أو إعادة تشغيل المحادثة."
 }

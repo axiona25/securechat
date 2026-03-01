@@ -185,5 +185,12 @@
   "terms_coming_soon": "Termos de Serviço — em breve",
   "privacy_coming_soon": "Política de Privacidade — em breve",
   "google_signin_soon": "Início de sessão com Google em breve",
-  "apple_signin_soon": "Início de sessão com Apple em breve"
+  "apple_signin_soon": "Início de sessão com Apple em breve",
+  "auto_translate": "Tradução Simultânea",
+  "auto_translate_enabled": "Tradução simultânea ativada. As mensagens recebidas serão traduzidas automaticamente.",
+  "auto_translate_disabled": "Tradução simultânea desativada.",
+  "translated_from": "Traduzido de {lang}",
+  "original_message": "Mensagem original",
+  "translation_error": "Erro de tradução",
+  "encryption_error": "Não foi possível cifrar a mensagem. Tente novamente ou reinicie a conversa."
 }

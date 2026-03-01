@@ -185,5 +185,12 @@
   "terms_coming_soon": "सेवा की शर्तें — जल्द आ रहा है",
   "privacy_coming_soon": "गोपनीयता नीति — जल्द आ रहा है",
   "google_signin_soon": "Google से लॉग इन — जल्द आ रहा है",
-  "apple_signin_soon": "Apple से लॉग इन — जल्द आ रहा है"
+  "apple_signin_soon": "Apple से लॉग इन — जल्द आ रहा है",
+  "auto_translate": "लाइव अनुवाद",
+  "auto_translate_enabled": "लाइव अनुवाद चालू। आने वाले संदेश स्वचालित रूप से अनुवादित होंगे।",
+  "auto_translate_disabled": "लाइव अनुवाद बंद।",
+  "translated_from": "{lang} से अनुवादित",
+  "original_message": "मूल संदेश",
+  "translation_error": "अनुवाद त्रुटि",
+  "encryption_error": "संदेश एन्क्रिप्ट नहीं हो सका। कृपया पुनः प्रयास करें या चैट पुनः आरंभ करें।"
 }

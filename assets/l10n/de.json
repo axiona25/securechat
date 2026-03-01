@@ -185,5 +185,12 @@
   "terms_coming_soon": "Nutzungsbedingungen — demnächst",
   "privacy_coming_soon": "Datenschutz — demnächst",
   "google_signin_soon": "Anmeldung mit Google demnächst",
-  "apple_signin_soon": "Anmeldung mit Apple demnächst"
+  "apple_signin_soon": "Anmeldung mit Apple demnächst",
+  "auto_translate": "Simultanübersetzung",
+  "auto_translate_enabled": "Simultanübersetzung aktiviert. Eingehende Nachrichten werden automatisch übersetzt.",
+  "auto_translate_disabled": "Simultanübersetzung deaktiviert.",
+  "translated_from": "Übersetzt aus {lang}",
+  "original_message": "Originalnachricht",
+  "translation_error": "Übersetzungsfehler",
+  "encryption_error": "Nachricht konnte nicht verschlüsselt werden. Bitte erneut versuchen oder Chat neu starten."
 }

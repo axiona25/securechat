@@ -185,5 +185,12 @@
   "terms_coming_soon": "Servicevoorwaarden — binnenkort",
   "privacy_coming_soon": "Privacybeleid — binnenkort",
   "google_signin_soon": "Inloggen met Google — binnenkort",
-  "apple_signin_soon": "Inloggen met Apple — binnenkort"
+  "apple_signin_soon": "Inloggen met Apple — binnenkort",
+  "auto_translate": "Livevertaling",
+  "auto_translate_enabled": "Livevertaling ingeschakeld. Ontvangen berichten worden automatisch vertaald.",
+  "auto_translate_disabled": "Livevertaling uitgeschakeld.",
+  "translated_from": "Vertaald uit {lang}",
+  "original_message": "Origineel bericht",
+  "translation_error": "Vertalingsfout",
+  "encryption_error": "Kan bericht niet versleutelen. Probeer opnieuw of start de chat opnieuw."
 }

@@ -185,5 +185,12 @@
   "terms_coming_soon": "Hizmet Şartları — yakında",
   "privacy_coming_soon": "Gizlilik Politikası — yakında",
   "google_signin_soon": "Google ile giriş — yakında",
-  "apple_signin_soon": "Apple ile giriş — yakında"
+  "apple_signin_soon": "Apple ile giriş — yakında",
+  "auto_translate": "Anlık Çeviri",
+  "auto_translate_enabled": "Anlık çeviri açıldı. Gelen mesajlar otomatik çevrilecek.",
+  "auto_translate_disabled": "Anlık çeviri kapatıldı.",
+  "translated_from": "{lang} dilinden çevrildi",
+  "original_message": "Orijinal mesaj",
+  "translation_error": "Çeviri hatası",
+  "encryption_error": "Mesaj şifrelenemedi. Lütfen tekrar deneyin veya sohbeti yeniden başlatın."
 }

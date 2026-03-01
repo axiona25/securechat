@@ -156,6 +156,11 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   final ValueNotifier<int> _typingDotsPhase = ValueNotifier<int>(0);
   Timer? _typingDotsTimer;
 
+  bool _autoTranslateEnabled = false;
+  String _userLanguage = 'it';
+  final Map<String, String> _translatedMessages = {};
+  final Map<String, String> _translatedFromLang = {};
+
   @override
   void initState() {
     super.initState();
@@ -175,6 +180,60 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         _audioPositionNotifier.value = Duration.zero;
       }
     });
+    _loadTranslationPrefs();
+  }
+
+  Future<void> _loadTranslationPrefs() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (!mounted) return;
+    setState(() {
+      _autoTranslateEnabled = prefs.getBool('auto_translate') ?? false;
+      _userLanguage = prefs.getString('app_language') ?? 'it';
+    });
+  }
+
+  Future<void> _translateMessage(Map<String, dynamic> message) async {
+    if (!_autoTranslateEnabled) return;
+    final msgId = message['id']?.toString() ?? '';
+    if (msgId.isEmpty || _translatedMessages.containsKey(msgId)) return;
+
+    final text = message['content']?.toString() ?? '';
+    if (text.isEmpty || text.length < 2) return;
+
+    final sender = message['sender'];
+    final senderId = sender is Map ? (sender as Map)['id'] : null;
+    final senderIdInt = senderId is int ? senderId : int.tryParse(senderId?.toString() ?? '');
+    if (_effectiveCurrentUserId != null && senderIdInt == _effectiveCurrentUserId) return;
+
+    try {
+      final token = ApiService().accessToken;
+      final response = await http.post(
+        Uri.parse('${AppConstants.baseUrl}/translation/translate/'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode({
+          'text': text,
+          'target_lang': _userLanguage,
+        }),
+      );
+
+      if (response.statusCode == 200 && mounted) {
+        final data = jsonDecode(response.body) as Map<String, dynamic>?;
+        final translatedText = data?['translated_text']?.toString() ?? text;
+        final sourceLang = data?['source_language']?.toString() ?? '';
+
+        if (sourceLang != _userLanguage && translatedText != text) {
+          setState(() {
+            _translatedMessages[msgId] = translatedText;
+            _translatedFromLang[msgId] = sourceLang;
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint('Translation error: $e');
+    }
   }
 
   @override
@@ -598,6 +657,14 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                     'conversation_id': _conversationId,
                   }));
                   _saveHomePreview(_messages);
+                  if (_autoTranslateEnabled) {
+                    final sender = msgData['sender'];
+                    final senderId = sender is Map ? (sender as Map)['id'] : null;
+                    final senderIdInt = senderId is int ? senderId : int.tryParse(senderId?.toString() ?? '');
+                    if (_effectiveCurrentUserId != null && senderIdInt != _effectiveCurrentUserId) {
+                      _translateMessage(msgData);
+                    }
+                  }
                 }
               }
             }
@@ -1124,6 +1191,16 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         }
         _markAsRead();
         _saveHomePreview(newMessages);
+        if (_autoTranslateEnabled) {
+          for (final msg in _messages) {
+            final sender = msg['sender'];
+            final senderId = sender is Map ? (sender as Map)['id'] : null;
+            final senderIdInt = senderId is int ? senderId : int.tryParse(senderId?.toString() ?? '');
+            if (_effectiveCurrentUserId != null && senderIdInt != _effectiveCurrentUserId) {
+              _translateMessage(msg);
+            }
+          }
+        }
       }
     } catch (_) {
       // Ignora errori nel polling silenzioso
@@ -1491,6 +1568,16 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             _scrollToBottom();
           }
           _saveHomePreview(newMessages);
+          if (_autoTranslateEnabled) {
+            for (final msg in _messages) {
+              final sender = msg['sender'];
+              final senderId = sender is Map ? (sender as Map)['id'] : null;
+              final senderIdInt = senderId is int ? senderId : int.tryParse(senderId?.toString() ?? '');
+              if (_effectiveCurrentUserId != null && senderIdInt != _effectiveCurrentUserId) {
+                _translateMessage(msg);
+              }
+            }
+          }
         }
       }
       if (!silent) {
@@ -3187,16 +3274,49 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     }
 
     // Default: testo normale (never show "(messaggio vuoto)" for E2E encrypted)
+    final msgId = message['id']?.toString() ?? '';
     final encryptedB64 = message['content_encrypted_b64']?.toString() ?? '';
-    final displayText = messageText.isNotEmpty
+    final baseText = messageText.isNotEmpty
         ? messageText
         : (encryptedB64.isNotEmpty ? '🔒 Messaggio cifrato' : '(messaggio vuoto)');
-    return Text(
-      displayText,
-      style: TextStyle(
-        color: isMe ? Colors.white : const Color(0xFF1A2B4A),
-        fontSize: 15,
-      ),
+    final displayText = _translatedMessages[msgId] ?? baseText;
+    final hasTranslation = _translatedMessages.containsKey(msgId);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          displayText,
+          style: TextStyle(
+            color: isMe ? Colors.white : const Color(0xFF1A2B4A),
+            fontSize: 15,
+          ),
+        ),
+        if (hasTranslation)
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: GestureDetector(
+              onTap: () {
+                setState(() {
+                  _translatedMessages.remove(msgId);
+                  _translatedFromLang.remove(msgId);
+                });
+              },
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.translate, size: 12, color: Colors.grey[400]),
+                  const SizedBox(width: 4),
+                  Text(
+                    (l10n.t('translated_from')).replaceAll('{lang}', _translatedFromLang[msgId] ?? ''),
+                    style: TextStyle(fontSize: 10, color: Colors.grey[400], fontStyle: FontStyle.italic),
+                  ),
+                ],
+              ),
+            ),
+          ),
+      ],
     );
   }
 
@@ -3697,21 +3817,32 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       if (otherUser != null) {
         try {
           final combinedPayload = await _sessionManager.encryptMessage(otherUser, savedText);
-          body['content_encrypted'] = base64Encode(combinedPayload);
-          debugPrint('[E2E] Message encrypted for user $otherUser (${combinedPayload.length} bytes)');
+          final encryptedB64 = base64Encode(combinedPayload);
+          body['content_encrypted'] = encryptedB64;
+          // Aggiungi anche recipients_encrypted per chat private (fan-out come gruppi)
+          body['recipients_encrypted'] = {
+            otherUser.toString(): encryptedB64,
+          };
+          // Cifra anche per se stessi (per poter leggere i propri messaggi inviati)
+          try {
+            final selfPayload = await _sessionManager.encryptMessage(_effectiveCurrentUserId!, savedText);
+            (body['recipients_encrypted'] as Map<String, String>)[_effectiveCurrentUserId.toString()] = base64Encode(selfPayload);
+          } catch (e) {
+            debugPrint('[E2E] Self-encrypt skipped: $e');
+          }
+          debugPrint('[E2E] Message encrypted for user $otherUser (${combinedPayload.length} bytes) with recipients_encrypted');
         } catch (e) {
-          // MAI inviare in plaintext — mostra errore all'utente
           debugPrint('[E2E] Encryption failed: $e');
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Impossibile cifrare il messaggio. Riprova o riavvia la chat.'),
+              SnackBar(
+                content: Text(l10n.t('encryption_error')),
                 backgroundColor: Colors.red,
-                duration: Duration(seconds: 4),
+                duration: const Duration(seconds: 4),
               ),
             );
           }
-          return; // BLOCCA l'invio
+          return;
         }
       } else if (_conversation != null && _conversation!.isGroup) {
         // E2E fan-out: cifra per ogni partecipante del gruppo
@@ -3731,6 +3862,14 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             encryptionFailed = true;
             break;
           }
+        }
+
+        // Cifra anche per se stessi
+        try {
+          final selfPayload = await _sessionManager.encryptMessage(_effectiveCurrentUserId!, savedText);
+          recipientsEncrypted[_effectiveCurrentUserId.toString()] = base64Encode(selfPayload);
+        } catch (e) {
+          debugPrint('[E2E-GROUP] Self-encrypt skipped: $e');
         }
 
         if (encryptionFailed || recipientsEncrypted.isEmpty) {

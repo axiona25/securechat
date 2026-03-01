@@ -185,5 +185,12 @@
   "terms_coming_soon": "서비스 약관 — 곧 제공",
   "privacy_coming_soon": "개인정보 처리방침 — 곧 제공",
   "google_signin_soon": "Google 로그인 — 곧 제공",
-  "apple_signin_soon": "Apple 로그인 — 곧 제공"
+  "apple_signin_soon": "Apple 로그인 — 곧 제공",
+  "auto_translate": "실시간 번역",
+  "auto_translate_enabled": "실시간 번역이 켜졌습니다. 수신 메시지가 자동으로 번역됩니다.",
+  "auto_translate_disabled": "실시간 번역이 꺼졌습니다.",
+  "translated_from": "{lang}(으)로부터 번역됨",
+  "original_message": "원본 메시지",
+  "translation_error": "번역 오류",
+  "encryption_error": "메시지를 암호화할 수 없습니다. 다시 시도하거나 채팅을 다시 시작하세요."
 }

@@ -185,5 +185,12 @@
   "terms_coming_soon": "Conditions d'utilisation — bientôt",
   "privacy_coming_soon": "Politique de confidentialité — bientôt",
   "google_signin_soon": "Connexion avec Google bientôt disponible",
-  "apple_signin_soon": "Connexion avec Apple bientôt disponible"
+  "apple_signin_soon": "Connexion avec Apple bientôt disponible",
+  "auto_translate": "Traduction Simultanée",
+  "auto_translate_enabled": "Traduction simultanée activée. Les messages reçus seront traduits automatiquement.",
+  "auto_translate_disabled": "Traduction simultanée désactivée.",
+  "translated_from": "Traduit de {lang}",
+  "original_message": "Message original",
+  "translation_error": "Erreur de traduction",
+  "encryption_error": "Impossible de chiffrer le message. Réessayez ou redémarrez la conversation."
 }

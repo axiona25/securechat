@@ -185,5 +185,12 @@
   "terms_coming_soon": "Termini di Servizio — in arrivo",
   "privacy_coming_soon": "Informativa Privacy — in arrivo",
   "google_signin_soon": "Accesso con Google in arrivo",
-  "apple_signin_soon": "Accesso con Apple in arrivo"
+  "apple_signin_soon": "Accesso con Apple in arrivo",
+  "auto_translate": "Traduzione Simultanea",
+  "auto_translate_enabled": "Traduzione simultanea attivata. I messaggi ricevuti verranno tradotti automaticamente.",
+  "auto_translate_disabled": "Traduzione simultanea disattivata.",
+  "translated_from": "Tradotto da {lang}",
+  "original_message": "Messaggio originale",
+  "translation_error": "Errore di traduzione",
+  "encryption_error": "Impossibile cifrare il messaggio. Riprova o riavvia la chat."
 }

@@ -185,5 +185,12 @@
   "terms_coming_soon": "服务条款 — 即将推出",
   "privacy_coming_soon": "隐私政策 — 即将推出",
   "google_signin_soon": "Google 登录 — 即将推出",
-  "apple_signin_soon": "Apple 登录 — 即将推出"
+  "apple_signin_soon": "Apple 登录 — 即将推出",
+  "auto_translate": "即时翻译",
+  "auto_translate_enabled": "已开启即时翻译。收到的消息将自动翻译。",
+  "auto_translate_disabled": "已关闭即时翻译。",
+  "translated_from": "译自 {lang}",
+  "original_message": "原文",
+  "translation_error": "翻译错误",
+  "encryption_error": "无法加密消息。请重试或重新打开聊天。"
 }

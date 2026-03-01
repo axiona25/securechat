@@ -185,5 +185,12 @@
   "terms_coming_soon": "Términos de Servicio — próximamente",
   "privacy_coming_soon": "Política de Privacidad — próximamente",
   "google_signin_soon": "Inicio de sesión con Google próximamente",
-  "apple_signin_soon": "Inicio de sesión con Apple próximamente"
+  "apple_signin_soon": "Inicio de sesión con Apple próximamente",
+  "auto_translate": "Traducción Simultánea",
+  "auto_translate_enabled": "Traducción simultánea activada. Los mensajes recibidos se traducirán automáticamente.",
+  "auto_translate_disabled": "Traducción simultánea desactivada.",
+  "translated_from": "Traducido de {lang}",
+  "original_message": "Mensaje original",
+  "translation_error": "Error de traducción",
+  "encryption_error": "No se puede cifrar el mensaje. Inténtalo de nuevo o reinicia el chat."
 }

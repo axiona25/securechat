@@ -185,5 +185,12 @@
   "terms_coming_soon": "Terms of Service — coming soon",
   "privacy_coming_soon": "Privacy Policy — coming soon",
   "google_signin_soon": "Google Sign-In coming soon",
-  "apple_signin_soon": "Apple Sign-In coming soon"
+  "apple_signin_soon": "Apple Sign-In coming soon",
+  "auto_translate": "Live Translation",
+  "auto_translate_enabled": "Live translation enabled. Incoming messages will be automatically translated.",
+  "auto_translate_disabled": "Live translation disabled.",
+  "translated_from": "Translated from {lang}",
+  "original_message": "Original message",
+  "translation_error": "Translation error",
+  "encryption_error": "Unable to encrypt message. Please try again or restart the chat."
 }
