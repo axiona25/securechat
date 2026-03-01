@@ -334,6 +334,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   Future<void> _saveHomePreview(List<Map<String, dynamic>> newMessages) async {
     if (_conversationId == null || _conversationId!.isEmpty || newMessages.isEmpty) return;
     final lastMsg = newMessages.first;
+    debugPrint('[HOME_PREVIEW] Saving preview for conv $_conversationId, content="${lastMsg['content']}", msgCount=${newMessages.length}, firstMsgId=${lastMsg['id']}');
     final attachments = lastMsg['attachments'] as List? ?? [];
     final hasEncrypted = attachments.isNotEmpty &&
         (attachments[0] is Map) &&
@@ -348,7 +349,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     if (content.isEmpty ||
         content == '🔒 Messaggio cifrato' ||
         content == '🔒 Messaggio non disponibile' ||
-        content == '🔒 Messaggio inviato (non disponibile)') return;
+        content == '🔒 Messaggio inviato (non disponibile)') {
+      debugPrint('[HOME_PREVIEW] SKIPPED: content is placeholder: "$content"');
+      return;
+    }
     final createdAt = lastMsg['created_at']?.toString();
     if (createdAt == null || createdAt.isEmpty) return;
     final ts = DateTime.tryParse(createdAt)?.toIso8601String() ?? createdAt;
@@ -357,6 +361,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       'scp_home_preview_$_conversationId',
       jsonEncode({'content': content, 'ts': ts}),
     );
+    debugPrint('[HOME_PREVIEW] SAVED: content="$content", ts=$ts');
   }
 
   static Color _getStatusColor(bool isOnline) {
@@ -3816,13 +3821,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           body['recipients_encrypted'] = {
             otherUser.toString(): encryptedB64,
           };
-          // Cifra anche per se stessi (per poter leggere i propri messaggi inviati)
-          try {
-            final selfPayload = await _sessionManager.encryptMessage(_effectiveCurrentUserId!, savedText);
-            (body['recipients_encrypted'] as Map<String, String>)[_effectiveCurrentUserId.toString()] = base64Encode(selfPayload);
-          } catch (e) {
-            debugPrint('[E2E] Self-encrypt skipped: $e');
-          }
           debugPrint('[E2E] Message encrypted for user $otherUser (${combinedPayload.length} bytes) with recipients_encrypted');
         } catch (e) {
           debugPrint('[E2E] Encryption failed: $e');
@@ -3855,14 +3853,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             encryptionFailed = true;
             break;
           }
-        }
-
-        // Cifra anche per se stessi
-        try {
-          final selfPayload = await _sessionManager.encryptMessage(_effectiveCurrentUserId!, savedText);
-          recipientsEncrypted[_effectiveCurrentUserId.toString()] = base64Encode(selfPayload);
-        } catch (e) {
-          debugPrint('[E2E-GROUP] Self-encrypt skipped: $e');
         }
 
         if (encryptionFailed || recipientsEncrypted.isEmpty) {

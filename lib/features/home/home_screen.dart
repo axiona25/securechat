@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'dart:convert';
+import 'dart:convert' show jsonDecode, jsonEncode;
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -19,7 +19,7 @@ import '../../core/services/sound_service.dart';
 import '../../core/routes/app_router.dart';
 import '../../core/widgets/bottom_nav_bar.dart';
 import '../../core/widgets/user_avatar_widget.dart';
-import '../chat/screens/chat_detail_screen.dart';
+import '../chat/screens/chat_detail_screen.dart' show ChatDetailScreen;
 import 'widgets/home_header.dart';
 import 'widgets/chat_search_bar.dart';
 import 'widgets/chat_tab_bar.dart';
@@ -190,7 +190,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       }
       final lm = conv.lastMessage;
       if (lm != null &&
-          (lm.content == null || lm.content!.trim().isEmpty) &&
           lm.contentEncryptedB64 != null &&
           lm.contentEncryptedB64!.isNotEmpty) {
         final lastMsgTs = lm.createdAt?.toIso8601String();
@@ -310,7 +309,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         }
         final lm = conv.lastMessage;
         if (lm != null &&
-            (lm.content == null || lm.content!.trim().isEmpty) &&
             lm.contentEncryptedB64 != null &&
             lm.contentEncryptedB64!.isNotEmpty) {
           final lastMsgTs = lm.createdAt?.toIso8601String();
