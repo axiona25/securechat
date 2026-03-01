@@ -10,6 +10,7 @@ import 'core/constants/app_constants.dart';
 import 'core/services/api_service.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter_app_badger/flutter_app_badger.dart';
 
 // Handler per notifiche in background (deve essere top-level)
 @pragma('vm:entry-point')
@@ -59,11 +60,15 @@ void main() async {
     // Gestione tap su notifica
     FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
       debugPrint('[FCM] Opened from notification: ${message.data}');
+      FlutterAppBadger.removeBadge();
       // TODO: navigare alla chat corretta
     });
   } catch (e) {
     debugPrint('Firebase not configured: $e');
   }
+
+  // Reset badge when app starts (user is opening the app)
+  FlutterAppBadger.removeBadge();
 
   // Lock orientation to portrait
   SystemChrome.setPreferredOrientations([

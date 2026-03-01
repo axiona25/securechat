@@ -28,6 +28,17 @@ def _get_firebase_app():
         return None
 
 
+def _get_chat_badge_count(user_id):
+    """Get total unread messages count across all conversations for badge."""
+    from chat.models import ConversationParticipant
+    from django.db.models import Sum
+
+    result = ConversationParticipant.objects.filter(
+        user_id=user_id
+    ).aggregate(total=Sum('unread_count'))
+    return result['total'] or 0
+
+
 def send_push_notification(user, title, body, data=None):
     """Invia una notifica push a un utente specifico."""
     if not getattr(user, 'fcm_token', None):
@@ -51,7 +62,7 @@ def send_push_notification(user, title, body, data=None):
             apns=messaging.APNSConfig(
                 payload=messaging.APNSPayload(
                     aps=messaging.Aps(
-                        badge=1,
+                        badge=_get_chat_badge_count(user.id),
                         sound='default',
                         content_available=True,
                     ),

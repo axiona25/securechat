@@ -1,7 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import '../../core/constants/app_constants.dart';
 import '../../core/theme/app_colors.dart';
@@ -24,7 +23,6 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   Map<String, dynamic>? _profile;
   bool _notificationsEnabled = true;
-  bool _autoTranslateEnabled = false;
   bool _loading = true;
 
   static const Color _teal = Color(0xFF2ABFBF);
@@ -39,8 +37,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _loadProfile() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      _autoTranslateEnabled = prefs.getBool('auto_translate') ?? false;
       final response = await ApiService().get('/auth/profile/');
       if (response != null) {
         setState(() {
@@ -491,28 +487,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         iconColor: _teal,
                         title: l10n.t('chat_settings'),
                         onTap: () => _showComingSoon(l10n.t('chat_settings')),
-                      ),
-                      _buildDivider(),
-                      _buildToggleItem(
-                        icon: Icons.translate_rounded,
-                        iconColor: const Color(0xFF7C4DFF),
-                        title: l10n.t('auto_translate'),
-                        value: _autoTranslateEnabled,
-                        onChanged: (val) async {
-                          final prefs = await SharedPreferences.getInstance();
-                          await prefs.setBool('auto_translate', val);
-                          setState(() => _autoTranslateEnabled = val);
-                          if (mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(val ? l10n.t('auto_translate_enabled') : l10n.t('auto_translate_disabled')),
-                                backgroundColor: val ? const Color(0xFF2ABFBF) : Colors.grey,
-                                behavior: SnackBarBehavior.floating,
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                              ),
-                            );
-                          }
-                        },
                       ),
                       _buildDivider(),
                       _buildMenuItem(

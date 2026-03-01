@@ -26,6 +26,23 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+	<key>NSCameraUsageDescription</key>
+	<string>SecureChat needs camera access to take photos and videos</string>
+	<key>NSContactsUsageDescription</key>
+	<string>SecureChat usa i contatti per condividere informazioni di contatto in modo cifrato.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>SecureChat needs your location to share it in chats</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>SecureChat needs microphone access to record voice messages</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>SecureChat needs photo library access to send images</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
@@ -66,22 +83,5 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
-	<key>NSCameraUsageDescription</key>
-	<string>SecureChat needs camera access to take photos and videos</string>
-	<key>NSMicrophoneUsageDescription</key>
-	<string>SecureChat needs microphone access to record voice messages</string>
-	<key>NSPhotoLibraryUsageDescription</key>
-	<string>SecureChat needs photo library access to send images</string>
-	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>SecureChat needs your location to share it in chats</string>
-	<key>NSContactsUsageDescription</key>
-	<string>SecureChat usa i contatti per condividere informazioni di contatto in modo cifrato.</string>
-	<key>NSAppTransportSecurity</key>
-	<dict>
-		<key>NSAllowsArbitraryLoads</key>
-		<true/>
-		<key>NSAllowsLocalNetworking</key>
-		<true/>
-	</dict>
 </dict>
 </plist>

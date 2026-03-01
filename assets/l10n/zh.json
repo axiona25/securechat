@@ -186,17 +186,11 @@
   "privacy_coming_soon": "隐私政策 — 即将推出",
   "google_signin_soon": "Google 登录 — 即将推出",
   "apple_signin_soon": "Apple 登录 — 即将推出",
-  "auto_translate": "即时翻译",
-  "auto_translate_enabled": "已开启即时翻译。收到的消息将自动翻译。",
-  "auto_translate_disabled": "已关闭即时翻译。",
-  "translated_from": "译自 {lang}",
   "original_message": "原文",
-  "translation_error": "翻译错误",
   "encryption_error": "无法加密消息。请重试或重新打开聊天。",
   "download_model_title": "下载语言模型",
   "download_model_desc": "要在设备上安全翻译消息，需要下载语言模型（约30MB）。只需下载一次。",
   "download": "下载",
   "downloading_model": "正在下载语言模型...",
-  "download_failed": "下载失败。请重试。",
-  "translation_on_device": "设备端安全翻译"
+  "download_failed": "下载失败。请重试。"
 }

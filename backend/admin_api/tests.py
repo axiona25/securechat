@@ -280,16 +280,3 @@ class AdminSystemTests(TestCase):
         self.assertIn('firebase_enabled', resp.data)
 
 
-class AdminTranslationTests(TestCase):
-
-    def setUp(self):
-        self.client = APIClient()
-        self.admin = User.objects.create_superuser(
-            username='transadmin', email='transadmin@test.com', password='AdminPass123!'
-        )
-        self.client.force_authenticate(user=self.admin)
-
-    def test_translation_stats(self):
-        resp = self.client.get('/api/admin-panel/translations/stats/')
-        self.assertEqual(resp.status_code, http_status.HTTP_200_OK)
-        self.assertIn('total_translations', resp.data)

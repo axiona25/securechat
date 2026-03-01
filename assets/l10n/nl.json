@@ -186,17 +186,11 @@
   "privacy_coming_soon": "Privacybeleid — binnenkort",
   "google_signin_soon": "Inloggen met Google — binnenkort",
   "apple_signin_soon": "Inloggen met Apple — binnenkort",
-  "auto_translate": "Livevertaling",
-  "auto_translate_enabled": "Livevertaling ingeschakeld. Ontvangen berichten worden automatisch vertaald.",
-  "auto_translate_disabled": "Livevertaling uitgeschakeld.",
-  "translated_from": "Vertaald uit {lang}",
   "original_message": "Origineel bericht",
-  "translation_error": "Vertalingsfout",
   "encryption_error": "Kan bericht niet versleutelen. Probeer opnieuw of start de chat opnieuw.",
   "download_model_title": "Taalmodel downloaden",
   "download_model_desc": "Om berichten veilig op uw apparaat te vertalen, moet het taalmodel (~30MB) worden gedownload. Eenmalige download.",
   "download": "Downloaden",
   "downloading_model": "Taalmodel wordt gedownload...",
-  "download_failed": "Download mislukt. Probeer opnieuw.",
-  "translation_on_device": "Veilige vertaling op apparaat"
+  "download_failed": "Download mislukt. Probeer opnieuw."
 }

@@ -186,17 +186,11 @@
   "privacy_coming_soon": "Política de Privacidade — em breve",
   "google_signin_soon": "Início de sessão com Google em breve",
   "apple_signin_soon": "Início de sessão com Apple em breve",
-  "auto_translate": "Tradução Simultânea",
-  "auto_translate_enabled": "Tradução simultânea ativada. As mensagens recebidas serão traduzidas automaticamente.",
-  "auto_translate_disabled": "Tradução simultânea desativada.",
-  "translated_from": "Traduzido de {lang}",
   "original_message": "Mensagem original",
-  "translation_error": "Erro de tradução",
   "encryption_error": "Não foi possível cifrar a mensagem. Tente novamente ou reinicie a conversa.",
   "download_model_title": "Descarregar Modelo de Idioma",
   "download_model_desc": "Para traduzir mensagens em segurança no dispositivo, é necessário descarregar o modelo (~30MB). Descarregamento único.",
   "download": "Descarregar",
   "downloading_model": "A descarregar modelo de idioma...",
-  "download_failed": "Falha no descarregamento. Tente novamente.",
-  "translation_on_device": "Tradução segura no dispositivo"
+  "download_failed": "Falha no descarregamento. Tente novamente."
 }

@@ -186,17 +186,11 @@
   "privacy_coming_soon": "プライバシーポリシー — 近日公開",
   "google_signin_soon": "Googleでログイン — 近日公開",
   "apple_signin_soon": "Appleでログイン — 近日公開",
-  "auto_translate": "リアルタイム翻訳",
-  "auto_translate_enabled": "リアルタイム翻訳を有効にしました。受信メッセージは自動で翻訳されます。",
-  "auto_translate_disabled": "リアルタイム翻訳を無効にしました。",
-  "translated_from": "{lang} から翻訳",
   "original_message": "元のメッセージ",
-  "translation_error": "翻訳エラー",
   "encryption_error": "メッセージを暗号化できません。もう一度お試しいただくか、チャットを再起動してください。",
   "download_model_title": "言語モデルをダウンロード",
   "download_model_desc": "デバイスでメッセージを安全に翻訳するには、言語モデル（約30MB）のダウンロードが必要です。1回限りのダウンロードです。",
   "download": "ダウンロード",
   "downloading_model": "言語モデルをダウンロード中...",
-  "download_failed": "ダウンロードに失敗しました。もう一度お試しください。",
-  "translation_on_device": "デバイス上の安全な翻訳"
+  "download_failed": "ダウンロードに失敗しました。もう一度お試しください。"
 }

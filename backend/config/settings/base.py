@@ -50,7 +50,6 @@ INSTALLED_APPS = [
     'calls.apps.CallsConfig',
     'channels_pub.apps.ChannelsPubConfig',
     'encryption.apps.EncryptionConfig',
-    'translation.apps.TranslationConfig',
     'notifications.apps.NotificationsConfig',
     'admin_api.apps.AdminApiConfig',
     'security.apps.SecurityConfig',
@@ -211,16 +210,6 @@ CELERY_BEAT_SCHEDULE = {
         'schedule': crontab(minute=0, hour=4),  # daily at 4 AM
         'kwargs': {'days': 60},
     },
-    'cleanup-translation-cache': {
-        'task': 'translation.cleanup_old_cache',
-        'schedule': crontab(minute=0, hour=2, day_of_week=0),  # weekly Sunday 2 AM
-        'kwargs': {'days': 30},
-    },
-    'cleanup-translation-usage-logs': {
-        'task': 'translation.cleanup_old_usage_logs',
-        'schedule': crontab(minute=0, hour=3, day_of_month=1),  # monthly 1st at 3 AM
-        'kwargs': {'days': 90},
-    },
 }
 
 # Internationalization
@@ -363,7 +352,7 @@ if SENTRY_DSN:
 # iOS bundle ID for VoIP push
 IOS_BUNDLE_ID = env('IOS_BUNDLE_ID', default='com.securechat.app')
 
-# Supported languages for translation
+# Supported UI languages (app locale)
 SUPPORTED_LANGUAGES = [
     ('it', 'Italiano'), ('en', 'English'), ('zh', '中文'),
     ('es', 'Español'), ('fr', 'Français'), ('de', 'Deutsch'),

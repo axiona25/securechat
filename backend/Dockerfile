@@ -5,7 +5,7 @@ ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
-# Install system dependencies for mysqlclient, Pillow, argostranslate, and LibreOffice (Office→PDF)
+# Install system dependencies for mysqlclient, Pillow, and LibreOffice (Office→PDF)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     default-libmysqlclient-dev \

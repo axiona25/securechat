@@ -149,6 +149,57 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 }
               }
             }
+            if (map['type'] == 'presence.update') {
+              final userId = map['user_id'];
+              final isOnline = map['is_online'] == true;
+              final convId = map['conversation_id']?.toString();
+
+              if (userId != null && mounted) {
+                final userIdInt = userId is int ? userId : int.tryParse(userId.toString());
+                if (userIdInt != null) {
+                  setState(() {
+                    for (int i = 0; i < _conversations.length; i++) {
+                      final conv = _conversations[i];
+                      bool shouldUpdate = false;
+                      if (convId != null && convId.isNotEmpty) {
+                        shouldUpdate = conv.id == convId;
+                      } else {
+                        shouldUpdate = conv.participants.any((p) => p.userId == userIdInt);
+                      }
+
+                      if (shouldUpdate) {
+                        final updatedParticipants = conv.participants.map((p) {
+                          if (p.userId == userIdInt) {
+                            return ConversationParticipant(
+                              userId: p.userId,
+                              username: p.username,
+                              displayName: p.displayName,
+                              avatar: p.avatar,
+                              isOnline: isOnline,
+                            );
+                          }
+                          return p;
+                        }).toList();
+
+                        _conversations[i] = ConversationModel(
+                          id: conv.id,
+                          convType: conv.convType,
+                          name: conv.name,
+                          groupAvatarUrl: conv.groupAvatarUrl,
+                          participants: updatedParticipants,
+                          lastMessage: conv.lastMessage,
+                          unreadCount: conv.unreadCount,
+                          isMuted: conv.isMuted,
+                          isLocked: conv.isLocked,
+                          isFavorite: conv.isFavorite,
+                          createdAt: conv.createdAt,
+                        );
+                      }
+                    }
+                  });
+                }
+              }
+            }
           } catch (_) {}
         },
         onDone: () {

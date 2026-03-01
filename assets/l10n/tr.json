@@ -186,17 +186,11 @@
   "privacy_coming_soon": "Gizlilik Politikası — yakında",
   "google_signin_soon": "Google ile giriş — yakında",
   "apple_signin_soon": "Apple ile giriş — yakında",
-  "auto_translate": "Anlık Çeviri",
-  "auto_translate_enabled": "Anlık çeviri açıldı. Gelen mesajlar otomatik çevrilecek.",
-  "auto_translate_disabled": "Anlık çeviri kapatıldı.",
-  "translated_from": "{lang} dilinden çevrildi",
   "original_message": "Orijinal mesaj",
-  "translation_error": "Çeviri hatası",
   "encryption_error": "Mesaj şifrelenemedi. Lütfen tekrar deneyin veya sohbeti yeniden başlatın.",
   "download_model_title": "Dil Modelini İndir",
   "download_model_desc": "Cihazınızda mesajları güvenle çevirmek için dil modelinin (~30MB) indirilmesi gerekir. Tek seferlik indirmedir.",
   "download": "İndir",
   "downloading_model": "Dil modeli indiriliyor...",
-  "download_failed": "İndirme başarısız. Lütfen tekrar deneyin.",
-  "translation_on_device": "Cihazda güvenli çeviri"
+  "download_failed": "İndirme başarısız. Lütfen tekrar deneyin."
 }

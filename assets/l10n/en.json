@@ -186,17 +186,11 @@
   "privacy_coming_soon": "Privacy Policy — coming soon",
   "google_signin_soon": "Google Sign-In coming soon",
   "apple_signin_soon": "Apple Sign-In coming soon",
-  "auto_translate": "Live Translation",
-  "auto_translate_enabled": "Live translation enabled. Incoming messages will be automatically translated.",
-  "auto_translate_disabled": "Live translation disabled.",
-  "translated_from": "Translated from {lang}",
   "original_message": "Original message",
-  "translation_error": "Translation error",
   "encryption_error": "Unable to encrypt message. Please try again or restart the chat.",
   "download_model_title": "Download Language Model",
   "download_model_desc": "To securely translate messages on your device, the language model needs to be downloaded (~30MB). This is a one-time download.",
   "download": "Download",
   "downloading_model": "Downloading language model...",
-  "download_failed": "Model download failed. Please try again.",
-  "translation_on_device": "Secure on-device translation"
+  "download_failed": "Model download failed. Please try again."
 }

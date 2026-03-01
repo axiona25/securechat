@@ -186,17 +186,11 @@
   "privacy_coming_soon": "Politica de confidențialitate — în curând",
   "google_signin_soon": "Conectare cu Google — în curând",
   "apple_signin_soon": "Conectare cu Apple — în curând",
-  "auto_translate": "Traducere simultană",
-  "auto_translate_enabled": "Traducere simultană activată. Mesajele primite vor fi traduse automat.",
-  "auto_translate_disabled": "Traducere simultană dezactivată.",
-  "translated_from": "Tradus din {lang}",
   "original_message": "Mesaj original",
-  "translation_error": "Eroare de traducere",
   "encryption_error": "Nu s-a putut cripta mesajul. Încercați din nou sau reporniți conversația.",
   "download_model_title": "Descarcă Modelul de Limbă",
   "download_model_desc": "Pentru a traduce mesajele în siguranță pe dispozitiv, trebuie descărcat modelul de limbă (~30MB). Descărcare unică.",
   "download": "Descarcă",
   "downloading_model": "Se descarcă modelul de limbă...",
-  "download_failed": "Descărcarea a eșuat. Încercați din nou.",
-  "translation_on_device": "Traducere sigură pe dispozitiv"
+  "download_failed": "Descărcarea a eșuat. Încercați din nou."
 }

@@ -186,17 +186,11 @@
   "privacy_coming_soon": "Polityka prywatności — wkrótce",
   "google_signin_soon": "Logowanie przez Google — wkrótce",
   "apple_signin_soon": "Logowanie przez Apple — wkrótce",
-  "auto_translate": "Tłumaczenie na żywo",
-  "auto_translate_enabled": "Tłumaczenie na żywo włączone. Otrzymane wiadomości będą automatycznie tłumaczone.",
-  "auto_translate_disabled": "Tłumaczenie na żywo wyłączone.",
-  "translated_from": "Przetłumaczono z {lang}",
   "original_message": "Oryginalna wiadomość",
-  "translation_error": "Błąd tłumaczenia",
   "encryption_error": "Nie można zaszyfrować wiadomości. Spróbuj ponownie lub uruchom czat ponownie.",
   "download_model_title": "Pobierz model językowy",
   "download_model_desc": "Aby bezpiecznie tłumaczyć wiadomości na urządzeniu, należy pobrać model językowy (~30MB). Pobieranie jednorazowe.",
   "download": "Pobierz",
   "downloading_model": "Pobieranie modelu językowego...",
-  "download_failed": "Pobieranie nie powiodło się. Spróbuj ponownie.",
-  "translation_on_device": "Bezpieczne tłumaczenie na urządzeniu"
+  "download_failed": "Pobieranie nie powiodło się. Spróbuj ponownie."
 }

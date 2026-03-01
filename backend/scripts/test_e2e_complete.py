@@ -572,18 +572,6 @@ def main():
     # ══════════════════════════════════════════════════════════════
     # 14. TRANSLATION
     # ══════════════════════════════════════════════════════════════
-    section("14. TRANSLATION")
-
-    if token1:
-        try:
-            r = client1.get('/api/translation/languages/')
-            test(f"Translation languages — status {r.status_code}",
-                 r.status_code in [200, 404],
-                 f"Status: {r.status_code}")
-        except Exception as e:
-            test(f"Translation languages — error: {e}", False)
-
-    # ══════════════════════════════════════════════════════════════
     # 15. SECURITY (Shield)
     # ══════════════════════════════════════════════════════════════
     section("15. SECURITY (Shield)")

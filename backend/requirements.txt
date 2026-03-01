@@ -32,10 +32,6 @@ PyNaCl==1.5.0
 # Firebase push notifications
 firebase-admin==6.6.0
 
-# Translation
-argostranslate>=1.9.6
-langdetect>=1.0.9
-
 # HTTP + parsing
 requests==2.32.3
 beautifulsoup4==4.12.3

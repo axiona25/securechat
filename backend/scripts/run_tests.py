@@ -92,14 +92,7 @@ def main():
         allow_fail=True
     ))
 
-    # 10. Translation tests
-    results.append(run_command(
-        "Translation tests",
-        "python manage.py test translation -v2",
-        allow_fail=True
-    ))
-
-    # 11. API smoke tests
+    # 10. API smoke tests
     results.append(run_command(
         "API Smoke Tests — register, login, profile",
         "python manage.py shell -c \""
