@@ -7,6 +7,7 @@ import '../../../core/services/crypto_service.dart';
 import '../../../core/widgets/securechat_text_field.dart';
 import '../../../core/widgets/securechat_button.dart';
 import '../../../core/widgets/social_login_button.dart';
+import '../../../core/l10n/app_localizations.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 class LoginForm extends StatefulWidget {
@@ -27,6 +28,8 @@ class _LoginFormState extends State<LoginForm> {
   bool _isLoading = false;
   String? _errorMessage;
 
+  AppLocalizations get l10n => AppLocalizations.of(context)!;
+
   @override
   void dispose() {
     _emailController.dispose();
@@ -38,21 +41,21 @@ class _LoginFormState extends State<LoginForm> {
 
   String? _validateEmail(String? value) {
     if (value == null || value.trim().isEmpty) {
-      return 'Please enter your email';
+      return l10n.t('email_required');
     }
     final emailRegex = RegExp(r'^[\w\.\-\+]+@[\w\-]+\.[\w\-\.]+$');
     if (!emailRegex.hasMatch(value.trim())) {
-      return 'Please enter a valid email';
+      return l10n.t('email_invalid');
     }
     return null;
   }
 
   String? _validatePassword(String? value) {
     if (value == null || value.isEmpty) {
-      return 'Please enter your password';
+      return l10n.t('password_required');
     }
     if (value.length < 6) {
-      return 'Password must be at least 6 characters';
+      return l10n.t('password_min_6');
     }
     return null;
   }
@@ -91,7 +94,7 @@ class _LoginFormState extends State<LoginForm> {
       Navigator.of(context).pushReplacementNamed(AppRouter.home);
     } else {
       final errorMessage = result.error ?? '';
-      if (errorMessage.contains('attesa di approvazione')) {
+      if (errorMessage.contains('attesa di approvazione') || errorMessage.contains('pending approval')) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Row(
@@ -127,13 +130,13 @@ class _LoginFormState extends State<LoginForm> {
 
   void _handleGoogleLogin() {
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Google Sign-In coming soon')),
+      SnackBar(content: Text(l10n.t('google_signin_soon'))),
     );
   }
 
   void _handleAppleLogin() {
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Apple Sign-In coming soon')),
+      SnackBar(content: Text(l10n.t('apple_signin_soon'))),
     );
   }
 
@@ -173,8 +176,8 @@ class _LoginFormState extends State<LoginForm> {
           ],
 
           SecureChatTextField(
-            label: 'Email',
-            hint: 'Enter your email',
+            label: l10n.t('email'),
+            hint: l10n.t('hint_email'),
             prefixIcon: Icons.mail_outline_rounded,
             controller: _emailController,
             keyboardType: TextInputType.emailAddress,
@@ -187,8 +190,8 @@ class _LoginFormState extends State<LoginForm> {
           const SizedBox(height: 16),
 
           SecureChatTextField(
-            label: 'Password',
-            hint: 'Enter your password',
+            label: l10n.t('password'),
+            hint: l10n.t('hint_password'),
             prefixIcon: Icons.lock_outline_rounded,
             obscureText: _obscurePassword,
             controller: _passwordController,
@@ -216,10 +219,10 @@ class _LoginFormState extends State<LoginForm> {
             alignment: Alignment.centerLeft,
             child: GestureDetector(
               onTap: _handleForgotPassword,
-              child: const Padding(
-                padding: EdgeInsets.symmetric(vertical: 4),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
                 child: Text(
-                  'Forgot password?',
+                  l10n.t('forgot_password'),
                   style: TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
@@ -235,7 +238,7 @@ class _LoginFormState extends State<LoginForm> {
           const SizedBox(height: 24),
 
           SecureChatButton(
-            text: 'Log In',
+            text: l10n.t('login'),
             isLoading: _isLoading,
             onPressed: _handleLogin,
           ),
@@ -245,10 +248,10 @@ class _LoginFormState extends State<LoginForm> {
           Row(
             children: [
               Expanded(child: Divider(color: AppColors.divider, thickness: 1)),
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 16),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: Text(
-                  'or continue with',
+                  l10n.t('or_continue_with'),
                   style: TextStyle(
                     fontSize: 13,
                     color: AppColors.textDisabled,
@@ -281,8 +284,8 @@ class _LoginFormState extends State<LoginForm> {
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Text(
-                "Don't have an account? ",
+              Text(
+                l10n.t('dont_have_account'),
                 style: TextStyle(
                   fontSize: 14,
                   color: AppColors.textTertiary,
@@ -292,11 +295,11 @@ class _LoginFormState extends State<LoginForm> {
                 onTap: () {
                   Navigator.of(context).pushNamed(AppRouter.register);
                 },
-                child: const Row(
+                child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      'Sign Up',
+                      l10n.t('sign_up'),
                       style: TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w700,
@@ -352,8 +355,8 @@ class _LoginFormState extends State<LoginForm> {
               ),
               const SizedBox(height: 24),
 
-              const Text(
-                'Reset Password',
+              Text(
+                l10n.t('reset_password'),
                 style: TextStyle(
                   fontSize: 22,
                   fontWeight: FontWeight.w700,
@@ -361,8 +364,8 @@ class _LoginFormState extends State<LoginForm> {
                 ),
               ),
               const SizedBox(height: 8),
-              const Text(
-                'Enter your email and we\'ll send you a link to reset your password.',
+              Text(
+                AppLocalizations.of(context)!.t('reset_password_desc'),
                 style: TextStyle(
                   fontSize: 14,
                   color: AppColors.textTertiary,
@@ -372,8 +375,8 @@ class _LoginFormState extends State<LoginForm> {
               const SizedBox(height: 24),
 
               SecureChatTextField(
-                label: 'Email',
-                hint: 'Enter your email',
+                label: AppLocalizations.of(context)!.t('email'),
+                hint: AppLocalizations.of(context)!.t('hint_email'),
                 prefixIcon: Icons.mail_outline_rounded,
                 controller: emailResetController,
                 keyboardType: TextInputType.emailAddress,
@@ -382,7 +385,7 @@ class _LoginFormState extends State<LoginForm> {
               const SizedBox(height: 24),
 
               SecureChatButton(
-                text: 'Send Reset Link',
+                text: AppLocalizations.of(context)!.t('send_reset_link'),
                 showArrow: false,
                 isLoading: isSending,
                 onPressed: () async {
@@ -398,12 +401,13 @@ class _LoginFormState extends State<LoginForm> {
 
                   if (context.mounted) {
                     Navigator.of(context).pop();
+                    final l10nSheet = AppLocalizations.of(context)!;
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
                         content: Text(
                           result.success
-                              ? 'Reset link sent! Check your email.'
-                              : result.error ?? 'Something went wrong.',
+                              ? l10nSheet.t('reset_link_sent')
+                              : result.error ?? l10nSheet.t('error'),
                         ),
                         backgroundColor:
                             result.success ? AppColors.success : AppColors.error,

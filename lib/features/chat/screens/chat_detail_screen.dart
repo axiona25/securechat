@@ -33,6 +33,7 @@ import '../../../core/services/crypto_service.dart';
 import '../../../core/services/media_encryption_service.dart';
 import '../../../core/services/session_manager.dart';
 import '../../../core/services/sound_service.dart';
+import '../../../core/l10n/app_localizations.dart';
 import '../widgets/audio_player_widget.dart';
 import 'document_viewer_screen.dart';
 import 'group_info_screen.dart';
@@ -101,6 +102,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   Map<String, dynamic>? _replyToMessage;
   String? _editingMessageId;
 
+  AppLocalizations get l10n => AppLocalizations.of(context)!;
   static const Color _teal = Color(0xFF2ABFBF);
   static const Color _navy = Color(0xFF1A2B4A);
   static const Color _inputBg = Color(0xFFF5F5F5);
@@ -311,9 +313,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     return const Color(0xFF9E9E9E); // Assente - grigio
   }
 
-  static String _getStatusText(bool isOnline) {
-    if (isOnline) return 'Online';
-    return 'Assente';
+  String _getStatusText(bool isOnline) {
+    if (isOnline) return l10n.t('online');
+    return l10n.t('away');
   }
 
   Widget _buildGroupStatusText() {
@@ -829,14 +831,14 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text('Svuota chat', style: TextStyle(fontWeight: FontWeight.w700)),
+        title: Text(l10n.t('clear_chat'), style: const TextStyle(fontWeight: FontWeight.w700)),
         content: const Text(
           'Vuoi eliminare tutti i messaggi? Questa azione è irreversibile.',
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Annulla'),
+            child: Text(l10n.t('cancel')),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
@@ -848,7 +850,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
               Navigator.pop(ctx);
               _clearChat();
             },
-            child: const Text('Elimina'),
+            child: Text(l10n.t('delete')),
           ),
         ],
       ),
@@ -1586,18 +1588,18 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Elimina messaggio'),
+        title: Text(l10n.t('delete_message')),
         content: Text(
           forAll ? 'Vuoi eliminare questo messaggio per tutti?' : 'Vuoi eliminare questo messaggio per te?',
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('Annulla'),
+            child: Text(l10n.t('cancel')),
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Elimina', style: TextStyle(color: Color(0xFFF44336))),
+            child: Text(l10n.t('delete'), style: const TextStyle(color: Color(0xFFF44336))),
           ),
         ],
       ),
@@ -1896,7 +1898,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                 _actionTile(
                   icon: Icons.edit_rounded,
                   color: const Color(0xFFFF9800),
-                  label: 'Modifica',
+                  label: l10n.t('edit'),
                   onTap: () {
                     Navigator.pop(context);
                     _editMessage(message);
@@ -1905,7 +1907,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
               _actionTile(
                 icon: Icons.delete_outline_rounded,
                 color: const Color(0xFFE91E63),
-                label: 'Elimina per me',
+                label: l10n.t('delete_for_me'),
                 onTap: () {
                   Navigator.pop(context);
                   _deleteMessage(message, forAll: false);
@@ -1915,7 +1917,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                 _actionTile(
                   icon: Icons.delete_forever_rounded,
                   color: const Color(0xFFF44336),
-                  label: 'Elimina per tutti',
+                  label: l10n.t('delete_for_all'),
                   onTap: () {
                     Navigator.pop(context);
                     _deleteMessage(message, forAll: true);
@@ -4912,7 +4914,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                         maxLines: 4,
                         minLines: 1,
                         decoration: const InputDecoration(
-                          hintText: 'Scrivi un messaggio...',
+                          hintText: l10n.t('type_message'),
                           hintStyle: TextStyle(color: Color(0xFF9E9E9E), fontSize: 15),
                           border: InputBorder.none,
                           contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -5229,7 +5231,7 @@ class _ForwardSheetState extends State<_ForwardSheet> {
                 controller: _searchController,
                 onChanged: _onSearchChanged,
                 decoration: const InputDecoration(
-                  hintText: 'Cerca per nome o email...',
+                  hintText: l10n.t('search_by_name'),
                   hintStyle: TextStyle(color: _subtitleGray, fontSize: 15),
                   prefixIcon: Icon(Icons.search, color: _subtitleGray, size: 22),
                   border: InputBorder.none,
@@ -5658,7 +5660,7 @@ class _AudioRecorderSheetState extends State<_AudioRecorderSheet> {
                   children: [
                     TextButton(
                       onPressed: () => Navigator.pop(context),
-                      child: const Text('Annulla', style: TextStyle(color: Color(0xFF9E9E9E), fontSize: 15)),
+                      child: Text(l10n.t('cancel'), style: const TextStyle(color: Color(0xFF9E9E9E), fontSize: 15)),
                     ),
                     const SizedBox(width: 24),
                     GestureDetector(

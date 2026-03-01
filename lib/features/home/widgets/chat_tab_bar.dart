@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/l10n/app_localizations.dart';
 
 enum ChatFilter { all, group, favorites }
 
@@ -26,19 +27,19 @@ class ChatTabBar extends StatelessWidget {
       child: Row(
         children: [
           _buildTab(
-            label: 'Chats',
+            label: AppLocalizations.of(context)?.t('chats') ?? 'Chat',
             count: allCount,
             filter: ChatFilter.all,
           ),
           const SizedBox(width: 24),
           _buildTab(
-            label: 'Group',
+            label: AppLocalizations.of(context)?.t('group') ?? 'Gruppo',
             count: groupCount > 0 ? groupCount : null,
             filter: ChatFilter.group,
           ),
           const SizedBox(width: 24),
           _buildTab(
-            label: 'Favourite',
+            label: AppLocalizations.of(context)?.t('favourite') ?? 'Preferiti',
             count: favoritesCount > 0 ? favoritesCount : null,
             filter: ChatFilter.favorites,
           ),

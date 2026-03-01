@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/models/message_model.dart';
+import '../../../core/l10n/app_localizations.dart';
 
 class ContactPickerSheet extends StatefulWidget {
   const ContactPickerSheet({super.key});
@@ -137,7 +138,7 @@ class _ContactPickerContentState extends State<_ContactPickerContent> {
               onChanged: _onSearch,
               style: const TextStyle(fontSize: 14, color: AppColors.textPrimary),
               decoration: InputDecoration(
-                hintText: 'Search contacts...',
+                hintText: AppLocalizations.of(context)?.t('search_chats') ?? 'Search contacts...',
                 hintStyle: TextStyle(
                     color: AppColors.textDisabled.withValues(alpha: 0.6)),
                 prefixIcon: const Icon(

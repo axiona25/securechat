@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/widgets/feature_icons_row.dart';
+import '../../core/l10n/app_localizations.dart';
 import 'widgets/register_form.dart';
 
 class RegisterScreen extends StatelessWidget {
@@ -51,9 +52,9 @@ class RegisterScreen extends StatelessWidget {
 
                         SizedBox(height: screenHeight * 0.025),
 
-                        const Text(
-                          'Create your account',
-                          style: TextStyle(
+                        Text(
+                          AppLocalizations.of(context)!.t('create_account'),
+                          style: const TextStyle(
                             fontSize: 28,
                             fontWeight: FontWeight.w800,
                             color: AppColors.textPrimary,
@@ -63,8 +64,8 @@ class RegisterScreen extends StatelessWidget {
 
                         const SizedBox(height: 6),
 
-                        const Text(
-                          'Sign up to get started',
+                        Text(
+                          AppLocalizations.of(context)!.t('signup_subtitle'),
                           style: TextStyle(
                             fontSize: 15,
                             fontWeight: FontWeight.w400,

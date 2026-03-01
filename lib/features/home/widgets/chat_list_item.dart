@@ -3,6 +3,7 @@ import 'package:flutter_slidable/flutter_slidable.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/models/conversation_model.dart';
 import '../../../core/widgets/user_avatar_widget.dart';
+import '../../../core/l10n/app_localizations.dart';
 
 class ChatListItem extends StatelessWidget {
   final ConversationModel conversation;
@@ -60,6 +61,7 @@ class ChatListItem extends StatelessWidget {
     final unreadCount = conversation.unreadCount;
     final hasUnread = unreadCount > 0;
     final timeStr = conversation.formattedTime;
+    final displayTime = (timeStr == 'Ieri') ? (AppLocalizations.of(context)?.t('yesterday') ?? timeStr) : timeStr;
 
     final content = InkWell(
       onTap: onTap,
@@ -136,7 +138,7 @@ class ChatListItem extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  timeStr,
+                  displayTime,
                   style: TextStyle(
                     color: hasUnread ? _teal800 : _gray,
                     fontSize: 12,
@@ -193,12 +195,12 @@ class ChatListItem extends StatelessWidget {
             onPressed: (_) => onDelete?.call(),
             backgroundColor: Colors.red,
             foregroundColor: Colors.white,
-            child: const Column(
+            child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(Icons.delete_outline, size: 22),
-                SizedBox(height: 4),
-                Text('Elimina', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                const Icon(Icons.delete_outline, size: 22),
+                const SizedBox(height: 4),
+                Text(AppLocalizations.of(context)?.t('delete') ?? 'Elimina', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
               ],
             ),
           ),

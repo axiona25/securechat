@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/models/conversation_model.dart';
+import '../../../core/l10n/app_localizations.dart';
 import 'chat_list_item.dart';
 
 class ChatListView extends StatelessWidget {
@@ -50,18 +51,18 @@ class ChatListView extends StatelessWidget {
                 color: AppColors.textDisabled.withValues(alpha: 0.4),
               ),
               const SizedBox(height: 16),
-              const Text(
-                'No conversations yet',
-                style: TextStyle(
+              Text(
+                AppLocalizations.of(context)?.t('no_conversations') ?? 'No conversations yet',
+                style: const TextStyle(
                   fontSize: 17,
                   fontWeight: FontWeight.w600,
                   color: AppColors.textSecondary,
                 ),
               ),
               const SizedBox(height: 6),
-              const Text(
-                'Start a new chat to begin messaging',
-                style: TextStyle(
+              Text(
+                AppLocalizations.of(context)?.t('start_new_chat') ?? 'Start a new chat to begin messaging',
+                style: const TextStyle(
                   fontSize: 14,
                   color: AppColors.textDisabled,
                 ),
@@ -76,11 +77,11 @@ class ChatListView extends StatelessWidget {
       delegate: SliverChildBuilderDelegate(
         (context, index) {
           if (index == 0) {
-            return const Padding(
-              padding: EdgeInsets.only(left: 20, top: 8, bottom: 4),
+            return Padding(
+              padding: const EdgeInsets.only(left: 20, top: 8, bottom: 4),
               child: Text(
-                'Chats',
-                style: TextStyle(
+                AppLocalizations.of(context)?.t('chats') ?? 'Chat',
+                style: const TextStyle(
                   fontSize: 17,
                   fontWeight: FontWeight.w800,
                   color: AppColors.blue700,

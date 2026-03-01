@@ -7,6 +7,7 @@ import '../../../core/services/auth_service.dart';
 import '../../../core/services/crypto_service.dart';
 import '../../../core/widgets/securechat_text_field.dart';
 import '../../../core/widgets/securechat_button.dart';
+import '../../../core/l10n/app_localizations.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 class RegisterForm extends StatefulWidget {
@@ -33,6 +34,8 @@ class _RegisterFormState extends State<RegisterForm> {
   bool _isLoading = false;
   String? _errorMessage;
 
+  AppLocalizations get l10n => AppLocalizations.of(context)!;
+
   @override
   void dispose() {
     _fullNameController.dispose();
@@ -48,47 +51,47 @@ class _RegisterFormState extends State<RegisterForm> {
 
   String? _validateFullName(String? value) {
     if (value == null || value.trim().isEmpty) {
-      return 'Please enter your full name';
+      return l10n.t('full_name_required');
     }
     if (value.trim().length < 2) {
-      return 'Name must be at least 2 characters';
+      return l10n.t('name_min_2');
     }
     return null;
   }
 
   String? _validateEmail(String? value) {
     if (value == null || value.trim().isEmpty) {
-      return 'Please enter your email';
+      return l10n.t('email_required');
     }
     final emailRegex = RegExp(r'^[\w\.\-\+]+@[\w\-]+\.[\w\-\.]+$');
     if (!emailRegex.hasMatch(value.trim())) {
-      return 'Please enter a valid email';
+      return l10n.t('email_invalid');
     }
     return null;
   }
 
   String? _validatePassword(String? value) {
     if (value == null || value.isEmpty) {
-      return 'Please create a password';
+      return l10n.t('password_required');
     }
     if (value.length < 8) {
-      return 'Password must be at least 8 characters';
+      return l10n.t('password_min_8');
     }
     if (!RegExp(r'[A-Z]').hasMatch(value)) {
-      return 'Password must contain an uppercase letter';
+      return l10n.t('password_uppercase');
     }
     if (!RegExp(r'[0-9]').hasMatch(value)) {
-      return 'Password must contain a number';
+      return l10n.t('password_number');
     }
     return null;
   }
 
   String? _validateConfirmPassword(String? value) {
     if (value == null || value.isEmpty) {
-      return 'Please confirm your password';
+      return l10n.t('confirm_password_required');
     }
     if (value != _passwordController.text) {
-      return 'Passwords do not match';
+      return l10n.t('passwords_dont_match');
     }
     return null;
   }
@@ -114,12 +117,12 @@ class _RegisterFormState extends State<RegisterForm> {
 
     if (result.success) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+        SnackBar(
           content: Row(
             children: [
-              Icon(Icons.check_circle, color: Colors.white, size: 20),
-              SizedBox(width: 10),
-              Expanded(child: Text('Registrazione avvenuta con successo! Verrai reindirizzato al login.', style: TextStyle(fontWeight: FontWeight.w600))),
+              const Icon(Icons.check_circle, color: Colors.white, size: 20),
+              const SizedBox(width: 10),
+              Expanded(child: Text('${l10n.t('registration_success')} ${l10n.t('redirect_to_login')}', style: const TextStyle(fontWeight: FontWeight.w600))),
             ],
           ),
           backgroundColor: Color(0xFF2ABFBF),
@@ -139,13 +142,13 @@ class _RegisterFormState extends State<RegisterForm> {
 
   void _openTermsOfService() {
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Terms of Service — coming soon')),
+      SnackBar(content: Text(l10n.t('terms_coming_soon'))),
     );
   }
 
   void _openPrivacyPolicy() {
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Privacy Policy — coming soon')),
+      SnackBar(content: Text(l10n.t('privacy_coming_soon'))),
     );
   }
 
@@ -187,8 +190,8 @@ class _RegisterFormState extends State<RegisterForm> {
           ],
 
           SecureChatTextField(
-            label: 'Full Name',
-            hint: 'Enter your full name',
+            label: l10n.t('full_name'),
+            hint: l10n.t('hint_full_name'),
             prefixIcon: Icons.person_outline_rounded,
             controller: _fullNameController,
             keyboardType: TextInputType.name,
@@ -201,8 +204,8 @@ class _RegisterFormState extends State<RegisterForm> {
           const SizedBox(height: 14),
 
           SecureChatTextField(
-            label: 'Email',
-            hint: 'Enter your email',
+            label: l10n.t('email'),
+            hint: l10n.t('hint_email'),
             prefixIcon: Icons.mail_outline_rounded,
             controller: _emailController,
             keyboardType: TextInputType.emailAddress,
@@ -215,8 +218,8 @@ class _RegisterFormState extends State<RegisterForm> {
           const SizedBox(height: 14),
 
           SecureChatTextField(
-            label: 'Password',
-            hint: 'Create a password',
+            label: l10n.t('password'),
+            hint: l10n.t('password_min_8'),
             prefixIcon: Icons.lock_outline_rounded,
             obscureText: _obscurePassword,
             controller: _passwordController,
@@ -241,8 +244,8 @@ class _RegisterFormState extends State<RegisterForm> {
           const SizedBox(height: 14),
 
           SecureChatTextField(
-            label: 'Confirm Password',
-            hint: 'Confirm your password',
+            label: l10n.t('confirm_password'),
+            hint: l10n.t('hint_confirm_password'),
             prefixIcon: Icons.lock_outline_rounded,
             obscureText: _obscureConfirmPassword,
             controller: _confirmPasswordController,
@@ -274,9 +277,9 @@ class _RegisterFormState extends State<RegisterForm> {
                 height: 1.5,
               ),
               children: [
-                const TextSpan(text: 'By signing up, you agree to the '),
+                TextSpan(text: l10n.t('terms_agreement')),
                 TextSpan(
-                  text: 'Terms of Service',
+                  text: l10n.t('terms_of_service'),
                   style: const TextStyle(
                     color: AppColors.primary,
                     fontWeight: FontWeight.w600,
@@ -285,9 +288,9 @@ class _RegisterFormState extends State<RegisterForm> {
                   ),
                   recognizer: TapGestureRecognizer()..onTap = _openTermsOfService,
                 ),
-                const TextSpan(text: '\nand '),
+                TextSpan(text: '\n${l10n.t('and')}'),
                 TextSpan(
-                  text: 'Privacy Policy',
+                  text: l10n.t('privacy_policy'),
                   style: const TextStyle(
                     color: AppColors.primary,
                     fontWeight: FontWeight.w600,
@@ -304,7 +307,7 @@ class _RegisterFormState extends State<RegisterForm> {
           const SizedBox(height: 24),
 
           SecureChatButton(
-            text: 'Sign Up',
+            text: l10n.t('sign_up'),
             isLoading: _isLoading,
             onPressed: _handleRegister,
           ),
@@ -314,8 +317,8 @@ class _RegisterFormState extends State<RegisterForm> {
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Text(
-                'Already have an account? ',
+              Text(
+                l10n.t('already_have_account'),
                 style: TextStyle(
                   fontSize: 14,
                   color: AppColors.textTertiary,
@@ -325,11 +328,11 @@ class _RegisterFormState extends State<RegisterForm> {
                 onTap: () {
                   Navigator.of(context).pop();
                 },
-                child: const Row(
+                child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      'Log In',
+                      l10n.t('login'),
                       style: TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w700,

@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/services/api_service.dart';
+import '../../../core/l10n/app_localizations.dart';
 
 class ChangePasswordModal extends StatefulWidget {
   final VoidCallback onPasswordChanged;
@@ -22,6 +23,8 @@ class _ChangePasswordModalState extends State<ChangePasswordModal> {
   bool _loading = false;
   String? _error;
 
+  AppLocalizations get l10n => AppLocalizations.of(context)!;
+
   @override
   void dispose() {
     _newPasswordController.dispose();
@@ -34,15 +37,15 @@ class _ChangePasswordModalState extends State<ChangePasswordModal> {
     final confirmPassword = _confirmPasswordController.text.trim();
 
     if (newPassword.isEmpty || confirmPassword.isEmpty) {
-      setState(() => _error = 'Compila entrambi i campi.');
+      setState(() => _error = l10n.t('fill_both_fields'));
       return;
     }
     if (newPassword.length < 8) {
-      setState(() => _error = 'La password deve essere di almeno 8 caratteri.');
+      setState(() => _error = l10n.t('password_min_8'));
       return;
     }
     if (newPassword != confirmPassword) {
-      setState(() => _error = 'Le password non coincidono.');
+      setState(() => _error = l10n.t('passwords_dont_match'));
       return;
     }
 
@@ -75,10 +78,10 @@ class _ChangePasswordModalState extends State<ChangePasswordModal> {
         if (data['refresh'] != null) prefs.setString('refresh_token', data['refresh'] as String);
         if (mounted) widget.onPasswordChanged();
       } else {
-        setState(() => _error = data['error']?.toString() ?? 'Errore durante il cambio password.');
+        setState(() => _error = data['error']?.toString() ?? l10n.t('error_change_password'));
       }
     } catch (e) {
-      setState(() => _error = 'Errore di connessione. Riprova.');
+      setState(() => _error = l10n.t('error_connection'));
     }
 
     if (mounted) setState(() => _loading = false);
@@ -110,18 +113,18 @@ class _ChangePasswordModalState extends State<ChangePasswordModal> {
                 ),
               ),
               const SizedBox(height: 20),
-              const Center(
+              Center(
                 child: Text(
-                  'Cambia Password',
-                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: Color(0xFF1A2B3C)),
+                  l10n.t('change_password'),
+                  style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: Color(0xFF1A2B3C)),
                 ),
               ),
               const SizedBox(height: 8),
-              const Center(
+              Center(
                 child: Text(
-                  'Per motivi di sicurezza, è necessario cambiare la password temporanea al primo accesso.',
+                  l10n.t('change_password_desc'),
                   textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 14, color: Color(0xFF7B8794), height: 1.4),
+                  style: const TextStyle(fontSize: 14, color: Color(0xFF7B8794), height: 1.4),
                 ),
               ),
               const SizedBox(height: 24),
@@ -146,13 +149,13 @@ class _ChangePasswordModalState extends State<ChangePasswordModal> {
                 const SizedBox(height: 16),
               ],
 
-              const Text('NUOVA PASSWORD', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF7B8794), letterSpacing: 0.5)),
+              Text(l10n.t('new_password_label'), style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF7B8794), letterSpacing: 0.5)),
               const SizedBox(height: 6),
               TextField(
                 controller: _newPasswordController,
                 obscureText: _obscureNew,
                 decoration: InputDecoration(
-                  hintText: 'Inserisci la nuova password',
+                  hintText: l10n.t('hint_new_password'),
                   hintStyle: const TextStyle(color: Color(0xFFB0BEC5), fontSize: 14),
                   contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFFE8ECF0))),
@@ -166,13 +169,13 @@ class _ChangePasswordModalState extends State<ChangePasswordModal> {
               ),
               const SizedBox(height: 16),
 
-              const Text('CONFERMA PASSWORD', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF7B8794), letterSpacing: 0.5)),
+              Text(l10n.t('confirm_password_label'), style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF7B8794), letterSpacing: 0.5)),
               const SizedBox(height: 6),
               TextField(
                 controller: _confirmPasswordController,
                 obscureText: _obscureConfirm,
                 decoration: InputDecoration(
-                  hintText: 'Conferma la nuova password',
+                  hintText: l10n.t('hint_confirm_new_password'),
                   hintStyle: const TextStyle(color: Color(0xFFB0BEC5), fontSize: 14),
                   contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: Color(0xFFE8ECF0))),
@@ -185,9 +188,9 @@ class _ChangePasswordModalState extends State<ChangePasswordModal> {
                 ),
               ),
               const SizedBox(height: 8),
-              const Text(
-                'Minimo 8 caratteri',
-                style: TextStyle(fontSize: 12, color: Color(0xFF7B8794)),
+              Text(
+                l10n.t('min_8_chars'),
+                style: const TextStyle(fontSize: 12, color: Color(0xFF7B8794)),
               ),
               const SizedBox(height: 24),
 
@@ -204,7 +207,7 @@ class _ChangePasswordModalState extends State<ChangePasswordModal> {
                   ),
                   child: _loading
                       ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.white))
-                      : const Text('Salva Nuova Password', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                      : Text(l10n.t('save_new_password'), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
                 ),
               ),
             ],

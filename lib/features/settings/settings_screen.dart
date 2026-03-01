@@ -7,6 +7,8 @@ import '../../core/theme/app_colors.dart';
 import '../../core/services/api_service.dart';
 import '../../core/services/auth_service.dart';
 import '../../core/widgets/user_avatar_widget.dart';
+import '../../core/l10n/app_localizations.dart';
+import '../../core/l10n/locale_provider.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key, this.onBack});
@@ -24,6 +26,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _loading = true;
 
   static const Color _teal = Color(0xFF2ABFBF);
+  AppLocalizations get l10n => AppLocalizations.of(context)!;
   static const Color _navy = Color(0xFF1A2B4A);
 
   @override
@@ -58,6 +61,80 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   String get _email => _profile?['email']?.toString() ?? '';
 
+  String get _currentLanguageName {
+    final code = localeProvider.locale.languageCode;
+    for (final l in AppLocalizations.supportedLanguages) {
+      if (l['code'] == code) return l['name']!;
+    }
+    return 'Italiano';
+  }
+
+  void _showLanguageSelector(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        height: MediaQuery.of(context).size.height * 0.7,
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: Column(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(20),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    AppLocalizations.of(context)?.t('select_language') ?? 'Seleziona Lingua',
+                    style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: Color(0xFF1A2B3C)),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.pop(ctx),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            Expanded(
+              child: ListView.builder(
+                itemCount: AppLocalizations.supportedLanguages.length,
+                itemBuilder: (context, index) {
+                  final lang = AppLocalizations.supportedLanguages[index];
+                  final isSelected = localeProvider.locale.languageCode == lang['code'];
+                  return ListTile(
+                    leading: Text(lang['flag']!, style: const TextStyle(fontSize: 28)),
+                    title: Text(lang['name']!, style: TextStyle(fontSize: 16, fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500, color: const Color(0xFF1A2B3C))),
+                    trailing: isSelected ? const Icon(Icons.check_circle, color: Color(0xFF2ABFBF), size: 24) : null,
+                    tileColor: isSelected ? const Color(0xFF2ABFBF).withOpacity(0.05) : null,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    onTap: () async {
+                      await localeProvider.setLocale(Locale(lang['code']!));
+                      if (context.mounted) {
+                        Navigator.pop(ctx);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('${lang['flag']} ${lang['name']}'),
+                            backgroundColor: const Color(0xFF2ABFBF),
+                            behavior: SnackBarBehavior.floating,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          ),
+                        );
+                      }
+                    },
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   String? get _avatarUrl {
     final url = _profile?['avatar']?.toString();
     if (url == null || url.isEmpty) return null;
@@ -67,7 +144,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   String get _statusText {
     final isOnline = _profile?['is_online'] == true;
-    return isOnline ? 'Online' : 'Offline';
+    return isOnline ? l10n.t('online') : l10n.t('offline');
   }
 
   Color get _statusColor {
@@ -80,16 +157,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
       context: context,
       builder: (context) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Logout', style: TextStyle(fontWeight: FontWeight.w700)),
-        content: const Text('Sei sicuro di voler uscire?'),
+        title: Text(l10n.t('logout'), style: const TextStyle(fontWeight: FontWeight.w700)),
+        content: Text(l10n.t('confirm_logout')),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: Text('Annulla', style: TextStyle(color: Colors.grey[600])),
+            child: Text(l10n.t('cancel'), style: TextStyle(color: Colors.grey[600])),
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Logout', style: TextStyle(color: Color(0xFFE53935), fontWeight: FontWeight.w600)),
+            child: Text(l10n.t('logout'), style: const TextStyle(color: Color(0xFFE53935), fontWeight: FontWeight.w600)),
           ),
         ],
       ),
@@ -223,11 +300,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Annulla')),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(l10n.t('cancel'))),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2ABFBF), foregroundColor: Colors.white),
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Salva'),
+            child: Text(l10n.t('save')),
           ),
         ],
       ),
@@ -289,9 +366,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           },
                           child: const Icon(Icons.arrow_back_ios_new_rounded, color: Color(0xFF1A2B4A), size: 22),
                         ),
-                        const Expanded(
+                        Expanded(
                           child: Text(
-                            'Impostazioni',
+                            l10n.t('settings'),
                             textAlign: TextAlign.center,
                             style: TextStyle(
                               fontSize: 20,
@@ -302,8 +379,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ),
                         GestureDetector(
                           onTap: _editProfile,
-                          child: const Text(
-                            'Modifica',
+                          child: Text(
+                            l10n.t('edit'),
                             style: TextStyle(
                               fontSize: 15,
                               fontWeight: FontWeight.w600,
@@ -384,21 +461,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       _buildMenuItem(
                         icon: Icons.person_outline_rounded,
                         iconColor: _teal,
-                        title: 'Account',
-                        onTap: () => _showComingSoon('Account'),
+                        title: l10n.t('account'),
+                        onTap: () => _showComingSoon(l10n.t('account')),
                       ),
                       _buildDivider(),
                       _buildMenuItem(
                         icon: Icons.shield_outlined,
                         iconColor: const Color(0xFF4CAF50),
-                        title: 'Privacy',
-                        onTap: () => _showComingSoon('Privacy'),
+                        title: l10n.t('privacy'),
+                        onTap: () => _showComingSoon(l10n.t('privacy')),
                       ),
                       _buildDivider(),
                       _buildToggleItem(
                         icon: Icons.notifications_none_rounded,
                         iconColor: _teal,
-                        title: 'Notifiche',
+                        title: l10n.t('notifications'),
                         value: _notificationsEnabled,
                         onChanged: (val) {
                           setState(() => _notificationsEnabled = val);
@@ -408,23 +485,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       _buildMenuItem(
                         icon: Icons.chat_bubble_outline_rounded,
                         iconColor: _teal,
-                        title: 'Impostazioni Chat',
-                        onTap: () => _showComingSoon('Impostazioni Chat'),
+                        title: l10n.t('chat_settings'),
+                        onTap: () => _showComingSoon(l10n.t('chat_settings')),
                       ),
                       _buildDivider(),
                       _buildMenuItem(
                         icon: Icons.cloud_outlined,
                         iconColor: _teal,
-                        title: 'Dati e Archiviazione',
-                        onTap: () => _showComingSoon('Dati e Archiviazione'),
+                        title: l10n.t('data_storage'),
+                        onTap: () => _showComingSoon(l10n.t('data_storage')),
                       ),
                       _buildDivider(),
                       _buildMenuItem(
                         icon: Icons.language_rounded,
                         iconColor: _teal,
-                        title: 'Lingua',
-                        trailing: Text('Italiano', style: TextStyle(color: Colors.grey[400], fontSize: 14)),
-                        onTap: () => _showComingSoon('Lingua'),
+                        title: l10n.t('language'),
+                        trailing: Text(_currentLanguageName, style: TextStyle(color: Colors.grey[400], fontSize: 14)),
+                        onTap: () => _showLanguageSelector(context),
                       ),
                     ]),
                     const SizedBox(height: 16),
@@ -434,15 +511,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       _buildMenuItem(
                         icon: Icons.help_outline_rounded,
                         iconColor: Colors.grey[500]!,
-                        title: 'Aiuto',
-                        onTap: () => _showComingSoon('Aiuto'),
+                        title: l10n.t('help'),
+                        onTap: () => _showComingSoon(l10n.t('help')),
                       ),
                       _buildDivider(),
                       _buildMenuItem(
                         icon: Icons.person_add_outlined,
                         iconColor: Colors.grey[500]!,
-                        title: 'Invita Amici',
-                        onTap: () => _showComingSoon('Invita Amici'),
+                        title: l10n.t('invite_friends'),
+                        onTap: () => _showComingSoon(l10n.t('invite_friends')),
                       ),
                     ]),
                     const SizedBox(height: 16),
@@ -452,7 +529,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       _buildMenuItem(
                         icon: Icons.logout_rounded,
                         iconColor: const Color(0xFFE53935),
-                        title: 'Logout',
+                        title: l10n.t('logout'),
                         titleColor: const Color(0xFFE53935),
                         showChevron: false,
                         onTap: _logout,
@@ -580,7 +657,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void _showComingSoon(String feature) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('$feature — Coming soon'),
+        content: Text('$feature — ${l10n.t('coming_soon')}'),
         backgroundColor: _teal,
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),

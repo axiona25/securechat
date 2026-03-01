@@ -28,6 +28,7 @@ import 'widgets/notification_toast.dart';
 import 'package:flutter_app_badger/flutter_app_badger.dart';
 import '../settings/settings_screen.dart';
 import '../auth/widgets/change_password_modal.dart';
+import '../../core/l10n/app_localizations.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -57,6 +58,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   WebSocket? _homeWebSocket;
   final Map<String, bool> _typingConversations = {}; // conversationId -> isTyping
   final Map<String, bool> _recordingConversations = {}; // conversationId -> isRecording
+
+  AppLocalizations get l10n => AppLocalizations.of(context)!;
 
   @override
   void initState() {
@@ -379,7 +382,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 
   String _getNotificationPreview(Map<String, dynamic>? lastMessage) {
-    if (lastMessage == null) return 'Nuovo messaggio';
+    if (lastMessage == null) return l10n.t('new_message');
 
     final type = lastMessage['message_type']?.toString() ?? 'text';
     final content = lastMessage['content']?.toString() ?? '';
@@ -414,7 +417,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         final fileName = content.trim().isNotEmpty ? content.trim() : 'Documento';
         return '📎 $fileName';
       default:
-        return content.trim().isNotEmpty ? content.trim() : 'Nuovo messaggio';
+        return content.trim().isNotEmpty ? content.trim() : l10n.t('new_message');
     }
   }
 
@@ -441,9 +444,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   Widget _buildNotificationPreview(Map<String, dynamic>? lastMessage) {
     if (lastMessage == null) {
-      return const Text(
-        'Nuovo messaggio',
-        style: TextStyle(color: Colors.white70, fontSize: 13, decoration: TextDecoration.none),
+      return Text(
+        l10n.t('new_message'),
+        style: const TextStyle(color: Colors.white70, fontSize: 13, decoration: TextDecoration.none),
       );
     }
     final type = lastMessage['message_type']?.toString() ?? 'text';
@@ -562,7 +565,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       }
       default:
         return Text(
-          content.isNotEmpty ? content : 'Nuovo messaggio',
+          content.isNotEmpty ? content : l10n.t('new_message'),
           style: style,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
@@ -643,7 +646,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   String _getLastMessagePreviewText(Map<String, dynamic> conversation) {
     final lastMessage = conversation['last_message'];
-    if (lastMessage == null) return 'Nessun messaggio';
+    if (lastMessage == null) return l10n.t('no_message');
     if (lastMessage['has_encrypted_attachment'] == true) {
       return ChatDetailScreen.encryptedAttachmentPreviewText(
         lastMessage['message_type']?.toString(),
@@ -659,7 +662,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       case 'location': return 'Posizione';
       case 'contact': return 'Contatto';
       case 'file': return content.isNotEmpty ? content : 'Documento';
-      default: return content.isNotEmpty ? content : 'Nessun messaggio';
+      default: return content.isNotEmpty ? content : l10n.t('no_message');
     }
   }
 
@@ -703,11 +706,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
     final lastMessage = conversation['last_message'];
     if (lastMessage == null) {
-      return const Text('Nessun messaggio', style: TextStyle(color: Color(0xFF9E9E9E), fontSize: 13));
+      return Text(l10n.t('no_message'), style: const TextStyle(color: Color(0xFF9E9E9E), fontSize: 13));
     }
     final content = lastMessage['content']?.toString() ?? '';
     if (content.trim().isEmpty) {
-      return Text('Nessun messaggio', style: TextStyle(color: Colors.grey[400], fontStyle: FontStyle.italic, fontSize: 13));
+      return Text(l10n.t('no_message'), style: TextStyle(color: Colors.grey[400], fontStyle: FontStyle.italic, fontSize: 13));
     }
 
     final type = lastMessage['message_type']?.toString() ?? 'text';
@@ -803,7 +806,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         );
       default:
         return Text(
-          content.isNotEmpty ? content : 'Nessun messaggio',
+          content.isNotEmpty ? content : l10n.t('no_message'),
           style: textStyle,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
@@ -915,14 +918,14 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       context: context,
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text('Elimina chat', style: TextStyle(fontWeight: FontWeight.w700)),
+        title: Text(l10n.t('delete_chat'), style: const TextStyle(fontWeight: FontWeight.w700)),
         content: const Text(
           'Vuoi eliminare questa conversazione? L\'azione è irreversibile.',
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Annulla'),
+            child: Text(l10n.t('cancel')),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
@@ -948,7 +951,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 if (mounted) setState(() => _conversations.insert(0, conv));
               }
             },
-            child: const Text('Elimina'),
+            child: Text(l10n.t('delete')),
           ),
         ],
       ),
@@ -1000,7 +1003,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             _moreActionTile(
               ctx,
               Icons.notifications_off_outlined,
-              conv.isMuted ? 'Riattiva notifiche' : 'Silenzia',
+              conv.isMuted ? l10n.t('unmute_notifications_short') : l10n.t('mute_short'),
               Colors.orange,
               () async {
                 Navigator.pop(ctx);
@@ -1036,7 +1039,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             _moreActionTile(
               ctx,
               conv.isLocked ? Icons.lock_open_outlined : Icons.lock_outline,
-              conv.isLocked ? 'Rimuovi lucchetto' : 'Attiva lucchetto',
+              conv.isLocked ? l10n.t('remove_lock') : l10n.t('enable_lock'),
               Colors.purple,
               () async {
                 Navigator.pop(ctx);
@@ -1087,14 +1090,14 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       context: context,
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text('Elimina per tutti', style: TextStyle(fontWeight: FontWeight.w700)),
+        title: Text(l10n.t('delete_for_all'), style: const TextStyle(fontWeight: FontWeight.w700)),
         content: const Text(
           'Vuoi eliminare questa conversazione per tutti i partecipanti? L\'azione è irreversibile.',
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Annulla'),
+            child: Text(l10n.t('cancel')),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
@@ -1111,7 +1114,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 if (mounted) setState(() => _conversations.insert(0, conv));
               }
             },
-            child: const Text('Elimina'),
+            child: Text(l10n.t('delete')),
           ),
         ],
       ),
@@ -1344,7 +1347,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             const SizedBox(height: 12),
             TextButton(
               onPressed: () => Navigator.pop(ctx),
-              child: const Text('Resta qui', style: TextStyle(color: Colors.grey)),
+              child: Text(l10n.t('stay_here'), style: TextStyle(color: Colors.grey[600])),
             ),
           ],
         ),
@@ -1367,8 +1370,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Text(
-                'Nuova Chat',
+              Text(
+                l10n.t('new_chat'),
                 style: TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.w600,
@@ -1381,8 +1384,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                   backgroundColor: teal,
                   child: const Icon(Icons.chat_bubble_outline, color: Colors.white, size: 22),
                 ),
-                title: const Text(
-                  'Nuova Chat',
+                title: Text(
+                  l10n.t('new_chat'),
                   style: TextStyle(color: navy, fontSize: 16, fontWeight: FontWeight.w500),
                 ),
                 trailing: const Icon(Icons.chevron_right, color: Color(0xFF9E9E9E)),
@@ -1396,9 +1399,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                   backgroundColor: teal,
                   child: const Icon(Icons.group_outlined, color: Colors.white, size: 22),
                 ),
-                title: const Text(
-                  'Nuovo Gruppo',
-                  style: TextStyle(color: navy, fontSize: 16, fontWeight: FontWeight.w500),
+                title: Text(
+                  l10n.t('new_group'),
+                  style: const TextStyle(color: navy, fontSize: 16, fontWeight: FontWeight.w500),
                 ),
                 trailing: const Icon(Icons.chevron_right, color: Color(0xFF9E9E9E)),
                 onTap: () {
@@ -1411,9 +1414,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                   backgroundColor: teal,
                   child: const Icon(Icons.campaign_outlined, color: Colors.white, size: 22),
                 ),
-                title: const Text(
-                  'Nuova Lista Broadcast',
-                  style: TextStyle(color: navy, fontSize: 16, fontWeight: FontWeight.w500),
+                title: Text(
+                  l10n.t('new_broadcast_list'),
+                  style: const TextStyle(color: navy, fontSize: 16, fontWeight: FontWeight.w500),
                 ),
                 trailing: const Icon(Icons.chevron_right, color: Color(0xFF9E9E9E)),
                 onTap: () {
@@ -1789,25 +1792,25 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               currentIndex: _currentNavIndex,
               onTap: _onNavTap,
               items: [
-                const BottomNavItem(
+                BottomNavItem(
                   icon: Icons.forum_outlined,
                   activeIcon: Icons.forum,
-                  label: 'Chats',
+                  label: l10n.t('chats'),
                 ),
-                const BottomNavItem(
+                BottomNavItem(
                   icon: Icons.call_outlined,
                   activeIcon: Icons.call,
-                  label: 'Calls',
+                  label: l10n.t('calls'),
                 ),
-                const BottomNavItem(
+                BottomNavItem(
                   icon: Icons.verified_user_outlined,
                   activeIcon: Icons.verified_user,
-                  label: 'Security',
+                  label: l10n.t('security'),
                 ),
-                const BottomNavItem(
+                BottomNavItem(
                   icon: Icons.settings_outlined,
                   activeIcon: Icons.settings,
-                  label: 'Impostazioni',
+                  label: l10n.t('settings'),
                 ),
               ],
             ),
@@ -1845,6 +1848,7 @@ class _SingleChatSheetContentState extends State<_SingleChatSheetContent> {
   bool _creating = false;
   Timer? _debounce;
 
+  AppLocalizations get l10n => AppLocalizations.of(context)!;
   static const Color _teal = Color(0xFF2ABFBF);
   static const Color _navy = Color(0xFF1A2B4A);
   static const Color _subtitleGray = Color(0xFF9E9E9E);
@@ -1916,7 +1920,7 @@ class _SingleChatSheetContentState extends State<_SingleChatSheetContent> {
       if (conv != null) {
         widget.onConversationCreated(conv, user);
       } else {
-        widget.onError('Impossibile avviare la chat');
+        widget.onError(l10n.t('cannot_start_chat'));
       }
     } on ApiException catch (e) {
       if (mounted) widget.onError(e.message);
@@ -1962,8 +1966,8 @@ class _SingleChatSheetContentState extends State<_SingleChatSheetContent> {
           child: Row(
             children: [
               const Expanded(child: SizedBox()),
-              const Text(
-                'Nuova Chat',
+              Text(
+                l10n.t('new_chat'),
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: _navy),
               ),
               const Expanded(child: SizedBox()),
@@ -1984,8 +1988,8 @@ class _SingleChatSheetContentState extends State<_SingleChatSheetContent> {
             child: TextField(
               controller: _searchController,
               onChanged: _onSearchChanged,
-              decoration: const InputDecoration(
-                hintText: 'Cerca per nome o email...',
+              decoration: InputDecoration(
+                hintText: l10n.t('search_by_name'),
                 hintStyle: TextStyle(color: _subtitleGray, fontSize: 15),
                 prefixIcon: Icon(Icons.search, color: _subtitleGray, size: 22),
                 border: InputBorder.none,
@@ -2171,6 +2175,7 @@ class _GroupChatSheetContentState extends State<_GroupChatSheetContent> {
   Timer? _debounce;
   File? _groupImage;
 
+  AppLocalizations get l10n => AppLocalizations.of(context)!;
   static const Color _teal = Color(0xFF2ABFBF);
   static const Color _navy = Color(0xFF1A2B4A);
   static const Color _subtitleGray = Color(0xFF9E9E9E);
@@ -2325,7 +2330,7 @@ class _GroupChatSheetContentState extends State<_GroupChatSheetContent> {
             children: [
               const Expanded(child: SizedBox()),
               Text(
-                _step2 ? 'Nome del gruppo' : 'Nuovo Gruppo',
+                _step2 ? l10n.t('group_name_step') : l10n.t('new_group'),
                 style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: _navy),
               ),
               const Expanded(child: SizedBox()),
@@ -2347,8 +2352,8 @@ class _GroupChatSheetContentState extends State<_GroupChatSheetContent> {
               child: TextField(
                 controller: _searchController,
                 onChanged: _onSearchChanged,
-                decoration: const InputDecoration(
-                  hintText: 'Cerca per nome o email...',
+                decoration: InputDecoration(
+                  hintText: l10n.t('search_by_name'),
                   hintStyle: TextStyle(color: _subtitleGray, fontSize: 15),
                   prefixIcon: Icon(Icons.search, color: _subtitleGray, size: 22),
                   border: InputBorder.none,
@@ -2638,6 +2643,7 @@ class _BroadcastSheetContentState extends State<_BroadcastSheetContent> {
   bool _creating = false;
   Timer? _debounce;
 
+  AppLocalizations get l10n => AppLocalizations.of(context)!;
   static const Color _teal = Color(0xFF2ABFBF);
   static const Color _navy = Color(0xFF1A2B4A);
   static const Color _subtitleGray = Color(0xFF9E9E9E);
@@ -2761,7 +2767,7 @@ class _BroadcastSheetContentState extends State<_BroadcastSheetContent> {
             children: [
               const Expanded(child: SizedBox()),
               Text(
-                _step2 ? 'Nome Lista Broadcast' : 'Nuova Lista Broadcast',
+                _step2 ? l10n.t('broadcast_list_name') : l10n.t('new_broadcast_list'),
                 style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: _navy),
               ),
               const Expanded(child: SizedBox()),
@@ -2783,8 +2789,8 @@ class _BroadcastSheetContentState extends State<_BroadcastSheetContent> {
               child: TextField(
                 controller: _searchController,
                 onChanged: _onSearchChanged,
-                decoration: const InputDecoration(
-                  hintText: 'Cerca per nome o email...',
+                decoration: InputDecoration(
+                  hintText: l10n.t('search_by_name'),
                   hintStyle: TextStyle(color: _subtitleGray, fontSize: 15),
                   prefixIcon: Icon(Icons.search, color: _subtitleGray, size: 22),
                   border: InputBorder.none,

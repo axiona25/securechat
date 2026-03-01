@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/widgets/feature_icons_row.dart';
+import '../../core/l10n/app_localizations.dart';
 import 'widgets/login_form.dart';
 
 class LoginScreen extends StatelessWidget {
@@ -53,9 +54,9 @@ class LoginScreen extends StatelessWidget {
 
                         SizedBox(height: screenHeight * 0.03),
 
-                        const Text(
-                          'Welcome back!',
-                          style: TextStyle(
+                        Text(
+                          AppLocalizations.of(context)!.t('welcome_back'),
+                          style: const TextStyle(
                             fontSize: 28,
                             fontWeight: FontWeight.w800,
                             color: AppColors.textPrimary,
@@ -65,8 +66,8 @@ class LoginScreen extends StatelessWidget {
 
                         const SizedBox(height: 6),
 
-                        const Text(
-                          'Log in to continue',
+                        Text(
+                          AppLocalizations.of(context)!.t('login_subtitle'),
                           style: TextStyle(
                             fontSize: 15,
                             fontWeight: FontWeight.w400,

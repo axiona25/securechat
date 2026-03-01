@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/widgets/user_avatar_widget.dart';
+import '../../../core/l10n/app_localizations.dart';
 
 class HomeHeader extends StatelessWidget {
   final String? userAvatarUrl;
@@ -55,9 +56,9 @@ class HomeHeader extends StatelessWidget {
                       fit: BoxFit.contain,
                     ),
                     const SizedBox(height: 5),
-                    const Text(
-                      AppConstants.appTagline,
-                      style: TextStyle(
+                    Text(
+                      AppLocalizations.of(context)?.t('app_subtitle') ?? AppConstants.appTagline,
+                      style: const TextStyle(
                         fontSize: 11,
                         color: AppColors.textTertiary,
                         fontWeight: FontWeight.w400,

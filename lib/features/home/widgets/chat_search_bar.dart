@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/l10n/app_localizations.dart';
 
 class ChatSearchBar extends StatelessWidget {
   final TextEditingController? controller;
@@ -39,7 +40,7 @@ class ChatSearchBar extends StatelessWidget {
             color: AppColors.textPrimary,
           ),
           decoration: InputDecoration(
-            hintText: 'Search chats or contacts',
+            hintText: AppLocalizations.of(context)?.t('search_chats') ?? 'Search chats or contacts',
             hintStyle: TextStyle(
               fontSize: 14,
               color: AppColors.textDisabled.withValues(alpha: 0.7),

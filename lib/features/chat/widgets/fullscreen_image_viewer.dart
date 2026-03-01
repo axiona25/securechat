@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../../core/theme/app_colors.dart';
+import '../../../core/l10n/app_localizations.dart';
 
 class FullscreenImageViewer extends StatelessWidget {
   final String imageUrl;
@@ -85,9 +86,9 @@ class FullscreenImageViewer extends StatelessWidget {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  _buildActionButton(Icons.share_outlined, 'Share', () {}),
+                  _buildActionButton(Icons.share_outlined, AppLocalizations.of(context)?.t('share') ?? 'Share', () {}),
                   const SizedBox(width: 32),
-                  _buildActionButton(Icons.download_outlined, 'Save', () {}),
+                  _buildActionButton(Icons.download_outlined, AppLocalizations.of(context)?.t('save') ?? 'Save', () {}),
                 ],
               ),
             ),

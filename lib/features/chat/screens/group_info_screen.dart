@@ -7,6 +7,7 @@ import '../../../core/services/api_service.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/widgets/user_avatar_widget.dart';
+import '../../../core/l10n/app_localizations.dart';
 
 class GroupInfoScreen extends StatefulWidget {
   final String conversationId;
@@ -25,6 +26,7 @@ class GroupInfoScreen extends StatefulWidget {
 }
 
 class _GroupInfoScreenState extends State<GroupInfoScreen> {
+  AppLocalizations get l10n => AppLocalizations.of(context)!;
   Map<String, dynamic>? _conversation;
   List<Map<String, dynamic>> _participants = [];
   bool _loading = true;
@@ -173,16 +175,16 @@ class _GroupInfoScreenState extends State<GroupInfoScreen> {
           controller: controller,
           autofocus: true,
           decoration: InputDecoration(
-            hintText: 'Nome del gruppo',
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+          hintText: l10n.t('group_name_step'),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Annulla')),
+          TextButton(onPressed: () => Navigator.pop(ctx), child: Text(l10n.t('cancel'))),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: _teal, foregroundColor: Colors.white),
             onPressed: () => Navigator.pop(ctx, controller.text.trim()),
-            child: const Text('Salva'),
+            child: Text(l10n.t('save')),
           ),
         ],
       ),
@@ -226,11 +228,11 @@ class _GroupInfoScreenState extends State<GroupInfoScreen> {
         title: const Text('Rimuovi partecipante', style: TextStyle(fontWeight: FontWeight.w700)),
         content: const Text('Vuoi rimuovere questo partecipante dal gruppo?'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Annulla')),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(l10n.t('cancel'))),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Rimuovi'),
+            child: Text(l10n.t('remove')),
           ),
         ],
       ),
@@ -272,11 +274,11 @@ class _GroupInfoScreenState extends State<GroupInfoScreen> {
         title: Text(isBlocked ? 'Sblocca utente' : 'Blocca utente', style: const TextStyle(fontWeight: FontWeight.w700)),
         content: Text(isBlocked ? 'Vuoi sbloccare questo utente?' : 'Vuoi bloccare questo utente? Non potrà inviare messaggi nel gruppo.'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Annulla')),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(l10n.t('cancel'))),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: isBlocked ? _teal : Colors.orange, foregroundColor: Colors.white),
             onPressed: () => Navigator.pop(ctx, true),
-            child: Text(isBlocked ? 'Sblocca' : 'Blocca'),
+            child: Text(isBlocked ? l10n.t('unblock_user') : l10n.t('block_user')),
           ),
         ],
       ),
@@ -352,7 +354,7 @@ class _GroupInfoScreenState extends State<GroupInfoScreen> {
         title: const Text('Abbandona gruppo', style: TextStyle(fontWeight: FontWeight.w700)),
         content: const Text('Vuoi abbandonare questo gruppo?'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Annulla')),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(l10n.t('cancel'))),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
             onPressed: () => Navigator.pop(ctx, true),
@@ -804,7 +806,7 @@ class _AddMembersSheetState extends State<_AddMembersSheet> {
               controller: _searchController,
               onChanged: _filter,
               decoration: InputDecoration(
-                hintText: 'Cerca...',
+                hintText: l10n.t('search'),
                 prefixIcon: const Icon(Icons.search, color: Color(0xFF9E9E9E)),
                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
                 filled: true,

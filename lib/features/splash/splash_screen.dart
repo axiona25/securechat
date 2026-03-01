@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/constants/app_constants.dart';
+import '../../core/l10n/app_localizations.dart';
 import '../../core/routes/app_router.dart';
 import '../../core/services/api_service.dart';
 import '../../core/services/auth_service.dart';
@@ -386,9 +387,9 @@ class _SplashScreenState extends State<SplashScreen>
       builder: (context, child) {
         return Opacity(
           opacity: _subtitleOpacity.value,
-          child: const Text(
-            AppConstants.appTagline,
-            style: TextStyle(
+          child: Text(
+            AppLocalizations.of(context)?.t('app_subtitle') ?? AppConstants.appTagline,
+            style: const TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.w300,
               color: AppColors.textTertiary,
