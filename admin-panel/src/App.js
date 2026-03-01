@@ -587,15 +587,16 @@ function UsersPage() {
             first_name: editForm.firstName,
             last_name: editForm.lastName,
             email: editForm.email,
+            approval_status: editForm.status || "approved",
           }),
         });
         const data = await res.json();
         if (res.ok) {
-          // Assegna ai gruppi selezionati
-          for (const gid of selectedGroupIds) {
-            await apiFetch(`/admin/groups/${gid}/assign/`, {
+          // Sincronizza gruppi
+          if (selectedGroupIds.length > 0) {
+            await apiFetch(`/admin/users/${data.id}/sync-groups/`, {
               method: "POST",
-              body: JSON.stringify({ user_ids: [data.id] }),
+              body: JSON.stringify({ group_ids: selectedGroupIds }),
             });
           }
           setInfoModal({
@@ -621,6 +622,7 @@ function UsersPage() {
           return;
         }
       } else {
+        // Aggiorna dati utente
         await apiFetch(`/admin/users/${editForm.id}/`, {
           method: "PATCH",
           body: JSON.stringify({
@@ -630,14 +632,11 @@ function UsersPage() {
             approval_status: editForm.status,
           }),
         });
-        // Aggiorna gruppi: rimuovi da tutti i gruppi e riassegna
-        // Per semplicità riassegniamo ai gruppi selezionati
-        for (const gid of selectedGroupIds) {
-          await apiFetch(`/admin/groups/${gid}/assign/`, {
-            method: "POST",
-            body: JSON.stringify({ user_ids: [editForm.id] }),
-          });
-        }
+        // Sincronizza gruppi (rimuove dai vecchi, aggiunge ai nuovi)
+        await apiFetch(`/admin/users/${editForm.id}/sync-groups/`, {
+          method: "POST",
+          body: JSON.stringify({ group_ids: selectedGroupIds }),
+        });
         // Ricarica utenti
         const usersRes = await apiFetch("/admin/users/");
         const usersData = await usersRes.json();
@@ -648,7 +647,7 @@ function UsersPage() {
           createdAt: u.date_joined || "2026-01-01", device: "-",
           status: u.approval_status || "active", avatar: u.avatar, isOnline: u.is_online, groups: u.groups || [],
         })));
-        // Aggiorna selectedUser con i dati freschi
+        // Aggiorna selectedUser
         if (selectedUser) {
           const fresh = usersList.find(u => u.id === selectedUser.id);
           if (fresh) {
@@ -660,10 +659,6 @@ function UsersPage() {
             });
           }
         }
-      }
-      // Aggiorna anche selectedUser se è lo stesso utente
-      if (selectedUser && editForm.id === selectedUser.id) {
-        setSelectedUser({ ...editForm });
       }
       setEditingUser(null);
       setEditForm({});

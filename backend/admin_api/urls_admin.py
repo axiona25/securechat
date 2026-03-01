@@ -7,6 +7,7 @@ urlpatterns = [
     path('users/create/', views.AdminCreateUserView.as_view(), name='admin-create-user'),
     path('users/<int:user_id>/', views.AdminUpdateUserView.as_view(), name='admin-update-user'),
     path('users/<int:user_id>/reset-password/', views.AdminResetPasswordView.as_view(), name='admin-reset-password'),
+    path('users/<int:user_id>/sync-groups/', views.AdminUserSyncGroupsView.as_view(), name='admin-sync-groups'),
     path('groups/', views.AdminGroupsListView.as_view(), name='admin-groups'),
     path('groups/<int:group_id>/', views.AdminGroupDetailView.as_view(), name='admin-group-detail'),
     path('groups/<int:group_id>/assign/', views.AdminGroupAssignUsersView.as_view(), name='admin-group-assign'),

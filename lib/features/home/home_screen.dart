@@ -27,6 +27,7 @@ import 'widgets/chat_list_view.dart';
 import 'widgets/notification_toast.dart';
 import 'package:flutter_app_badger/flutter_app_badger.dart';
 import '../settings/settings_screen.dart';
+import '../auth/widgets/change_password_modal.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -218,6 +219,39 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       _isFirstLoad = false;
     });
     _updateAppBadge();
+
+    // Check se deve cambiare password
+    if (_currentUser != null) {
+      try {
+        final token = ApiService().accessToken;
+        final response = await http.get(
+          Uri.parse('${AppConstants.baseUrl}/auth/profile/'),
+          headers: {'Authorization': 'Bearer $token'},
+        );
+        if (response.statusCode == 200) {
+          final profileData = jsonDecode(response.body) as Map<String, dynamic>;
+          if (profileData['must_change_password'] == true && mounted) {
+            showDialog(
+              context: context,
+              barrierDismissible: false,
+              builder: (ctx) => ChangePasswordModal(
+                onPasswordChanged: () {
+                  Navigator.of(ctx).pop();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Password aggiornata con successo!'),
+                      backgroundColor: Color(0xFF2ABFBF),
+                    ),
+                  );
+                },
+              ),
+            );
+          }
+        }
+      } catch (e) {
+        debugPrint('Error checking must_change_password: $e');
+      }
+    }
   }
 
   /// Polling silenzioso: aggiorna conversazioni senza mostrare loading.

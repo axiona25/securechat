@@ -90,7 +90,26 @@ class _LoginFormState extends State<LoginForm> {
       if (!mounted) return;
       Navigator.of(context).pushReplacementNamed(AppRouter.home);
     } else {
-      setState(() => _errorMessage = result.error);
+      final errorMessage = result.error ?? '';
+      if (errorMessage.contains('attesa di approvazione')) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.hourglass_empty, color: Colors.white, size: 20),
+                const SizedBox(width: 10),
+                Expanded(child: Text(errorMessage, style: const TextStyle(fontWeight: FontWeight.w600))),
+              ],
+            ),
+            backgroundColor: const Color(0xFFFF9800),
+            duration: const Duration(seconds: 4),
+            behavior: SnackBarBehavior.floating,
+            shape: const RoundedRectangleBorder(borderRadius: BorderRadius.all(Radius.circular(10))),
+          ),
+        );
+      } else {
+        setState(() => _errorMessage = errorMessage);
+      }
     }
   }
 

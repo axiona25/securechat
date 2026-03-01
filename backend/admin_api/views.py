@@ -229,6 +229,7 @@ class AdminCreateUserView(APIView):
             username = f"{base_username}{counter}"
             counter += 1
 
+        approval = request.data.get('approval_status', 'approved')
         user = User.objects.create(
             username=username,
             email=email,
@@ -236,8 +237,8 @@ class AdminCreateUserView(APIView):
             last_name=last_name,
             password=make_password(temp_password),
             is_verified=True,
-            is_active=True,
-            approval_status='approved',
+            is_active=approval != 'blocked',
+            approval_status=approval,
             must_change_password=True,
         )
 
@@ -395,6 +396,40 @@ class AdminResetPasswordView(APIView):
         return Response({
             'temp_password': temp_password,
             'message': f'Password resettata. Nuova password: {temp_password}',
+        })
+
+
+class AdminUserSyncGroupsView(APIView):
+    """Sincronizza i gruppi di un utente: rimuove dai vecchi e aggiunge ai nuovi."""
+    authentication_classes = ADMIN_AUTH
+    permission_classes = [IsAdminUser]
+
+    def post(self, request, user_id):
+        try:
+            user = User.objects.get(id=user_id, is_staff=False)
+        except User.DoesNotExist:
+            return Response({'error': 'Utente non trovato'}, status=status.HTTP_404_NOT_FOUND)
+
+        group_ids = request.data.get('group_ids', [])
+
+        # Rimuovi da tutti i gruppi attuali
+        AdminGroupMembership.objects.filter(user=user).delete()
+
+        # Aggiungi ai nuovi gruppi
+        added = 0
+        for gid in group_ids:
+            try:
+                group = AdminGroup.objects.get(id=gid)
+                AdminGroupMembership.objects.create(user=user, group=group)
+                added += 1
+            except AdminGroup.DoesNotExist:
+                continue
+            except Exception:
+                continue
+
+        return Response({
+            'message': f'Utente aggiornato: assegnato a {added} gruppi.',
+            'groups': added,
         })
 
 

@@ -113,19 +113,25 @@ class _RegisterFormState extends State<RegisterForm> {
     setState(() => _isLoading = false);
 
     if (result.success) {
-      // Dopo registrazione (login interno già eseguito), inizializza chiavi E2E prima di navigare
-      try {
-        final cryptoService = CryptoService(
-          apiService: ApiService(),
-          secureStorage: const FlutterSecureStorage(),
-        );
-        await cryptoService.initializeKeys();
-        debugPrint('[Auth] E2E keys initialized after register');
-      } catch (e) {
-        debugPrint('[Auth] E2E key init error: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Row(
+            children: [
+              Icon(Icons.check_circle, color: Colors.white, size: 20),
+              SizedBox(width: 10),
+              Expanded(child: Text('Registrazione avvenuta con successo! Verrai reindirizzato al login.', style: TextStyle(fontWeight: FontWeight.w600))),
+            ],
+          ),
+          backgroundColor: Color(0xFF2ABFBF),
+          duration: Duration(seconds: 3),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.all(Radius.circular(10))),
+        ),
+      );
+      await Future.delayed(const Duration(seconds: 3));
+      if (mounted) {
+        Navigator.of(context).pushReplacementNamed(AppRouter.login);
       }
-      if (!mounted) return;
-      Navigator.of(context).pushReplacementNamed(AppRouter.home);
     } else {
       setState(() => _errorMessage = result.error);
     }

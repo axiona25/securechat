@@ -121,7 +121,7 @@ class AuthService {
         'last_name': lastName,
       });
 
-      return await login(email: email, password: password);
+      return AuthResult(success: true);
     } on ApiException catch (e) {
       Map<String, dynamic>? fieldErrors;
       if (e.errors != null) {

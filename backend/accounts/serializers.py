@@ -79,9 +79,32 @@ class LoginSerializer(serializers.Serializer):
     def validate(self, attrs):
         email = attrs.get('email', '').lower()
         password = attrs.get('password')
+
+        # Prima controlla se l'utente esiste e il suo stato
+        from accounts.models import User
+        try:
+            existing_user = User.objects.get(email=email)
+            if hasattr(existing_user, 'approval_status'):
+                if existing_user.approval_status == 'blocked':
+                    raise serializers.ValidationError('Utente temporaneamente bloccato. Contatta l\'amministratore.')
+                if existing_user.approval_status == 'pending' and not existing_user.is_staff:
+                    raise serializers.ValidationError('Account in attesa di approvazione da parte dell\'amministratore.')
+        except User.DoesNotExist:
+            raise serializers.ValidationError('Credenziali non valide.')
+
+        # Per utenti bloccati is_active=False, quindi authenticate fallisce
+        # Verifica password manualmente per utenti inattivi
+        if not existing_user.is_active:
+            if existing_user.check_password(password):
+                # Password corretta ma utente inattivo - il messaggio sopra dovrebbe averlo già gestito
+                raise serializers.ValidationError('Account disattivato. Contatta l\'amministratore.')
+            else:
+                raise serializers.ValidationError('Credenziali non valide.')
+
         user = authenticate(username=email, password=password)
         if not user:
             raise serializers.ValidationError('Credenziali non valide.')
+
         if not user.is_verified:
             raise serializers.ValidationError('Account non verificato. Controlla la tua email.')
         if not user.is_active:
@@ -128,7 +151,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
             'phone_number', 'avatar', 'bio', 'country', 'language',
             'is_verified', 'is_online', 'last_seen', 'theme',
             'chat_wallpaper', 'notification_enabled', 'read_receipts',
-            'last_seen_visible', 'public_key', 'created_at', 'updated_at'
+            'last_seen_visible', 'public_key', 'must_change_password', 'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'email', 'is_verified', 'created_at', 'updated_at']
 

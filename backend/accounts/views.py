@@ -345,58 +345,77 @@ class ChangePasswordView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        serializer = ChangePasswordSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+        new_password = request.data.get('new_password', '')
+        confirm_password = request.data.get('confirm_password', '')
 
-        if not request.user.check_password(serializer.validated_data['old_password']):
-            return Response({'error': 'Password attuale non corretta.'}, status=status.HTTP_400_BAD_REQUEST)
+        if not new_password or len(new_password) < 8:
+            return Response({'error': 'La password deve essere di almeno 8 caratteri.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        request.user.set_password(serializer.validated_data['new_password'])
-        request.user.save()
+        if new_password != confirm_password:
+            return Response({'error': 'Le password non coincidono.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        return Response({'message': 'Password cambiata con successo!'}, status=status.HTTP_200_OK)
+        user = request.user
+        user.set_password(new_password)
+        user.must_change_password = False
+        user.save(update_fields=['password', 'must_change_password'])
+
+        # Genera nuovi token
+        from rest_framework_simplejwt.tokens import RefreshToken
+        refresh = RefreshToken.for_user(user)
+
+        return Response({
+            'message': 'Password aggiornata con successo.',
+            'access': str(refresh.access_token),
+            'refresh': str(refresh),
+        })
 
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def search_users(request):
-    """GET /api/auth/users/search/?q=<query> — list all or search by email, first_name, last_name, username. Excludes current user and staff."""
+    """GET /api/auth/users/search/?q=<query> — list users filtered by shared admin groups.
+    Users only see other users in their same admin groups.
+    Staff/admin users see all users."""
     query = request.GET.get('q', '').strip()
+    current_user = request.user
 
-    if len(query) < 2:
-        users = (
-            User.objects.filter(is_active=True)
-            .exclude(id=request.user.id)
-            .exclude(is_staff=True)
-            .order_by('first_name', 'last_name')[:100]
-        )
+    # Admin/staff vedono tutti
+    if current_user.is_staff:
+        base_qs = User.objects.filter(is_active=True).exclude(id=current_user.id).exclude(is_staff=True)
     else:
-        users = (
-            User.objects.filter(
-                Q(email__icontains=query)
-                | Q(first_name__icontains=query)
-                | Q(last_name__icontains=query)
-                | Q(username__icontains=query),
-                is_active=True,
-            )
-            .exclude(id=request.user.id)
-            .exclude(is_staff=True)
-            .order_by('first_name', 'last_name')[:20]
+        # Trova i gruppi dell'utente corrente
+        from admin_api.models import AdminGroupMembership
+        user_group_ids = AdminGroupMembership.objects.filter(user=current_user).values_list('group_id', flat=True)
+
+        if not user_group_ids:
+            # Se l'utente non appartiene a nessun gruppo, non vede nessuno
+            from accounts.serializers import UserProfileSerializer
+            return Response([])
+
+        # Trova tutti gli utenti negli stessi gruppi
+        visible_user_ids = AdminGroupMembership.objects.filter(
+            group_id__in=user_group_ids
+        ).values_list('user_id', flat=True).distinct()
+
+        base_qs = User.objects.filter(
+            id__in=visible_user_ids,
+            is_active=True,
+            approval_status='approved',
+        ).exclude(id=current_user.id).exclude(is_staff=True)
+
+    if len(query) >= 2:
+        base_qs = base_qs.filter(
+            Q(email__icontains=query)
+            | Q(first_name__icontains=query)
+            | Q(last_name__icontains=query)
+            | Q(username__icontains=query)
         )
 
-    return Response([
-        {
-            'id': u.id,
-            'email': u.email,
-            'first_name': u.first_name or '',
-            'last_name': u.last_name or '',
-            'username': u.username or '',
-            'avatar_url': request.build_absolute_uri(u.avatar.url) if (getattr(u, 'avatar', None) and u.avatar) else None,
-            'is_online': getattr(u, 'is_online', False),
-            'last_seen': u.last_seen.isoformat() if getattr(u, 'last_seen', None) else None,
-        }
-        for u in users
-    ])
+    users = base_qs.order_by('first_name', 'last_name')[:100]
+
+    from accounts.serializers import UserProfileSerializer
+    serializer = UserProfileSerializer(users, many=True, context={'request': request})
+    return Response(serializer.data)
 
 
 class FCMTokenView(APIView):
