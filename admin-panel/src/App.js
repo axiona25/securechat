@@ -166,11 +166,8 @@ function CustomTooltip({ active, payload, label }) {
 function Sidebar({ active, onSelect, collapsed }) {
   return (
     <div style={{ width: collapsed ? 72 : 260, background: T.navy, height: "100vh", position: "fixed", left: 0, top: 0, display: "flex", flexDirection: "column", transition: "width 0.3s cubic-bezier(0.4,0,0.2,1)", zIndex: 100, overflow: "hidden" }}>
-      <div style={{ padding: collapsed ? "24px 16px" : "24px", display: "flex", alignItems: "center", gap: 12, borderBottom: "1px solid rgba(255,255,255,0.08)", minHeight: 80 }}>
-        <div style={{ width: 40, height: 40, borderRadius: 12, background: T.gradient, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>
-        </div>
-        {!collapsed && <div><div style={{ color: "#fff", fontSize: 18, fontWeight: 800, letterSpacing: "-0.3px", whiteSpace: "nowrap" }}>Secure<span style={{ color: T.teal }}>Chat</span></div><div style={{ color: "rgba(255,255,255,0.4)", fontSize: 11, fontWeight: 500, letterSpacing: "1px", textTransform: "uppercase" }}>Admin Panel</div></div>}
+      <div style={{ padding: collapsed ? "24px 16px" : "24px 12px", display: "flex", alignItems: "center", justifyContent: "center", borderBottom: "1px solid rgba(255,255,255,0.08)", minHeight: 80, width: "100%", boxSizing: "border-box" }}>
+        <img src="/Logo_Securechat_w.png" alt="SecureChat" style={{ width: "100%", padding: "0 16px", objectFit: "contain", boxSizing: "border-box" }} />
       </div>
       <div style={{ flex: 1, padding: "16px 12px", display: "flex", flexDirection: "column", gap: 4 }}>
         {Object.keys(labels).map(id => {
@@ -1427,11 +1424,8 @@ function LoginPage({ onLogin }) {
       <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&display=swap" rel="stylesheet" />
       <div style={{ background: T.card, borderRadius: 20, padding: 40, width: 400, boxShadow: "0 20px 60px rgba(0,0,0,0.1)" }}>
         <div style={{ textAlign: "center", marginBottom: 32 }}>
-          <div style={{ width: 56, height: 56, borderRadius: 16, background: T.gradient, display: "inline-flex", alignItems: "center", justifyContent: "center", marginBottom: 16 }}>
-            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>
-          </div>
-          <div style={{ fontSize: 24, fontWeight: 800, color: T.text }}>Secure<span style={{ color: T.teal }}>Chat</span></div>
-          <div style={{ fontSize: 13, color: T.textMuted, marginTop: 4 }}>Admin Panel</div>
+          <img src="/Logo_SecureChat.png" alt="SecureChat" style={{ height: 60, display: "block", margin: "0 auto 16px" }} />
+          <div style={{ fontSize: 13, color: T.textMuted }}>Admin Panel</div>
         </div>
         {error && <div style={{ background: "#FFEBEE", color: T.red, padding: "10px 14px", borderRadius: 10, fontSize: 13, marginBottom: 16, fontWeight: 500 }}>{error}</div>}
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
