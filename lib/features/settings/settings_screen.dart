@@ -98,7 +98,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ],
               ),
             ),
-            const Divider(height: 1),
+            Divider(height: 1, color: Colors.grey.shade200),
             Expanded(
               child: ListView.builder(
                 itemCount: AppLocalizations.supportedLanguages.length,

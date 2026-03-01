@@ -713,6 +713,7 @@ class _AddMembersSheet extends StatefulWidget {
 }
 
 class _AddMembersSheetState extends State<_AddMembersSheet> {
+  AppLocalizations get l10n => AppLocalizations.of(context)!;
   List<Map<String, dynamic>> _users = [];
   List<Map<String, dynamic>> _filtered = [];
   final Set<int> _selectedIds = {};

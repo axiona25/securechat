@@ -4913,7 +4913,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                         focusNode: _messageFocusNode,
                         maxLines: 4,
                         minLines: 1,
-                        decoration: const InputDecoration(
+                        decoration: InputDecoration(
                           hintText: l10n.t('type_message'),
                           hintStyle: TextStyle(color: Color(0xFF9E9E9E), fontSize: 15),
                           border: InputBorder.none,
@@ -5030,6 +5030,7 @@ class _ForwardSheet extends StatefulWidget {
 }
 
 class _ForwardSheetState extends State<_ForwardSheet> {
+  AppLocalizations get l10n => AppLocalizations.of(context)!;
   List<Map<String, dynamic>> _users = [];
   List<Map<String, dynamic>> _filteredUsers = [];
   final Set<int> _selectedIds = {};
@@ -5230,7 +5231,7 @@ class _ForwardSheetState extends State<_ForwardSheet> {
               child: TextField(
                 controller: _searchController,
                 onChanged: _onSearchChanged,
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   hintText: l10n.t('search_by_name'),
                   hintStyle: TextStyle(color: _subtitleGray, fontSize: 15),
                   prefixIcon: Icon(Icons.search, color: _subtitleGray, size: 22),
@@ -5464,6 +5465,7 @@ class _AudioRecorderSheet extends StatefulWidget {
 }
 
 class _AudioRecorderSheetState extends State<_AudioRecorderSheet> {
+  AppLocalizations get l10n => AppLocalizations.of(context)!;
   final _recorder = record.AudioRecorder();
   final _player = ap.AudioPlayer();
 
