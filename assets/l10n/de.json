@@ -192,5 +192,11 @@
   "translated_from": "Übersetzt aus {lang}",
   "original_message": "Originalnachricht",
   "translation_error": "Übersetzungsfehler",
-  "encryption_error": "Nachricht konnte nicht verschlüsselt werden. Bitte erneut versuchen oder Chat neu starten."
+  "encryption_error": "Nachricht konnte nicht verschlüsselt werden. Bitte erneut versuchen oder Chat neu starten.",
+  "download_model_title": "Sprachmodell herunterladen",
+  "download_model_desc": "Um Nachrichten sicher auf Ihrem Gerät zu übersetzen, muss das Sprachmodell heruntergeladen werden (~30MB). Einmaliger Download.",
+  "download": "Herunterladen",
+  "downloading_model": "Sprachmodell wird heruntergeladen...",
+  "download_failed": "Download fehlgeschlagen. Bitte erneut versuchen.",
+  "translation_on_device": "Sichere Übersetzung auf dem Gerät"
 }

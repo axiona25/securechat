@@ -192,5 +192,11 @@
   "translated_from": "Vertaald uit {lang}",
   "original_message": "Origineel bericht",
   "translation_error": "Vertalingsfout",
-  "encryption_error": "Kan bericht niet versleutelen. Probeer opnieuw of start de chat opnieuw."
+  "encryption_error": "Kan bericht niet versleutelen. Probeer opnieuw of start de chat opnieuw.",
+  "download_model_title": "Taalmodel downloaden",
+  "download_model_desc": "Om berichten veilig op uw apparaat te vertalen, moet het taalmodel (~30MB) worden gedownload. Eenmalige download.",
+  "download": "Downloaden",
+  "downloading_model": "Taalmodel wordt gedownload...",
+  "download_failed": "Download mislukt. Probeer opnieuw.",
+  "translation_on_device": "Veilige vertaling op apparaat"
 }

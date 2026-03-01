@@ -192,5 +192,11 @@
   "translated_from": "Traduzido de {lang}",
   "original_message": "Mensagem original",
   "translation_error": "Erro de tradução",
-  "encryption_error": "Não foi possível cifrar a mensagem. Tente novamente ou reinicie a conversa."
+  "encryption_error": "Não foi possível cifrar a mensagem. Tente novamente ou reinicie a conversa.",
+  "download_model_title": "Descarregar Modelo de Idioma",
+  "download_model_desc": "Para traduzir mensagens em segurança no dispositivo, é necessário descarregar o modelo (~30MB). Descarregamento único.",
+  "download": "Descarregar",
+  "downloading_model": "A descarregar modelo de idioma...",
+  "download_failed": "Falha no descarregamento. Tente novamente.",
+  "translation_on_device": "Tradução segura no dispositivo"
 }

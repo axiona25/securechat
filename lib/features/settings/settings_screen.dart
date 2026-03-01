@@ -502,11 +502,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           final prefs = await SharedPreferences.getInstance();
                           await prefs.setBool('auto_translate', val);
                           setState(() => _autoTranslateEnabled = val);
-                          if (val && mounted) {
+                          if (mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
-                                content: Text(l10n.t('auto_translate_enabled')),
-                                backgroundColor: const Color(0xFF2ABFBF),
+                                content: Text(val ? l10n.t('auto_translate_enabled') : l10n.t('auto_translate_disabled')),
+                                backgroundColor: val ? const Color(0xFF2ABFBF) : Colors.grey,
                                 behavior: SnackBarBehavior.floating,
                                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                               ),

@@ -192,5 +192,11 @@
   "translated_from": "{lang}(으)로부터 번역됨",
   "original_message": "원본 메시지",
   "translation_error": "번역 오류",
-  "encryption_error": "메시지를 암호화할 수 없습니다. 다시 시도하거나 채팅을 다시 시작하세요."
+  "encryption_error": "메시지를 암호화할 수 없습니다. 다시 시도하거나 채팅을 다시 시작하세요.",
+  "download_model_title": "언어 모델 다운로드",
+  "download_model_desc": "기기에서 메시지를 안전하게 번역하려면 언어 모델(~30MB)을 다운로드해야 합니다. 한 번만 다운로드하면 됩니다.",
+  "download": "다운로드",
+  "downloading_model": "언어 모델 다운로드 중...",
+  "download_failed": "다운로드에 실패했습니다. 다시 시도하세요.",
+  "translation_on_device": "기기 내 보안 번역"
 }

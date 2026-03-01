@@ -192,5 +192,11 @@
   "translated_from": "Przetłumaczono z {lang}",
   "original_message": "Oryginalna wiadomość",
   "translation_error": "Błąd tłumaczenia",
-  "encryption_error": "Nie można zaszyfrować wiadomości. Spróbuj ponownie lub uruchom czat ponownie."
+  "encryption_error": "Nie można zaszyfrować wiadomości. Spróbuj ponownie lub uruchom czat ponownie.",
+  "download_model_title": "Pobierz model językowy",
+  "download_model_desc": "Aby bezpiecznie tłumaczyć wiadomości na urządzeniu, należy pobrać model językowy (~30MB). Pobieranie jednorazowe.",
+  "download": "Pobierz",
+  "downloading_model": "Pobieranie modelu językowego...",
+  "download_failed": "Pobieranie nie powiodło się. Spróbuj ponownie.",
+  "translation_on_device": "Bezpieczne tłumaczenie na urządzeniu"
 }

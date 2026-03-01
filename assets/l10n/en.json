@@ -192,5 +192,11 @@
   "translated_from": "Translated from {lang}",
   "original_message": "Original message",
   "translation_error": "Translation error",
-  "encryption_error": "Unable to encrypt message. Please try again or restart the chat."
+  "encryption_error": "Unable to encrypt message. Please try again or restart the chat.",
+  "download_model_title": "Download Language Model",
+  "download_model_desc": "To securely translate messages on your device, the language model needs to be downloaded (~30MB). This is a one-time download.",
+  "download": "Download",
+  "downloading_model": "Downloading language model...",
+  "download_failed": "Model download failed. Please try again.",
+  "translation_on_device": "Secure on-device translation"
 }

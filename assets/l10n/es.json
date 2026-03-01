@@ -192,5 +192,11 @@
   "translated_from": "Traducido de {lang}",
   "original_message": "Mensaje original",
   "translation_error": "Error de traducción",
-  "encryption_error": "No se puede cifrar el mensaje. Inténtalo de nuevo o reinicia el chat."
+  "encryption_error": "No se puede cifrar el mensaje. Inténtalo de nuevo o reinicia el chat.",
+  "download_model_title": "Descargar Modelo de Idioma",
+  "download_model_desc": "Para traducir mensajes de forma segura en tu dispositivo, es necesario descargar el modelo (~30MB). Es una descarga única.",
+  "download": "Descargar",
+  "downloading_model": "Descargando modelo de idioma...",
+  "download_failed": "Error al descargar. Intenta de nuevo.",
+  "translation_on_device": "Traducción segura en el dispositivo"
 }

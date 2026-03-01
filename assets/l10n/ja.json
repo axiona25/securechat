@@ -192,5 +192,11 @@
   "translated_from": "{lang} から翻訳",
   "original_message": "元のメッセージ",
   "translation_error": "翻訳エラー",
-  "encryption_error": "メッセージを暗号化できません。もう一度お試しいただくか、チャットを再起動してください。"
+  "encryption_error": "メッセージを暗号化できません。もう一度お試しいただくか、チャットを再起動してください。",
+  "download_model_title": "言語モデルをダウンロード",
+  "download_model_desc": "デバイスでメッセージを安全に翻訳するには、言語モデル（約30MB）のダウンロードが必要です。1回限りのダウンロードです。",
+  "download": "ダウンロード",
+  "downloading_model": "言語モデルをダウンロード中...",
+  "download_failed": "ダウンロードに失敗しました。もう一度お試しください。",
+  "translation_on_device": "デバイス上の安全な翻訳"
 }

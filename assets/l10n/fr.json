@@ -192,5 +192,11 @@
   "translated_from": "Traduit de {lang}",
   "original_message": "Message original",
   "translation_error": "Erreur de traduction",
-  "encryption_error": "Impossible de chiffrer le message. Réessayez ou redémarrez la conversation."
+  "encryption_error": "Impossible de chiffrer le message. Réessayez ou redémarrez la conversation.",
+  "download_model_title": "Télécharger le Modèle",
+  "download_model_desc": "Pour traduire les messages en toute sécurité sur votre appareil, le modèle doit être téléchargé (~30Mo). Téléchargement unique.",
+  "download": "Télécharger",
+  "downloading_model": "Téléchargement du modèle en cours...",
+  "download_failed": "Échec du téléchargement. Réessayez.",
+  "translation_on_device": "Traduction sécurisée sur l'appareil"
 }

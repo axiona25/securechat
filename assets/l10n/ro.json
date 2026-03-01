@@ -192,5 +192,11 @@
   "translated_from": "Tradus din {lang}",
   "original_message": "Mesaj original",
   "translation_error": "Eroare de traducere",
-  "encryption_error": "Nu s-a putut cripta mesajul. Încercați din nou sau reporniți conversația."
+  "encryption_error": "Nu s-a putut cripta mesajul. Încercați din nou sau reporniți conversația.",
+  "download_model_title": "Descarcă Modelul de Limbă",
+  "download_model_desc": "Pentru a traduce mesajele în siguranță pe dispozitiv, trebuie descărcat modelul de limbă (~30MB). Descărcare unică.",
+  "download": "Descarcă",
+  "downloading_model": "Se descarcă modelul de limbă...",
+  "download_failed": "Descărcarea a eșuat. Încercați din nou.",
+  "translation_on_device": "Traducere sigură pe dispozitiv"
 }

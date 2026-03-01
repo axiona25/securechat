@@ -34,6 +34,7 @@ import '../../../core/services/media_encryption_service.dart';
 import '../../../core/services/session_manager.dart';
 import '../../../core/services/sound_service.dart';
 import '../../../core/l10n/app_localizations.dart';
+import '../../../core/services/translation_service.dart';
 import '../widgets/audio_player_widget.dart';
 import 'document_viewer_screen.dart';
 import 'group_info_screen.dart';
@@ -158,8 +159,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
 
   bool _autoTranslateEnabled = false;
   String _userLanguage = 'it';
-  final Map<String, String> _translatedMessages = {};
-  final Map<String, String> _translatedFromLang = {};
+  final Map<int, String> _translatedMessages = {};
+  final Map<int, String> _translatedFromLang = {};
 
   @override
   void initState() {
@@ -192,47 +193,38 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     });
   }
 
-  Future<void> _translateMessage(Map<String, dynamic> message) async {
+  Future<void> _translateMessage(dynamic message) async {
     if (!_autoTranslateEnabled) return;
-    final msgId = message['id']?.toString() ?? '';
-    if (msgId.isEmpty || _translatedMessages.containsKey(msgId)) return;
 
-    final text = message['content']?.toString() ?? '';
+    final msgId = message is Map ? message['id']?.toString() : null;
+    if (msgId == null) return;
+    final intId = int.tryParse(msgId) ?? msgId.hashCode;
+    if (_translatedMessages.containsKey(intId)) return;
+
+    // Ottieni il testo decifrato
+    final text = message is Map
+        ? (message['content']?.toString() ?? '')
+        : '';
     if (text.isEmpty || text.length < 2) return;
+    if (text.startsWith('🔒')) return; // Non tradurre messaggi non decifrati
 
-    final sender = message['sender'];
-    final senderId = sender is Map ? (sender as Map)['id'] : null;
-    final senderIdInt = senderId is int ? senderId : int.tryParse(senderId?.toString() ?? '');
-    if (_effectiveCurrentUserId != null && senderIdInt == _effectiveCurrentUserId) return;
+    // Non tradurre i propri messaggi
+    final senderIdRaw = message is Map ? (message['sender']?['id'] ?? message['sender_id']) : null;
+    final senderId = senderIdRaw is int ? senderIdRaw : (int.tryParse(senderIdRaw?.toString() ?? '') ?? 0);
+    if (senderId.toString() == _effectiveCurrentUserId.toString()) return;
 
     try {
-      final token = ApiService().accessToken;
-      final response = await http.post(
-        Uri.parse('${AppConstants.baseUrl}/translation/translate/'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-        body: jsonEncode({
-          'text': text,
-          'target_lang': _userLanguage,
-        }),
-      );
+      // Traduzione 100% locale con ML Kit - il testo NON lascia mai il dispositivo
+      final translated = await TranslationService().translate(text, _userLanguage);
 
-      if (response.statusCode == 200 && mounted) {
-        final data = jsonDecode(response.body) as Map<String, dynamic>?;
-        final translatedText = data?['translated_text']?.toString() ?? text;
-        final sourceLang = data?['source_language']?.toString() ?? '';
-
-        if (sourceLang != _userLanguage && translatedText != text) {
-          setState(() {
-            _translatedMessages[msgId] = translatedText;
-            _translatedFromLang[msgId] = sourceLang;
-          });
-        }
+      if (translated != null && translated != text && mounted) {
+        setState(() {
+          _translatedMessages[intId] = translated;
+          _translatedFromLang[intId] = 'auto';
+        });
       }
     } catch (e) {
-      debugPrint('Translation error: $e');
+      debugPrint('Translation error (on-device): $e');
     }
   }
 
@@ -3274,13 +3266,14 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     }
 
     // Default: testo normale (never show "(messaggio vuoto)" for E2E encrypted)
-    final msgId = message['id']?.toString() ?? '';
+    final msgIdStr = message['id']?.toString() ?? '';
+    final msgIdKey = int.tryParse(msgIdStr) ?? msgIdStr.hashCode;
     final encryptedB64 = message['content_encrypted_b64']?.toString() ?? '';
     final baseText = messageText.isNotEmpty
         ? messageText
         : (encryptedB64.isNotEmpty ? '🔒 Messaggio cifrato' : '(messaggio vuoto)');
-    final displayText = _translatedMessages[msgId] ?? baseText;
-    final hasTranslation = _translatedMessages.containsKey(msgId);
+    final displayText = _translatedMessages[msgIdKey] ?? baseText;
+    final hasTranslation = _translatedMessages.containsKey(msgIdKey);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -3299,8 +3292,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             child: GestureDetector(
               onTap: () {
                 setState(() {
-                  _translatedMessages.remove(msgId);
-                  _translatedFromLang.remove(msgId);
+                  _translatedMessages.remove(msgIdKey);
+                  _translatedFromLang.remove(msgIdKey);
                 });
               },
               child: Row(
@@ -3309,7 +3302,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                   Icon(Icons.translate, size: 12, color: Colors.grey[400]),
                   const SizedBox(width: 4),
                   Text(
-                    (l10n.t('translated_from')).replaceAll('{lang}', _translatedFromLang[msgId] ?? ''),
+                    (l10n.t('translated_from')).replaceAll('{lang}', _translatedFromLang[msgIdKey] ?? ''),
                     style: TextStyle(fontSize: 10, color: Colors.grey[400], fontStyle: FontStyle.italic),
                   ),
                 ],
