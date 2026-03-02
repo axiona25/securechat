@@ -16,6 +16,7 @@ import '../../core/services/chat_service.dart';
 import '../../core/services/crypto_service.dart';
 import '../../core/services/session_manager.dart';
 import '../../core/services/sound_service.dart';
+import '../../core/services/call_service.dart';
 import '../../core/routes/app_router.dart';
 import '../../core/widgets/bottom_nav_bar.dart';
 import '../../core/widgets/user_avatar_widget.dart';
@@ -28,6 +29,7 @@ import 'widgets/notification_toast.dart';
 import 'package:flutter_app_badger/flutter_app_badger.dart';
 import '../settings/settings_screen.dart';
 import '../auth/widgets/change_password_modal.dart';
+import '../calls/screens/call_screen.dart';
 import '../../core/l10n/app_localizations.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -58,6 +60,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   WebSocket? _homeWebSocket;
   final Map<String, bool> _typingConversations = {}; // conversationId -> isTyping
   final Map<String, bool> _recordingConversations = {}; // conversationId -> isRecording
+  StreamSubscription<CallState>? _incomingCallSub;
+  bool _isCallScreenOpen = false;
 
   AppLocalizations get l10n => AppLocalizations.of(context)!;
 
@@ -70,6 +74,32 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     )..repeat(reverse: true);
     _loadData();
     _connectHomeWebSocket();
+    CallService().ensureConnected();
+    _incomingCallSub = CallService().onIncomingCall.listen((CallState callState) {
+      if (!mounted || _isCallScreenOpen) return;
+      if (callState.isIncoming && callState.status == CallStatus.ringing) {
+        debugPrint('[Home] Incoming call received: callId=${callState.callId}, from=${callState.remoteUserName}');
+        _isCallScreenOpen = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          Navigator.of(context, rootNavigator: true).push(
+            MaterialPageRoute(
+              builder: (_) => CallScreen(
+                conversationId: callState.conversationId ?? '',
+                callType: callState.callType ?? 'audio',
+                isIncoming: true,
+                callId: callState.callId,
+                remoteUserId: callState.remoteUserId,
+                remoteUserName: callState.remoteUserName,
+                remoteUserAvatar: callState.remoteUserAvatar,
+              ),
+            ),
+          ).then((_) {
+            _isCallScreenOpen = false;
+          });
+        });
+      }
+    });
     // Ensure E2E keys are initialized and prekeys replenished when low (idempotent)
     () async {
       try {
@@ -91,6 +121,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   @override
   void dispose() {
+    _incomingCallSub?.cancel();
     FlutterAppBadger.removeBadge();
     _lockAnimController.dispose();
     _pollingTimer?.cancel();

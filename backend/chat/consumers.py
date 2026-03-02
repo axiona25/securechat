@@ -1,14 +1,29 @@
+import asyncio
 import json
 import logging
 from datetime import timedelta
+from django.conf import settings
 from django.db import models
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
 from channels.db import database_sync_to_async
 from django.utils import timezone
 from rest_framework_simplejwt.tokens import AccessToken
 from rest_framework_simplejwt.exceptions import TokenError
+import redis
 
 logger = logging.getLogger(__name__)
+
+
+def _redis_incr_ws_conn(user_id):
+    """Increment active WebSocket connection count for user (sync, run in thread)."""
+    r = redis.from_url(settings.REDIS_URL)
+    r.incr(f'ws_conn:{user_id}')
+
+
+def _redis_decr_ws_conn(user_id):
+    """Decrement active WebSocket connection count; returns count after decrement (sync, run in thread)."""
+    r = redis.from_url(settings.REDIS_URL)
+    return r.decr(f'ws_conn:{user_id}')
 
 
 class ChatConsumer(AsyncJsonWebsocketConsumer):
@@ -51,7 +66,10 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
             self.conversation_groups.add(group_name)
         
         await self.accept()
-        
+
+        # Increment active WebSocket connection count (so disconnect only sets offline when last connection closes)
+        await asyncio.to_thread(_redis_incr_ws_conn, self.user.id)
+
         # Set user online
         await self._set_online(True)
         await self._broadcast_presence(True)
@@ -65,10 +83,15 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
             await self.channel_layer.group_discard(self.user_group, self.channel_name)
             for group in self.conversation_groups:
                 await self.channel_layer.group_discard(group, self.channel_name)
-            
-            # Set user offline
-            await self._set_online(False)
-            await self._broadcast_presence(False)
+
+            # Decrement connection count; set offline only when last connection closes
+            count = await asyncio.to_thread(_redis_decr_ws_conn, self.user.id)
+            if count is not None and int(count) <= 0:
+                await asyncio.to_thread(
+                    lambda: redis.from_url(settings.REDIS_URL).delete(f'ws_conn:{self.user.id}')
+                )
+                await self._set_online(False)
+                await self._broadcast_presence(False)
             logger.info(f'WebSocket disconnected: {self.user.email}')
 
     async def receive_json(self, content):
