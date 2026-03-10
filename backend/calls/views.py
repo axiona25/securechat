@@ -45,6 +45,15 @@ class CallLogView(APIView):
         serializer = CallLogSerializer(page, many=True, context={'request': request})
         return paginator.get_paginated_response(serializer.data)
 
+    def delete(self, request):
+        """Elimina tutta la cronologia chiamate dell'utente corrente (stesso effetto di POST log/clear/)."""
+        calls = Call.objects.filter(
+            Q(initiated_by=request.user) | Q(participants__user=request.user)
+        ).distinct()
+        count = calls.count()
+        calls.delete()
+        return Response({'deleted': count})
+
 
 class CallDetailView(APIView):
     permission_classes = [IsAuthenticated]
@@ -94,3 +103,16 @@ class MissedCallsCountView(APIView):
         ).exclude(initiated_by=request.user).count()
 
         return Response({'missed_calls': count})
+
+
+class CallLogClearView(APIView):
+    """Elimina tutta la cronologia chiamate dell'utente corrente."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        calls = Call.objects.filter(
+            Q(initiated_by=request.user) | Q(participants__user=request.user)
+        ).distinct()
+        count = calls.count()
+        calls.delete()
+        return Response({'deleted': count})

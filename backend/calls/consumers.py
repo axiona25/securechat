@@ -98,6 +98,7 @@ class CallSignalingConsumer(AsyncJsonWebsocketConsumer):
         # Notify all other participants in the conversation
         for participant_id in call_data['participant_ids']:
             if participant_id != self.user.id:
+                logger.info('Call incoming: sending to user_%s (call_id=%s)', participant_id, call_data['call_id'])
                 await self.channel_layer.group_send(f'user_{participant_id}', {
                     'type': 'call.incoming',
                     'call_id': call_data['call_id'],
@@ -218,18 +219,28 @@ class CallSignalingConsumer(AsyncJsonWebsocketConsumer):
     async def _handle_end_call(self, data):
         """End an active call"""
         call_id = data.get('call_id')
-        
+        if not call_id:
+            return
+        call_id = str(call_id)
+
         result = await self._end_call(call_id)
         if result:
-            # Notify all participants
-            call_group = f'call_{call_id}'
-            await self.channel_layer.group_send(call_group, {
+            ended_payload = {
                 'type': 'call.ended',
                 'call_id': call_id,
                 'ended_by': self.user.id,
                 'duration': result.get('duration', 0),
-            })
-            
+            }
+            # Notify participants in the call group (caller + callee if already accepted)
+            call_group = f'call_{call_id}'
+            await self.channel_layer.group_send(call_group, ended_payload)
+            # Notify each other participant via their user group (so callee gets it even before accepting)
+            other_ids = result.get('other_participant_ids') or []
+            logger.info('Call ended: notifying %s other participant(s) for call %s', len(other_ids), call_id)
+            for uid in other_ids:
+                await self.channel_layer.group_send(f'user_{int(uid)}', ended_payload)
+                logger.info('Call ended: sent to user_%s', uid)
+
             # Clean up
             await self.channel_layer.group_discard(call_group, self.channel_name)
             self.active_calls.discard(call_id)
@@ -322,7 +333,7 @@ class CallSignalingConsumer(AsyncJsonWebsocketConsumer):
         })
 
     async def call_ended(self, event):
-        call_id = event['call_id']
+        call_id = str(event.get('call_id', ''))
         await self.send_json({
             'type': 'call.ended',
             'call_id': call_id,
@@ -392,7 +403,18 @@ class CallSignalingConsumer(AsyncJsonWebsocketConsumer):
             CallParticipant.objects.create(
                 call=call, user=self.user, joined_at=timezone.now()
             )
-            
+            # Add all other conversation participants (they haven't joined yet)
+            from accounts.models import User
+            for pid in participants:
+                if pid != self.user.id:
+                    try:
+                        other_user = User.objects.get(id=pid)
+                        CallParticipant.objects.create(
+                            call=call, user=other_user, joined_at=None
+                        )
+                    except User.DoesNotExist:
+                        pass
+
             # Get ICE servers
             ice_servers = list(
                 ICEServer.objects.filter(is_active=True).values(
@@ -481,6 +503,7 @@ class CallSignalingConsumer(AsyncJsonWebsocketConsumer):
 
     @database_sync_to_async
     def _end_call(self, call_id):
+        from chat.models import ConversationParticipant
         from .models import Call, CallParticipant
         
         try:
@@ -495,7 +518,13 @@ class CallSignalingConsumer(AsyncJsonWebsocketConsumer):
                 call=call, user=self.user, left_at__isnull=True
             ).update(left_at=timezone.now())
             
-            return {'duration': call.duration}
+            # Other participants (to notify via user_<id> so they get call.ended even if not in call_group yet)
+            other_ids = list(
+                ConversationParticipant.objects.filter(
+                    conversation_id=call.conversation_id
+                ).exclude(user_id=self.user.id).values_list('user_id', flat=True)
+            )
+            return {'duration': call.duration, 'other_participant_ids': other_ids}
         except Call.DoesNotExist:
             return None
 

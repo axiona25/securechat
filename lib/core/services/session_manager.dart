@@ -286,8 +286,17 @@ class SessionManager {
       );
       return result;
     } catch (e) {
-      if (messageId != null) await markDecryptFailed(messageId);
       debugPrint('[SessionManager] Decrypt failed for $messageId: $e');
+
+      if (e.toString().contains('forged') ||
+          e.toString().contains('malformed') ||
+          e.toString().contains('shared secret') ||
+          e.toString().contains('invalid')) {
+        debugPrint('[SessionManager] Deleting corrupted session for user $senderUserId');
+        await deleteSession(senderUserId);
+      }
+
+      if (messageId != null) await markDecryptFailed(messageId);
       rethrow;
     }
   }

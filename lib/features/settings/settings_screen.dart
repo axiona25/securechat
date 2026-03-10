@@ -6,6 +6,8 @@ import '../../core/constants/app_constants.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/services/api_service.dart';
 import '../../core/services/auth_service.dart';
+import '../../core/services/crypto_service.dart';
+import '../../core/services/session_manager.dart';
 import '../../core/widgets/user_avatar_widget.dart';
 import '../../core/l10n/app_localizations.dart';
 import '../../core/l10n/locale_provider.dart';
@@ -499,6 +501,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ]),
                     const SizedBox(height: 16),
 
+                    // Sezione Sicurezza — Reset E2E
+                    _buildSection([
+                      _buildMenuItem(
+                        icon: Icons.refresh_rounded,
+                        iconColor: _teal,
+                        title: 'Resetta sessioni E2E',
+                        onTap: _showResetE2ESessionsDialog,
+                      ),
+                    ]),
+                    const SizedBox(height: 16),
+
                     // Sezione 2 — Help
                     _buildSection([
                       _buildMenuItem(
@@ -645,6 +658,57 @@ class _SettingsScreenState extends State<SettingsScreen> {
       padding: const EdgeInsets.only(left: 66),
       child: Divider(height: 1, color: Colors.grey[200]),
     );
+  }
+
+  Future<void> _showResetE2ESessionsDialog() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Resetta sessioni E2E'),
+        content: const Text(
+          'Vuoi resettare tutte le sessioni di crittografia? I messaggi vecchi non saranno più decifrabili, ma i nuovi messaggi funzioneranno correttamente.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(l10n.t('cancel')),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF2ABFBF),
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Resetta'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      await SessionManager().clearAllSessions();
+      await CryptoService(apiService: ApiService()).wipeAllKeys();
+      await CryptoService(apiService: ApiService()).initializeKeys();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Sessioni E2E resettate con successo'),
+            backgroundColor: Color(0xFF2ABFBF),
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Reset E2E sessions error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Errore: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   void _showComingSoon(String feature) {

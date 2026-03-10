@@ -8,7 +8,9 @@ import 'core/l10n/app_localizations.dart';
 import 'core/l10n/locale_provider.dart';
 
 class SecureChatApp extends StatefulWidget {
-  const SecureChatApp({super.key});
+  const SecureChatApp({super.key, required this.navigatorKey});
+
+  final GlobalKey<NavigatorState> navigatorKey;
 
   @override
   State<SecureChatApp> createState() => _SecureChatAppState();
@@ -59,6 +61,7 @@ class _SecureChatAppState extends State<SecureChatApp>
       animation: localeProvider,
       builder: (context, child) {
         return MaterialApp(
+          navigatorKey: widget.navigatorKey,
           title: AppConstants.appName,
           debugShowCheckedModeBanner: false,
           theme: AppTheme.lightTheme,

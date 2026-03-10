@@ -35,6 +35,7 @@ import '../../../core/services/session_manager.dart';
 import '../../../core/services/sound_service.dart';
 import '../../../core/l10n/app_localizations.dart';
 import '../widgets/audio_player_widget.dart';
+import '../../calls/screens/call_screen.dart';
 import 'document_viewer_screen.dart';
 import 'group_info_screen.dart';
 
@@ -4710,24 +4711,46 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           ),
         ),
         actions: [
-          IconButton(
-            onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Chiamata audio: coming soon')),
-              );
-            },
-            icon: const Icon(Icons.phone_rounded, size: 22),
-            color: _teal,
-          ),
-          IconButton(
-            onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Videochiamata: coming soon')),
-              );
-            },
-            icon: const Icon(Icons.videocam_rounded, size: 24),
-            color: _teal,
-          ),
+          if (_conversation != null && !_conversation!.isGroup && _getOtherUserId() != null)
+            IconButton(
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => CallScreen(
+                      conversationId: _conversationId ?? '',
+                      callType: 'audio',
+                      isIncoming: false,
+                      remoteUserId: _getOtherUserId(),
+                      remoteUserName: _displayName,
+                      remoteUserAvatar: _otherUserAvatarUrl,
+                    ),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.phone_rounded, size: 22),
+              color: _teal,
+            ),
+          if (_conversation != null && !_conversation!.isGroup && _getOtherUserId() != null)
+            IconButton(
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => CallScreen(
+                      conversationId: _conversationId ?? '',
+                      callType: 'video',
+                      isIncoming: false,
+                      remoteUserId: _getOtherUserId(),
+                      remoteUserName: _displayName,
+                      remoteUserAvatar: _otherUserAvatarUrl,
+                    ),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.videocam_rounded, size: 24),
+              color: _teal,
+            ),
           IconButton(
             icon: const Icon(Icons.more_vert, color: _teal),
             onPressed: () => _showChatActions(),

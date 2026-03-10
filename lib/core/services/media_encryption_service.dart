@@ -8,9 +8,11 @@ import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 import 'package:cryptography/cryptography.dart';
+import 'package:cryptography/dart.dart';
 
 class MediaEncryptionService {
-  static final Xchacha20 _cipher = Xchacha20.poly1305Aead();
+  /// Pure Dart implementation to avoid iOS simulator crash (objective_c.framework).
+  static final Xchacha20 _cipher = DartXchacha20.poly1305Aead();
 
   static const int _nonceLength = 24;
   static const int _macLength = 16;
@@ -41,7 +43,8 @@ class MediaEncryptionService {
     return secretBox.concatenation();
   }
 
-  /// Decrypt file data (format: nonce + ciphertext + mac)
+  /// Decrypt file data (format: nonce + ciphertext + mac).
+  /// copy: true for iOS simulator compatibility (avoids view-over-buffer issues).
   static Future<Uint8List> decryptFile(
     Uint8List encryptedData,
     SecretKey fileKey,
@@ -50,7 +53,7 @@ class MediaEncryptionService {
       encryptedData,
       nonceLength: _nonceLength,
       macLength: _macLength,
-      copy: false,
+      copy: true,
     );
     final plaintext = await _cipher.decrypt(
       secretBox,
@@ -85,7 +88,7 @@ class MediaEncryptionService {
       data,
       nonceLength: _nonceLength,
       macLength: _macLength,
-      copy: false,
+      copy: true,
     );
     final fileKeyBytes = await _cipher.decrypt(
       secretBox,
@@ -120,7 +123,7 @@ class MediaEncryptionService {
       data,
       nonceLength: _nonceLength,
       macLength: _macLength,
-      copy: false,
+      copy: true,
     );
     final plaintext = await _cipher.decrypt(
       secretBox,

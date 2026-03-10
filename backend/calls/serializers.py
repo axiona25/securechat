@@ -47,11 +47,24 @@ class CallLogSerializer(serializers.ModelSerializer):
         ]
 
     def get_other_party(self, obj):
+        """L'altro utente da mostrare in lista: chi ho chiamato (uscita) o chi mi ha chiamato (entrata).
+        Usa CallParticipant se presente; altrimenti partecipanti della conversazione (es. chiamata non accettata)."""
         request = self.context.get('request')
-        if request and request.user:
-            other = obj.participants.exclude(user=request.user).select_related('user').first()
-            if other:
-                return UserPublicSerializer(other.user).data
+        if not request or not request.user:
+            return None
+        other = obj.participants.exclude(user=request.user).select_related('user').first()
+        if other:
+            return UserPublicSerializer(other.user).data
+        # Chiamata non accettata o solo caller in CallParticipant: ricava l'altro dalla conversazione
+        from chat.models import ConversationParticipant
+        other_participant = (
+            ConversationParticipant.objects.filter(conversation_id=obj.conversation_id)
+            .exclude(user_id=request.user.id)
+            .select_related('user')
+            .first()
+        )
+        if other_participant:
+            return UserPublicSerializer(other_participant.user).data
         return None
 
     def get_direction(self, obj):

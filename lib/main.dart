@@ -12,6 +12,9 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_app_badger/flutter_app_badger.dart';
 
+/// Global navigator key for navigation from outside the widget tree (e.g. incoming call).
+final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+
 // Handler per notifiche in background (deve essere top-level)
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
@@ -82,5 +85,5 @@ void main() async {
     statusBarIconBrightness: Brightness.dark,
   ));
 
-  runApp(const SecureChatApp());
+  runApp(SecureChatApp(navigatorKey: navigatorKey));
 }

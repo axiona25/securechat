@@ -7,6 +7,7 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 
 import '../constants/app_constants.dart';
 import 'api_service.dart';
+import 'call_sound_service.dart';
 
 enum CallStatus { idle, ringing, connecting, connected, ended }
 
@@ -137,11 +138,14 @@ class CallService {
         onError: (e) {
           debugPrint('[CallService] WebSocket error: $e');
           _closeChannel();
+          _scheduleReconnect();
         },
         onDone: () {
           _isConnected = false;
           _channel = null;
           _wsSubscription = null;
+          debugPrint('[CallService] WebSocket closed, will try to reconnect');
+          _scheduleReconnect();
         },
         cancelOnError: false,
       );
@@ -158,6 +162,19 @@ class CallService {
     _channel?.close();
     _channel = null;
     _isConnected = false;
+  }
+
+  static bool _reconnectScheduled = false;
+
+  void _scheduleReconnect() {
+    if (_disposed || _reconnectScheduled) return;
+    _reconnectScheduled = true;
+    Future.delayed(const Duration(seconds: 2), () {
+      _reconnectScheduled = false;
+      if (_disposed) return;
+      debugPrint('[CallService] Reconnecting WebSocket...');
+      ensureConnected();
+    });
   }
 
   Future<void> _send(Map<String, dynamic> data) async {
@@ -236,6 +253,7 @@ class CallService {
   }
 
   void _onCallIncoming(Map<String, dynamic> map) {
+    debugPrint('[CallService] call.incoming received: callId=${map['call_id']}, from=${map['caller_name']}');
     final callId = map['call_id']?.toString();
     final callType = map['call_type']?.toString() ?? 'audio';
     final callerId = map['caller_id'];
@@ -328,6 +346,10 @@ class CallService {
   }
 
   void _onCallRejected(Map<String, dynamic> map) {
+    final reason = map['reason']?.toString();
+    if (reason == 'busy') {
+      CallSoundService().playBusy();
+    }
     _emit(_state.copyWith(status: CallStatus.ended));
     _cleanup();
   }
@@ -381,6 +403,7 @@ class CallService {
   }
 
   void _onCallEnded(Map<String, dynamic> map) {
+    debugPrint('[CallService] call.ended received: callId=${map['call_id']}');
     final duration = map['duration'];
     int sec = 0;
     if (duration != null) {

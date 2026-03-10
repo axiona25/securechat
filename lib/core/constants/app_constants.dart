@@ -15,6 +15,8 @@ class AppConstants {
   // Per iOS Simulator: ws://127.0.0.1:8000/ws/chat/
   static const String wsBaseUrl = 'ws://127.0.0.1:8000/ws/chat/';
   static const String wsUrl = 'ws://127.0.0.1:8000/ws/chat/';
+  /// WebSocket URL for call signaling (WebRTC).
+  static const String wsCallsUrl = 'ws://127.0.0.1:8000/ws/calls/';
 
   // Assets
   static const String imgSfondo = 'assets/images/sfondo.png';

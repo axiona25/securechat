@@ -30,7 +30,9 @@ import 'package:flutter_app_badger/flutter_app_badger.dart';
 import '../settings/settings_screen.dart';
 import '../auth/widgets/change_password_modal.dart';
 import '../calls/screens/call_screen.dart';
+import '../calls/screens/calls_history_screen.dart';
 import '../../core/l10n/app_localizations.dart';
+import '../../main.dart' show navigatorKey;
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -39,7 +41,7 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
+class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, WidgetsBindingObserver {
   final ChatService _chatService = ChatService();
   final TextEditingController _searchController = TextEditingController();
 
@@ -62,17 +64,21 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   final Map<String, bool> _recordingConversations = {}; // conversationId -> isRecording
   StreamSubscription<CallState>? _incomingCallSub;
   bool _isCallScreenOpen = false;
+  int _missedCallsCount = 0;
+  final GlobalKey<CallsHistoryScreenState> _callsHistoryKey = GlobalKey<CallsHistoryScreenState>();
 
   AppLocalizations get l10n => AppLocalizations.of(context)!;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _lockAnimController = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 2),
     )..repeat(reverse: true);
     _loadData();
+    _loadMissedCallsCount();
     _connectHomeWebSocket();
     CallService().ensureConnected();
     _incomingCallSub = CallService().onIncomingCall.listen((CallState callState) {
@@ -80,9 +86,21 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       if (callState.isIncoming && callState.status == CallStatus.ringing) {
         debugPrint('[Home] Incoming call received: callId=${callState.callId}, from=${callState.remoteUserName}');
         _isCallScreenOpen = true;
+
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!mounted) return;
-          Navigator.of(context, rootNavigator: true).push(
+          if (!mounted) {
+            _isCallScreenOpen = false;
+            return;
+          }
+
+          final nav = navigatorKey.currentState;
+          if (nav == null) {
+            debugPrint('[Home] ERROR: navigatorKey.currentState is null');
+            _isCallScreenOpen = false;
+            return;
+          }
+
+          nav.push(
             MaterialPageRoute(
               builder: (_) => CallScreen(
                 conversationId: callState.conversationId ?? '',
@@ -120,7 +138,15 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      CallService().ensureConnected();
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _incomingCallSub?.cancel();
     FlutterAppBadger.removeBadge();
     _lockAnimController.dispose();
@@ -1652,6 +1678,20 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       _currentNavIndex = index;
       _isLockedMode = false;
     });
+    if (index == 1) {
+      _callsHistoryKey.currentState?.refresh();
+      _loadMissedCallsCount();
+    }
+  }
+
+  Future<void> _loadMissedCallsCount() async {
+    try {
+      final data = await ApiService().get('/calls/missed-count/');
+      final count = data['missed_calls'];
+      if (mounted) {
+        setState(() => _missedCallsCount = count is int ? count : (int.tryParse(count?.toString() ?? '0') ?? 0));
+      }
+    } catch (_) {}
   }
 
   @override
@@ -1707,7 +1747,43 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 ),
               ],
             )
-          : Stack(
+          : _currentNavIndex == 1
+              ? Stack(
+                  children: [
+                    Positioned.fill(
+                      child: Image.asset(
+                        AppConstants.imgSfondo,
+                        fit: BoxFit.cover,
+                      ),
+                    ),
+                    SafeArea(
+                      bottom: false,
+                      child: Column(
+                        children: [
+                          const SizedBox(height: 4),
+                          HomeHeader(
+                            userAvatarUrl: _currentUser?.avatar,
+                            firstName: _currentUser?.firstName,
+                            lastName: _currentUser?.lastName,
+                            notificationCount: _totalUnreadCount,
+                            onNotificationTap: () {},
+                            onAvatarTap: () {},
+                            isLockedMode: _isLockedMode,
+                            lockAnimation: _lockAnimController,
+                            onLockTap: _showExitLockModal,
+                          ),
+                          Expanded(
+                            child: CallsHistoryScreen(
+                              key: _callsHistoryKey,
+                              onMissedCountChanged: _loadMissedCallsCount,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                )
+              : Stack(
               children: [
                 Positioned.fill(
                   child: Image.asset(
@@ -1881,6 +1957,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                   icon: Icons.call_outlined,
                   activeIcon: Icons.call,
                   label: l10n.t('calls'),
+                  badgeCount: _missedCallsCount,
                 ),
                 BottomNavItem(
                   icon: Icons.verified_user_outlined,
