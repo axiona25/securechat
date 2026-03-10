@@ -682,6 +682,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
   void _showNotificationToast(String senderName, Widget contentWidget, IconData icon) {
     if (!mounted) return;
 
+    SoundService().playNotification();
+
     late OverlayEntry overlayEntry;
 
     overlayEntry = OverlayEntry(
@@ -744,6 +746,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
               'message_type': lm.messageType ?? 'text',
               'content': lm.content ?? '',
               'has_encrypted_attachment': lm.hasEncryptedAttachment,
+              'content_encrypted': lm.contentEncryptedB64 != null && lm.contentEncryptedB64!.isNotEmpty,
             }
           : null,
       'unread_count': c.unreadCount,
@@ -753,13 +756,15 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
   String _getLastMessagePreviewText(Map<String, dynamic> conversation) {
     final lastMessage = conversation['last_message'];
     if (lastMessage == null) return l10n.t('no_message');
+    final content = (lastMessage['content']?.toString() ?? '').trim();
+    final isEncrypted = lastMessage['content_encrypted'] == true || lastMessage['has_encrypted_attachment'] == true;
+    if (content.isEmpty && isEncrypted) return '🔒 Messaggio cifrato';
     if (lastMessage['has_encrypted_attachment'] == true) {
       return ChatDetailScreen.encryptedAttachmentPreviewText(
         lastMessage['message_type']?.toString(),
       );
     }
     final type = lastMessage['message_type']?.toString() ?? 'text';
-    final content = (lastMessage['content']?.toString() ?? '').trim();
     switch (type) {
       case 'image': return 'Foto';
       case 'video': return 'Video';
@@ -815,6 +820,16 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
       return Text(l10n.t('no_message'), style: const TextStyle(color: Color(0xFF9E9E9E), fontSize: 13));
     }
     final content = lastMessage['content']?.toString() ?? '';
+    final isEncrypted = lastMessage['content_encrypted'] == true || lastMessage['has_encrypted_attachment'] == true;
+    if (content.trim().isEmpty && isEncrypted) {
+      return const Row(
+        children: [
+          Icon(Icons.lock_rounded, size: 16, color: Color(0xFF9E9E9E)),
+          SizedBox(width: 4),
+          Text('🔒 Messaggio cifrato', style: TextStyle(color: Color(0xFF9E9E9E), fontSize: 13)),
+        ],
+      );
+    }
     if (content.trim().isEmpty) {
       return Text(l10n.t('no_message'), style: TextStyle(color: Colors.grey[400], fontStyle: FontStyle.italic, fontSize: 13));
     }

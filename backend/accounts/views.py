@@ -40,6 +40,10 @@ class RegisterView(APIView):
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
 
+        # Auto-verify in production (no working email)
+        user.is_verified = True
+        user.save()
+
         # Get the verification code
         token = user.verification_tokens.first()
 

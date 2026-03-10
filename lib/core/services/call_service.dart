@@ -456,6 +456,7 @@ class CallService {
       _peerConnection!.onAddStream = (MediaStream stream) {
         _emit(_state.copyWith(remoteStream: stream, status: CallStatus.connected));
         _callStartTime ??= DateTime.now();
+        _setSpeakerOnByDefault();
       };
       _peerConnection!.onTrack = (RTCTrackEvent event) {
         if (event.streams.isNotEmpty) {
@@ -464,6 +465,7 @@ class CallService {
             status: CallStatus.connected,
           ));
           _callStartTime ??= DateTime.now();
+          _setSpeakerOnByDefault();
         }
       };
       _peerConnection!.onIceConnectionState = (RTCIceConnectionState state) {
@@ -587,13 +589,27 @@ class CallService {
     });
   }
 
+  /// Vivavoce di default all'avvio della chiamata (audio e video).
+  void _setSpeakerOnByDefault() {
+    try {
+      Helper.setSpeakerphoneOn(true);
+      _emit(_state.copyWith(isSpeakerOn: true));
+    } catch (e) {
+      if (kDebugMode) debugPrint('[CallService] setSpeakerphoneOn default error: $e');
+    }
+  }
+
   void toggleSpeaker() {
     final next = !_state.isSpeakerOn;
     _emit(_state.copyWith(isSpeakerOn: next));
+    try {
+      Helper.setSpeakerphoneOn(next);
+    } catch (e) {
+      if (kDebugMode) debugPrint('[CallService] setSpeakerphoneOn error: $e');
+    }
     if (_callId != null) {
       _send({'action': 'toggle_speaker', 'call_id': _callId, 'is_speaker_on': next});
     }
-    // Actual speaker routing is device-dependent; UI can reflect the toggle.
   }
 
   /// Caller: set remote user id when we receive call.accepted (accepted_by).

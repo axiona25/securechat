@@ -1,22 +1,17 @@
 class AppConstants {
   AppConstants._();
 
-  // Backend API URL (127.0.0.1 per simulatore iOS — localhost può non essere raggiungibile)
-  // Per Android Emulator: http://10.0.2.2:8000/api
-  // Per iOS Simulator: http://127.0.0.1:8000/api
-  // Per device fisico: http://TUO_IP_LOCALE:8000/api (es. http://192.168.1.100:8000/api)
-  static const String baseUrl = 'http://127.0.0.1:8000/api';
+  // Backend API URL — produzione axphone.it
+  static const String baseUrl = 'https://axphone.it/api';
 
   // URL base per file media (senza /api) — usato per immagini, video, audio, documenti
-  static const String mediaBaseUrl = 'http://127.0.0.1:8000';
+  static const String mediaBaseUrl = 'https://axphone.it';
 
-  // WebSocket URL — 127.0.0.1 per simulatore iOS (localhost non raggiungibile per WS)
-  // Per Android Emulator: ws://10.0.2.2:8000/ws/chat/
-  // Per iOS Simulator: ws://127.0.0.1:8000/ws/chat/
-  static const String wsBaseUrl = 'ws://127.0.0.1:8000/ws/chat/';
-  static const String wsUrl = 'ws://127.0.0.1:8000/ws/chat/';
+  // WebSocket URL — chat e chiamate (produzione)
+  static const String wsBaseUrl = 'wss://axphone.it/ws/chat/';
+  static const String wsUrl = 'wss://axphone.it/ws/chat/';
   /// WebSocket URL for call signaling (WebRTC).
-  static const String wsCallsUrl = 'ws://127.0.0.1:8000/ws/calls/';
+  static const String wsCallsUrl = 'wss://axphone.it/ws/calls/';
 
   // Assets
   static const String imgSfondo = 'assets/images/sfondo.png';

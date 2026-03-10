@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io' show Platform;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -34,25 +35,32 @@ void main() async {
     final token = await messaging.getToken();
     debugPrint('FCM Token: $token');
 
-    // Registra token FCM nel backend
-    if (token != null) {
+    // Registra token FCM nel backend (con platform per APNs/FCM)
+    Future<void> sendFcmTokenToServer(String fcmToken) async {
       try {
         final accessToken = ApiService().accessToken;
-        if (accessToken != null) {
-          final response = await http.post(
-            Uri.parse('${AppConstants.baseUrl}/auth/fcm-token/'),
-            headers: {
-              'Authorization': 'Bearer $accessToken',
-              'Content-Type': 'application/json',
-            },
-            body: jsonEncode({'token': token}),
-          );
-          debugPrint('[FCM] Token registered: ${response.statusCode}');
-        }
+        if (accessToken == null) return;
+        final platform = Platform.isIOS ? 'ios' : (Platform.isAndroid ? 'android' : 'unknown');
+        final response = await http.post(
+          Uri.parse('${AppConstants.baseUrl}/auth/fcm-token/'),
+          headers: {
+            'Authorization': 'Bearer $accessToken',
+            'Content-Type': 'application/json',
+          },
+          body: jsonEncode({'token': fcmToken, 'platform': platform}),
+        );
+        debugPrint('[FCM] Token registered: ${response.statusCode}');
       } catch (e) {
         debugPrint('[FCM] Token registration error: $e');
       }
     }
+
+    if (token != null) await sendFcmTokenToServer(token);
+
+    // Refresh token: invia il nuovo token al server quando cambia
+    FirebaseMessaging.instance.onTokenRefresh.listen((newToken) {
+      sendFcmTokenToServer(newToken);
+    });
 
     // Gestione notifiche in foreground
     FirebaseMessaging.onMessage.listen((RemoteMessage message) {

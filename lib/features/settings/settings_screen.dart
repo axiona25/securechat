@@ -26,6 +26,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Map<String, dynamic>? _profile;
   bool _notificationsEnabled = true;
   bool _loading = true;
+  /// Cache buster per forzare refresh avatar dopo upload (evita immagine in cache).
+  int? _avatarCacheBuster;
 
   static const Color _teal = Color(0xFF2ABFBF);
   AppLocalizations get l10n => AppLocalizations.of(context)!;
@@ -140,8 +142,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String? get _avatarUrl {
     final url = _profile?['avatar']?.toString();
     if (url == null || url.isEmpty) return null;
-    if (url.startsWith('http')) return url;
-    return '${AppConstants.mediaBaseUrl}$url';
+    final base = url.startsWith('http') ? url : '${AppConstants.mediaBaseUrl}$url';
+    if (_avatarCacheBuster != null) return '$base?t=$_avatarCacheBuster';
+    return base;
   }
 
   String get _statusText {
@@ -251,6 +254,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (response.statusCode == 200) {
         await _loadProfile();
         if (mounted) {
+          setState(() => _avatarCacheBuster = DateTime.now().millisecondsSinceEpoch);
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Foto profilo aggiornata'), backgroundColor: Color(0xFF2ABFBF)),
           );
@@ -334,6 +338,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       await ApiService().delete('/auth/avatar/');
       await _loadProfile();
       if (mounted) {
+        setState(() => _avatarCacheBuster = DateTime.now().millisecondsSinceEpoch);
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Foto profilo rimossa'), backgroundColor: Color(0xFF2ABFBF)),
         );

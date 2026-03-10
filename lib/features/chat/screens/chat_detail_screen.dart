@@ -568,6 +568,21 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                 }
               }
             }
+            if (type == 'message.reaction') {
+              final messageId = map['message_id']?.toString();
+              final emoji = map['emoji']?.toString() ?? '';
+              final action = map['action']?.toString() ?? 'add';
+              final userId = map['user_id'];
+              final username = map['username']?.toString();
+              if (messageId != null && mounted) {
+                final idx = _messages.indexWhere((m) => m['id']?.toString() == messageId);
+                if (idx >= 0) {
+                  setState(() {
+                    _applyReactionFromWs(_messages[idx], emoji, action, userId, username);
+                  });
+                }
+              }
+            }
             if (type == 'chat.message') {
               final msgData = map['message'] as Map<String, dynamic>?;
               if (msgData != null && mounted) {
@@ -1807,6 +1822,45 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       debugPrint('Error adding reaction: $e');
       if (mounted) _loadMessagesSilent();
     }
+  }
+
+  /// Applica una reaction ricevuta via WebSocket (message.reaction) al messaggio.
+  void _applyReactionFromWs(
+    Map<String, dynamic> msg,
+    String emoji,
+    String action,
+    dynamic userId,
+    String? username,
+  ) {
+    final reactionsRaw = msg['reactions'];
+    final reactions = reactionsRaw is List
+        ? List<Map<String, dynamic>>.from(
+            reactionsRaw.map((r) => r is Map ? Map<String, dynamic>.from(r) : <String, dynamic>{}),
+          )
+        : <Map<String, dynamic>>[];
+    final uid = userId is int ? userId : int.tryParse(userId?.toString() ?? '');
+    if (action == 'remove') {
+      reactions.removeWhere((r) {
+        final rEmoji = r['emoji']?.toString();
+        final rUid = r['user'] is Map ? (r['user'] as Map)['id'] : null;
+        final rUidInt = rUid is int ? rUid : int.tryParse(rUid?.toString() ?? '');
+        return rEmoji == emoji && rUidInt != null && rUidInt == uid;
+      });
+    } else {
+      final existing = reactions.any((r) {
+        final rEmoji = r['emoji']?.toString();
+        final rUid = r['user'] is Map ? (r['user'] as Map)['id'] : null;
+        final rUidInt = rUid is int ? rUid : int.tryParse(rUid?.toString() ?? '');
+        return rEmoji == emoji && rUidInt != null && rUidInt == uid;
+      });
+      if (!existing) {
+        reactions.add({
+          'emoji': emoji,
+          'user': {'id': uid, if (username != null) 'username': username},
+        });
+      }
+    }
+    msg['reactions'] = reactions;
   }
 
   Map<String, int> _groupReactions(List<dynamic> reactions) {

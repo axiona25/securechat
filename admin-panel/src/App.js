@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area } from "recharts";
 
-const API_BASE = "http://127.0.0.1:8000/api";
+const API_BASE = "https://axphone.it/api";
 
 function getAuthToken() {
   return localStorage.getItem("admin_token");
@@ -167,7 +167,7 @@ function Sidebar({ active, onSelect, collapsed }) {
   return (
     <div style={{ width: collapsed ? 72 : 260, background: T.navy, height: "100vh", position: "fixed", left: 0, top: 0, display: "flex", flexDirection: "column", transition: "width 0.3s cubic-bezier(0.4,0,0.2,1)", zIndex: 100, overflow: "hidden" }}>
       <div style={{ padding: collapsed ? "24px 16px" : "24px 12px", display: "flex", alignItems: "center", justifyContent: "center", borderBottom: "1px solid rgba(255,255,255,0.08)", minHeight: 80, width: "100%", boxSizing: "border-box" }}>
-        <img src="/Logo_Securechat_w.png" alt="SecureChat" style={{ width: "100%", padding: "0 16px", objectFit: "contain", boxSizing: "border-box" }} />
+        <img src="/admin-panel/Logo_Securechat_w.png" alt="SecureChat" style={{ width: "100%", padding: "0 16px", objectFit: "contain", boxSizing: "border-box" }} />
       </div>
       <div style={{ flex: 1, padding: "16px 12px", display: "flex", flexDirection: "column", gap: 4 }}>
         {Object.keys(labels).map(id => {
@@ -1424,7 +1424,7 @@ function LoginPage({ onLogin }) {
       <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&display=swap" rel="stylesheet" />
       <div style={{ background: T.card, borderRadius: 20, padding: 40, width: 400, boxShadow: "0 20px 60px rgba(0,0,0,0.1)" }}>
         <div style={{ textAlign: "center", marginBottom: 32 }}>
-          <img src="/Logo_SecureChat.png" alt="SecureChat" style={{ height: 60, display: "block", margin: "0 auto 16px" }} />
+          <img src="/admin-panel/Logo_SecureChat.png" alt="SecureChat" style={{ height: 60, display: "block", margin: "0 auto 16px" }} />
           <div style={{ fontSize: 13, color: T.textMuted }}>Admin Panel</div>
         </div>
         {error && <div style={{ background: "#FFEBEE", color: T.red, padding: "10px 14px", borderRadius: 10, fontSize: 13, marginBottom: 16, fontWeight: 500 }}>{error}</div>}

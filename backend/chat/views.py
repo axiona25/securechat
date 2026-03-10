@@ -1165,11 +1165,28 @@ class ReactionView(APIView):
             message=message, user=request.user,
             defaults={'emoji': emoji}
         )
+        # Broadcast via WebSocket
+        from channels.layers import get_channel_layer
+        from asgiref.sync import async_to_sync
+        channel_layer = get_channel_layer()
+        async_to_sync(channel_layer.group_send)(
+            f"chat_{message.conversation_id}",
+            {"type": "message.reaction", "message_id": str(message.id), "emoji": emoji, "user_id": request.user.id, "username": request.user.username, "action": "add"}
+        )
         return Response({'message': 'Reazione aggiunta.'})
 
     def delete(self, request, message_id):
         """Remove a reaction"""
+        msg = Message.objects.filter(id=message_id).first()
         MessageReaction.objects.filter(message_id=message_id, user=request.user).delete()
+        if msg:
+            from channels.layers import get_channel_layer
+            from asgiref.sync import async_to_sync
+            channel_layer = get_channel_layer()
+            async_to_sync(channel_layer.group_send)(
+                f"chat_{msg.conversation_id}",
+                {"type": "message.reaction", "message_id": str(message_id), "emoji": "", "user_id": request.user.id, "username": request.user.username, "action": "remove"}
+            )
         return Response({'message': 'Reazione rimossa.'})
 
 

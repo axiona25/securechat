@@ -9,7 +9,7 @@
 	<key>PLIST_VERSION</key>
 	<string>1</string>
 	<key>BUNDLE_ID</key>
-	<string>com.securechat.app</string>
+	<string>com.axphone.app</string>
 	<key>PROJECT_ID</key>
 	<string>chat-10f23</string>
 	<key>STORAGE_BUCKET</key>
@@ -25,6 +25,6 @@
 	<key>IS_SIGNIN_ENABLED</key>
 	<true></true>
 	<key>GOOGLE_APP_ID</key>
-	<string>1:1017242588804:ios:9bbc96dec4e13cb71bd4d1</string>
+	<string>1:1017242588804:ios:1448953d73a948f81bd4d1</string>
 </dict>
 </plist>
