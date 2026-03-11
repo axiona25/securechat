@@ -59,3 +59,8 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 chat-10f23-firebase-adminsdk-fbsvc-c64a0e147a.json
+voip_key.pem
+voip_pushkit.p12
+voip_pushkit.pem
+voip_services.cer
+voip_csr.csr
