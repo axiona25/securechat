@@ -19,4 +19,5 @@ urlpatterns = [
     path('avatar/', views.AvatarUploadView.as_view(), name='avatar-upload'),
     path('change-password/', views.ChangePasswordView.as_view(), name='change-password'),
     path('fcm-token/', views.FCMTokenView.as_view(), name='fcm-token'),
+    path('voip-token/', views.VoipTokenView.as_view(), name='voip-token'),
 ]

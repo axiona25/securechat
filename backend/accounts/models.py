@@ -37,6 +37,7 @@ class User(AbstractUser):
     is_online = models.BooleanField(default=False)
     firebase_token = models.CharField(max_length=500, blank=True, default='')
     fcm_token = models.CharField(max_length=500, null=True, blank=True)
+    voip_token = models.CharField(max_length=255, blank=True, null=True)
     public_key = models.TextField(blank=True, default='')
 
     # Settings

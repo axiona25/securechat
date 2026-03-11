@@ -33,6 +33,7 @@ import '../settings/settings_screen.dart';
 import '../auth/widgets/change_password_modal.dart';
 import '../calls/screens/call_screen.dart';
 import '../calls/screens/calls_history_screen.dart';
+import '../security/security_screen.dart';
 import '../../core/l10n/app_localizations.dart';
 import '../../main.dart' show navigatorKey;
 
@@ -1743,33 +1744,35 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
 
     return Scaffold(
       extendBody: true,
-      floatingActionButton: Container(
-        decoration: BoxDecoration(
-          gradient: AppColors.buttonGradient,
-          shape: BoxShape.circle,
-          boxShadow: [
-            BoxShadow(
-              color: AppColors.primary.withValues(alpha: 0.35),
-              blurRadius: 12,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
-        child: Material(
-          color: Colors.transparent,
-          child: InkWell(
-            onTap: () => _showNewChatMenu(context),
-            customBorder: const CircleBorder(),
-            child: const SizedBox(
-              width: 56,
-              height: 56,
-              child: Center(
-                child: Icon(Icons.add, color: Colors.white, size: 28),
+      floatingActionButton: _currentNavIndex == 0
+          ? Container(
+              decoration: BoxDecoration(
+                gradient: AppColors.buttonGradient,
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: AppColors.primary.withValues(alpha: 0.35),
+                    blurRadius: 12,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
               ),
-            ),
-          ),
-        ),
-      ),
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: () => _showNewChatMenu(context),
+                  customBorder: const CircleBorder(),
+                  child: const SizedBox(
+                    width: 56,
+                    height: 56,
+                    child: Center(
+                      child: Icon(Icons.add, color: Colors.white, size: 28),
+                    ),
+                  ),
+                ),
+              ),
+            )
+          : null,
       body: _currentNavIndex == 3
           ? Stack(
               children: [
@@ -1823,7 +1826,38 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
                     ),
                   ],
                 )
-              : Stack(
+              : _currentNavIndex == 2
+                  ? Stack(
+                      children: [
+                        Positioned.fill(
+                          child: Image.asset(
+                            AppConstants.imgSfondo,
+                            fit: BoxFit.cover,
+                          ),
+                        ),
+                        SafeArea(
+                          bottom: false,
+                          child: Column(
+                            children: [
+                              const SizedBox(height: 4),
+                              HomeHeader(
+                                userAvatarUrl: _currentUser?.avatar,
+                                firstName: _currentUser?.firstName,
+                                lastName: _currentUser?.lastName,
+                                notificationCount: _totalUnreadCount,
+                                onNotificationTap: () {},
+                                onAvatarTap: () {},
+                                isLockedMode: _isLockedMode,
+                                lockAnimation: _lockAnimController,
+                                onLockTap: _showExitLockModal,
+                              ),
+                              Expanded(child: SecurityScreen()),
+                            ],
+                          ),
+                        ),
+                      ],
+                    )
+                  : Stack(
               children: [
                 Positioned.fill(
                   child: Image.asset(

@@ -454,3 +454,16 @@ class FCMTokenView(APIView):
         request.user.fcm_token = token
         request.user.save(update_fields=['fcm_token'])
         return Response({'registered': True}, status=status.HTTP_200_OK)
+
+
+class VoipTokenView(APIView):
+    """Registra il token VoIP (PushKit) per chiamate in arrivo su iOS."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        token = request.data.get('voip_token')
+        if not token:
+            return Response({'error': 'voip_token richiesto'}, status=status.HTTP_400_BAD_REQUEST)
+        request.user.voip_token = token
+        request.user.save(update_fields=['voip_token'])
+        return Response({'registered': True}, status=status.HTTP_200_OK)

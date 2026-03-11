@@ -95,6 +95,20 @@ class CallSignalingConsumer(AsyncJsonWebsocketConsumer):
         call_group = f'call_{call_data["call_id"]}'
         await self.channel_layer.group_add(call_group, self.channel_name)
         
+        # VoIP push (iOS) and FCM data (Android) before other notifications
+        caller_display_name = f'{self.user.first_name} {self.user.last_name}'.strip() or self.user.username or ''
+        voip_call_data = {
+            'caller_display_name': caller_display_name,
+            'call_id': call_data['call_id'],
+            'call_type': call_type,
+            'caller_user_id': self.user.id,
+            'conversation_id': str(conversation_id),
+        }
+        for participant_id in call_data['participant_ids']:
+            if participant_id != self.user.id:
+                await self._send_voip_push_for_user(participant_id, voip_call_data)
+                await self._send_android_call_data_for_user(participant_id, voip_call_data)
+
         # Notify all other participants in the conversation
         for participant_id in call_data['participant_ids']:
             if participant_id != self.user.id:
@@ -354,6 +368,34 @@ class CallSignalingConsumer(AsyncJsonWebsocketConsumer):
         })
 
     # ── DATABASE OPERATIONS ──
+
+    @database_sync_to_async
+    def _send_voip_push_for_user(self, participant_id, call_data_dict):
+        """Send VoIP push to callee (iOS) if they have voip_token."""
+        from django.contrib.auth import get_user_model
+        from .voip_push import send_voip_push
+        User = get_user_model()
+        try:
+            user = User.objects.get(pk=participant_id)
+            send_voip_push(user, call_data_dict)
+        except User.DoesNotExist:
+            pass
+        except Exception as e:
+            logger.exception('VoIP push failed for user %s: %s', participant_id, e)
+
+    @database_sync_to_async
+    def _send_android_call_data_for_user(self, participant_id, call_data_dict):
+        """Send FCM data-only high-priority message for incoming call (Android)."""
+        from django.contrib.auth import get_user_model
+        from chat.push_notifications import send_android_incoming_call_data
+        User = get_user_model()
+        try:
+            user = User.objects.get(pk=participant_id)
+            send_android_incoming_call_data(user, call_data_dict)
+        except User.DoesNotExist:
+            pass
+        except Exception as e:
+            logger.exception('Android call data push failed for user %s: %s', participant_id, e)
 
     @database_sync_to_async
     def _authenticate(self):

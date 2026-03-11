@@ -83,6 +83,46 @@ def send_push_notification(user, title, body, data=None):
         return False
 
 
+def send_android_incoming_call_data(user, call_data):
+    """
+    Invia messaggio FCM data-only ad alta priorità per chiamata in arrivo (Android).
+    Il client Android mostrerà CallKit/Full Screen Intent.
+    """
+    if not getattr(user, 'fcm_token', None):
+        return False
+    try:
+        from firebase_admin import messaging
+        app = _get_firebase_app()
+        if app is None:
+            return False
+        data_payload = {
+            'type': 'incoming_call',
+            'callId': str(call_data.get('call_id', '')),
+            'callerName': call_data.get('caller_display_name', ''),
+            'callType': call_data.get('call_type', 'audio'),
+            'callerUserId': str(call_data.get('caller_user_id', '')),
+            'conversationId': str(call_data.get('conversation_id', '')),
+        }
+        message = messaging.Message(
+            data={k: str(v) for k, v in data_payload.items()},
+            token=user.fcm_token,
+            android=messaging.AndroidConfig(
+                priority='high',
+                data=data_payload,
+            ),
+            apns=messaging.APNSConfig(
+                headers={'apns-push-type': 'voip', 'apns-priority': '10'},
+                payload=messaging.APNSPayload(aps=messaging.Aps(content_available=True)),
+            ),
+        )
+        messaging.send(message)
+        logger.info('Android call data sent to user %s', user.id)
+        return True
+    except Exception as e:
+        logger.exception('Android call data push error: %s', e)
+        return False
+
+
 def send_push_to_conversation_participants(conversation, sender, title, body, data=None):
     """Invia push a tutti i partecipanti di una conversazione tranne il mittente."""
     from chat.models import ConversationParticipant
