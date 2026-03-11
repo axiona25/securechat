@@ -1170,7 +1170,7 @@ class ReactionView(APIView):
         from asgiref.sync import async_to_sync
         channel_layer = get_channel_layer()
         async_to_sync(channel_layer.group_send)(
-            f"chat_{message.conversation_id}",
+            f"conv_{message.conversation_id}",
             {"type": "message.reaction", "message_id": str(message.id), "emoji": emoji, "user_id": request.user.id, "username": request.user.username, "action": "add"}
         )
         return Response({'message': 'Reazione aggiunta.'})
@@ -1184,7 +1184,7 @@ class ReactionView(APIView):
             from asgiref.sync import async_to_sync
             channel_layer = get_channel_layer()
             async_to_sync(channel_layer.group_send)(
-                f"chat_{msg.conversation_id}",
+                f"conv_{msg.conversation_id}",
                 {"type": "message.reaction", "message_id": str(message_id), "emoji": "", "user_id": request.user.id, "username": request.user.username, "action": "remove"}
             )
         return Response({'message': 'Reazione rimossa.'})

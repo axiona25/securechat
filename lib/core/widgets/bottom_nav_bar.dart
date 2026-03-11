@@ -51,7 +51,7 @@ class SecureChatBottomNavBar extends StatelessWidget {
                 onTap: () => onTap(index),
                 behavior: HitTestBehavior.opaque,
                 child: SizedBox(
-                  width: 72,
+                  width: 80,
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
@@ -99,10 +99,12 @@ class SecureChatBottomNavBar extends StatelessWidget {
                       Text(
                         item.label,
                         style: TextStyle(
-                          fontSize: 11,
+                          fontSize: 10,
                           fontWeight: isActive ? FontWeight.w700 : FontWeight.w500,
                           color: isActive ? _navBarActive : _navBarGray,
                         ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ],
                   ),

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
+import '../services/avatar_cache_service.dart';
 
 class UserAvatarWidget extends StatelessWidget {
   final String? avatarUrl;
@@ -43,39 +44,53 @@ class UserAvatarWidget extends StatelessWidget {
     return '?';
   }
 
+  String? get _bustedUrl {
+    if (avatarUrl == null) return null;
+    final buster = AvatarCacheService.instance.cacheBuster.value;
+    if (buster == 0) return avatarUrl;
+    final sep = avatarUrl!.contains('?') ? '&' : '?';
+    return '$avatarUrl${sep}t=$buster';
+  }
+
   @override
   Widget build(BuildContext context) {
-    final avatar = Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        border: borderWidth > 0
-            ? Border.all(color: borderColor ?? AppColors.teal300, width: borderWidth)
-            : null,
-        color: avatarUrl == null ? AppColors.primary : null,
-        image: avatarUrl != null
-            ? DecorationImage(image: NetworkImage(avatarUrl!), fit: BoxFit.cover)
-            : null,
-      ),
-      child: avatarUrl == null
-          ? Center(
-              child: Text(
-                _initials,
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: size * 0.35,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0.5,
-                ),
-              ),
-            )
-          : null,
-    );
+    return ValueListenableBuilder<int>(
+      valueListenable: AvatarCacheService.instance.cacheBuster,
+      builder: (context, _, __) {
+        final url = _bustedUrl;
+        final avatar = Container(
+          width: size,
+          height: size,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            border: borderWidth > 0
+                ? Border.all(color: borderColor ?? AppColors.teal300, width: borderWidth)
+                : null,
+            color: url == null ? AppColors.primary : null,
+            image: url != null
+                ? DecorationImage(image: NetworkImage(url), fit: BoxFit.cover)
+                : null,
+          ),
+          child: url == null
+              ? Center(
+                  child: Text(
+                    _initials,
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: size * 0.35,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                )
+              : null,
+        );
 
-    if (onTap != null) {
-      return GestureDetector(onTap: onTap, child: avatar);
-    }
-    return avatar;
+        if (onTap != null) {
+          return GestureDetector(onTap: onTap, child: avatar);
+        }
+        return avatar;
+      },
+    );
   }
 }

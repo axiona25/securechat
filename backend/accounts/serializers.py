@@ -150,7 +150,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
             'id', 'email', 'username', 'first_name', 'last_name',
             'phone_number', 'avatar', 'bio', 'country', 'language',
             'is_verified', 'is_online', 'last_seen', 'theme',
-            'chat_wallpaper', 'notification_enabled', 'read_receipts',
+            'chat_wallpaper', 'notification_enabled', 'notifications_enabled', 'read_receipts',
             'last_seen_visible', 'public_key', 'must_change_password', 'created_at', 'updated_at'
         ]
         read_only_fields = ['id', 'email', 'is_verified', 'created_at', 'updated_at']

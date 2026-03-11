@@ -58,6 +58,7 @@ class _CallScreenState extends State<CallScreen> {
         remoteUserAvatar: widget.remoteUserAvatar,
         conversationId: widget.conversationId,
       );
+      CallSoundService().playRingtone();
     } else if (!widget.isIncoming) {
       _callService.initiateCall(widget.conversationId, widget.callType);
     } else if (widget.isIncoming) {

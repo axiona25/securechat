@@ -291,6 +291,27 @@ class ProfileView(APIView):
         return self.put(request)
 
 
+class NotificationSettingsView(APIView):
+    """PATCH /api/auth/profile/notification-settings/ — update only notifications_enabled."""
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request):
+        enabled = request.data.get('notifications_enabled')
+        if enabled is None:
+            return Response(
+                {'error': 'notifications_enabled (boolean) required.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not isinstance(enabled, bool):
+            return Response(
+                {'error': 'notifications_enabled must be true or false.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        request.user.notifications_enabled = enabled
+        request.user.save(update_fields=['notifications_enabled'])
+        return Response({'notifications_enabled': request.user.notifications_enabled})
+
+
 class AvatarUploadView(APIView):
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]

@@ -24,6 +24,17 @@ def send_push_notification(notification, high_priority=False):
         logger.warning('Firebase is not enabled. Skipping push notification.')
         return 0, 0
 
+    from django.contrib.auth import get_user_model
+    User = get_user_model()
+    try:
+        user = User.objects.get(pk=notification.recipient_id)
+    except User.DoesNotExist:
+        logger.warning('Recipient user not found for notification %s', notification.id)
+        return 0, 0
+    if not getattr(user, 'notifications_enabled', True):
+        logger.debug('User %s has notifications disabled, skipping push.', user.id)
+        return 0, 0
+
     from firebase_admin import messaging
 
     tokens = list(

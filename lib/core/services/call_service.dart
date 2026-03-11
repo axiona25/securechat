@@ -589,26 +589,41 @@ class CallService {
     });
   }
 
-  /// Vivavoce di default all'avvio della chiamata (audio e video).
+  /// Vivavoce di default solo per le videochiamate.
   void _setSpeakerOnByDefault() {
-    try {
-      Helper.setSpeakerphoneOn(true);
-      _emit(_state.copyWith(isSpeakerOn: true));
-    } catch (e) {
-      if (kDebugMode) debugPrint('[CallService] setSpeakerphoneOn default error: $e');
-    }
+    final wantSpeaker = _callType == 'video';
+    _setSpeaker(wantSpeaker);
+    if (kDebugMode) debugPrint('[CallService] Speaker default: $wantSpeaker (callType=$_callType)');
   }
 
   void toggleSpeaker() {
     final next = !_state.isSpeakerOn;
-    _emit(_state.copyWith(isSpeakerOn: next));
-    try {
-      Helper.setSpeakerphoneOn(next);
-    } catch (e) {
-      if (kDebugMode) debugPrint('[CallService] setSpeakerphoneOn error: $e');
-    }
+    _setSpeaker(next);
+    if (kDebugMode) debugPrint('[CallService] Speaker toggled to: $next');
     if (_callId != null) {
       _send({'action': 'toggle_speaker', 'call_id': _callId, 'is_speaker_on': next});
+    }
+  }
+
+  Future<void> _setSpeaker(bool on) async {
+    _emit(_state.copyWith(isSpeakerOn: on));
+    try {
+      // Use a short delay to let the audio session stabilize
+      await Future.delayed(const Duration(milliseconds: 100));
+      if (_peerConnection != null) {
+        // Use the peer connection's audio helper for safer speaker control
+        final senders = await _peerConnection!.getSenders();
+        for (final sender in senders) {
+          if (sender.track?.kind == 'audio') {
+            await Helper.setSpeakerphoneOn(on);
+            return;
+          }
+        }
+      }
+      await Helper.setSpeakerphoneOn(on);
+    } catch (e) {
+      if (kDebugMode) debugPrint('[CallService] setSpeaker error: $e');
+      // On simulator this may crash — just update UI state
     }
   }
 

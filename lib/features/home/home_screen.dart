@@ -17,6 +17,8 @@ import '../../core/services/crypto_service.dart';
 import '../../core/services/session_manager.dart';
 import '../../core/services/sound_service.dart';
 import '../../core/services/call_service.dart';
+import '../../core/services/avatar_cache_service.dart';
+import '../../core/services/local_notification_service.dart';
 import '../../core/routes/app_router.dart';
 import '../../core/widgets/bottom_nav_bar.dart';
 import '../../core/widgets/user_avatar_widget.dart';
@@ -400,6 +402,14 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
                 _buildNotificationPreview(lastMsg),
                 icon,
               );
+              final notifPrefs = await SharedPreferences.getInstance();
+              if (notifPrefs.getBool('notifications_enabled') != false) {
+                LocalNotificationService.instance.show(
+                  title: senderName,
+                  body: _notificationBodyText(lastMsg),
+                  payload: newConv.id.toString(),
+                );
+              }
             }
           }
         }
@@ -676,6 +686,21 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
         );
+    }
+  }
+
+  String _notificationBodyText(Map<String, dynamic>? lastMsg) {
+    if (lastMsg == null) return 'Nuovo messaggio';
+    final type = lastMsg['message_type'] ?? 'text';
+    switch (type) {
+      case 'image': return '📷 Immagine';
+      case 'video': return '🎥 Video';
+      case 'audio': return '🎵 Audio';
+      case 'file': return '📎 File';
+      case 'location': return '📍 Posizione';
+      default:
+        final content = lastMsg['content']?.toString() ?? '';
+        return content.isNotEmpty ? content : 'Nuovo messaggio';
     }
   }
 
@@ -2474,7 +2499,10 @@ class _GroupChatSheetContentState extends State<_GroupChatSheetContent> {
                 );
                 request.headers['Authorization'] = 'Bearer $token';
                 request.files.add(await http.MultipartFile.fromPath('avatar', _groupImage!.path));
-                await request.send();
+                final response = await request.send();
+                if (response.statusCode >= 200 && response.statusCode < 300) {
+                  AvatarCacheService.instance.bust();
+                }
               }
             }
           } catch (e) {

@@ -43,6 +43,7 @@ class User(AbstractUser):
     theme = models.CharField(max_length=20, default='light')
     chat_wallpaper = models.CharField(max_length=200, blank=True, default='')
     notification_enabled = models.BooleanField(default=True)
+    notifications_enabled = models.BooleanField(default=True)
     read_receipts = models.BooleanField(default=True)
     last_seen_visible = models.BooleanField(default=True)
     lock_pin = models.CharField(max_length=128, blank=True, null=True)

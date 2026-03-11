@@ -41,6 +41,8 @@ def _get_chat_badge_count(user_id):
 
 def send_push_notification(user, title, body, data=None):
     """Invia una notifica push a un utente specifico."""
+    if not getattr(user, 'notifications_enabled', True):
+        return False
     if not getattr(user, 'fcm_token', None):
         return False
 

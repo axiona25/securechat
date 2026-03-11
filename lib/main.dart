@@ -12,6 +12,7 @@ import 'core/services/api_service.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_app_badger/flutter_app_badger.dart';
+import 'core/services/local_notification_service.dart';
 
 /// Global navigator key for navigation from outside the widget tree (e.g. incoming call).
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
@@ -32,6 +33,12 @@ void main() async {
     FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
     final messaging = FirebaseMessaging.instance;
     await messaging.requestPermission(alert: true, badge: true, sound: true);
+    // iOS: show notifications in foreground
+    await FirebaseMessaging.instance.setForegroundNotificationPresentationOptions(
+      alert: true,
+      badge: true,
+      sound: true,
+    );
     final token = await messaging.getToken();
     debugPrint('FCM Token: $token');
 
@@ -62,10 +69,15 @@ void main() async {
       sendFcmTokenToServer(newToken);
     });
 
-    // Gestione notifiche in foreground
-    FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+    // Inizializza notifiche locali per foreground
+    await LocalNotificationService.instance.init();
+
+    // Mostra banner di sistema anche in foreground (solo se notifiche abilitate)
+    FirebaseMessaging.onMessage.listen((RemoteMessage message) async {
       debugPrint('[FCM] Foreground message: ${message.notification?.title}');
-      // La notifica in foreground è gestita dal polling/WebSocket
+      final prefs = await SharedPreferences.getInstance();
+      if (prefs.getBool('notifications_enabled') == false) return;
+      LocalNotificationService.instance.showFromFCM(message);
     });
 
     // Gestione tap su notifica
@@ -77,6 +89,9 @@ void main() async {
   } catch (e) {
     debugPrint('Firebase not configured: $e');
   }
+
+  // Init local notifications (independent from Firebase)
+  await LocalNotificationService.instance.init();
 
   // Reset badge when app starts (user is opening the app)
   FlutterAppBadger.removeBadge();

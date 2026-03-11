@@ -15,6 +15,7 @@ urlpatterns = [
     path('forgot-password/', views.ForgotPasswordView.as_view(), name='forgot-password'),
     path('reset-password/', views.ResetPasswordView.as_view(), name='reset-password'),
     path('profile/', views.ProfileView.as_view(), name='profile'),
+    path('profile/notification-settings/', views.NotificationSettingsView.as_view(), name='profile-notification-settings'),
     path('avatar/', views.AvatarUploadView.as_view(), name='avatar-upload'),
     path('change-password/', views.ChangePasswordView.as_view(), name='change-password'),
     path('fcm-token/', views.FCMTokenView.as_view(), name='fcm-token'),

@@ -142,6 +142,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   final Map<String, String?> _videoThumbnailCache = {};
   /// Cache dei file decifrati per allegati E2E (attachmentId -> File).
   final Map<String, File> _decryptedFileCache = {};
+  /// Cache dei Future di decrypt (un solo tentativo per allegato; evita retry e spam in log).
+  final Map<String, Future<File?>> _decryptFutureCache = {};
   /// Chiave file E2E inlined nel messaggio (attachmentId -> file_key_b64).
   final Map<String, String> _attachmentKeyCache = {};
   /// Caption/nome file originale per allegati E2E (attachmentId -> fileName con estensione).
@@ -438,10 +440,18 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
 
   void _connectWebSocket() {
     final at = ApiService().accessToken;
-    if (_conversationId == null || _conversationId!.isEmpty) return;
-    if (at == null || at.isEmpty) return;
+    if (_conversationId == null || _conversationId!.isEmpty) {
+      print('[WS] SKIP: conversationId is null/empty');
+      return;
+    }
+    if (at == null || at.isEmpty) {
+      print('[WS] SKIP: accessToken is null/empty');
+      return;
+    }
     final wsUrl = '${AppConstants.wsUrl}?token=${Uri.encodeComponent(at)}';
+    print('[WS] Connecting to: $wsUrl');
     WebSocket.connect(wsUrl).then((ws) {
+      print('[WS] Connected OK!');
       if (!mounted || _conversationId == null) {
         ws.close();
         return;
@@ -449,9 +459,11 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       _webSocket = ws;
       _webSocket!.listen(
         (data) async {
+          final rawStr = data is String ? data : String.fromCharCodes(data as List<int>);
+          print('WS RAW EVENT: $rawStr');
           if (!mounted) return;
           try {
-            final map = jsonDecode(data is String ? data : String.fromCharCodes(data as List<int>)) as Map<String, dynamic>?;
+            final map = jsonDecode(rawStr) as Map<String, dynamic>?;
             if (map == null) return;
             final type = map['type']?.toString();
             if (type == 'typing.indicator') {
@@ -632,7 +644,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         },
         cancelOnError: false,
       );
-    }).catchError((e) => debugPrint('WebSocket connect error: $e'));
+    }).catchError((e) {
+      print('[WS] CONNECT ERROR: $e');
+      print('[WS] Error type: ${e.runtimeType}');
+    });
   }
 
   void _startTypingDotsAnimation() {
@@ -1816,10 +1831,12 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     });
 
     // 4. Chiama API in background
+    debugPrint('REACTION: sending POST to /chat/messages/$messageIdStr/react/ with emoji: $emoji');
     try {
-      await ApiService().post('/chat/messages/$messageIdStr/react/', body: {'emoji': emoji});
+      final response = await ApiService().post('/chat/messages/$messageIdStr/react/', body: {'emoji': emoji});
+      debugPrint('REACTION: response = $response');
     } catch (e) {
-      debugPrint('Error adding reaction: $e');
+      debugPrint('REACTION ERROR: $e');
       if (mounted) _loadMessagesSilent();
     }
   }
@@ -2114,7 +2131,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       if (mounted) _decryptedFileCache[attachmentId] = tempFile;
       return tempFile;
     } catch (e) {
-      debugPrint('Decrypt attachment error: $e');
+      if (!e.toString().contains('DOBJC_initializeApi')) {
+        debugPrint('Decrypt attachment error: $e');
+      }
       return null;
     }
   }
@@ -2583,8 +2602,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     final isEncrypted = att['is_encrypted'] == true;
 
     if (isEncrypted) {
+      final attId = att['id']?.toString() ?? '';
       return FutureBuilder<File?>(
-        future: _decryptAttachmentToFile(att, message),
+        future: _decryptFutureCache.putIfAbsent(attId, () => _decryptAttachmentToFile(att, message)),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return Container(

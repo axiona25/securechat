@@ -1,4 +1,6 @@
+import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:just_audio/just_audio.dart';
 
 /// Singleton service for call sounds: ringback, ringtone, busy, end.
@@ -11,8 +13,21 @@ class CallSoundService {
   AudioPlayer? _ringtonePlayer;
   AudioPlayer? _busyPlayer;
   AudioPlayer? _endPlayer;
+  bool? _isSimulator;
 
-  /// Ringback tone (caller hears tu...tu...tu)
+  static const _nativeChannel = MethodChannel('com.axphone.app/sounds');
+
+  Future<bool> get isSimulator async {
+    if (_isSimulator != null) return _isSimulator!;
+    try {
+      _isSimulator = Platform.resolvedExecutable.contains('CoreSimulator');
+    } catch (_) {
+      _isSimulator = false;
+    }
+    return _isSimulator!;
+  }
+
+  /// Ringback tone (caller hears tu...tu...tu) — always custom
   Future<void> playRingback() async {
     await stopAll();
     _ringbackPlayer = AudioPlayer();
@@ -29,18 +44,37 @@ class CallSoundService {
   /// Ringtone (callee hears the ring)
   Future<void> playRingtone() async {
     await stopAll();
-    _ringtonePlayer = AudioPlayer();
-    try {
-      await _ringtonePlayer!.setAsset('assets/sounds/ringtone.wav');
-      await _ringtonePlayer!.setLoopMode(LoopMode.all);
-      await _ringtonePlayer!.setVolume(0.8);
-      await _ringtonePlayer!.play();
-    } catch (e) {
-      debugPrint('[CallSound] Error playing ringtone: $e');
+    if (await isSimulator) {
+      // Simulatore: usa il nostro file audio
+      _ringtonePlayer = AudioPlayer();
+      try {
+        await _ringtonePlayer!.setAsset('assets/sounds/ringtone.wav');
+        await _ringtonePlayer!.setLoopMode(LoopMode.all);
+        await _ringtonePlayer!.setVolume(0.8);
+        await _ringtonePlayer!.play();
+      } catch (e) {
+        debugPrint('[CallSound] Error playing ringtone: $e');
+      }
+    } else {
+      // Device fisico: usa la suoneria di sistema tramite MethodChannel
+      try {
+        await _nativeChannel.invokeMethod('playSystemRingtone');
+      } catch (e) {
+        debugPrint('[CallSound] Native ringtone not available, falling back to custom');
+        _ringtonePlayer = AudioPlayer();
+        try {
+          await _ringtonePlayer!.setAsset('assets/sounds/ringtone.wav');
+          await _ringtonePlayer!.setLoopMode(LoopMode.all);
+          await _ringtonePlayer!.setVolume(0.8);
+          await _ringtonePlayer!.play();
+        } catch (e2) {
+          debugPrint('[CallSound] Fallback ringtone error: $e2');
+        }
+      }
     }
   }
 
-  /// Busy tone (fast tu-tu-tu)
+  /// Busy tone (fast tu-tu-tu) — always custom
   Future<void> playBusy() async {
     await stopAll();
     _busyPlayer = AudioPlayer();
@@ -59,7 +93,7 @@ class CallSoundService {
     }
   }
 
-  /// Short beep when call ends
+  /// Short beep when call ends — always custom
   Future<void> playEnd() async {
     await stopAll();
     _endPlayer = AudioPlayer();
@@ -81,25 +115,31 @@ class CallSoundService {
 
   /// Stop all call sounds
   Future<void> stopAll() async {
-    try {
-      await _ringbackPlayer?.stop();
-      _ringbackPlayer?.dispose();
-      _ringbackPlayer = null;
-    } catch (_) {}
-    try {
-      await _ringtonePlayer?.stop();
-      _ringtonePlayer?.dispose();
-      _ringtonePlayer = null;
-    } catch (_) {}
-    try {
-      await _busyPlayer?.stop();
-      _busyPlayer?.dispose();
-      _busyPlayer = null;
-    } catch (_) {}
-    try {
-      await _endPlayer?.stop();
-      _endPlayer?.dispose();
-      _endPlayer = null;
-    } catch (_) {}
+    // Capture references and null them immediately
+    final rt = _ringtonePlayer;
+    final rb = _ringbackPlayer;
+    final bp = _busyPlayer;
+    final ep = _endPlayer;
+    _ringtonePlayer = null;
+    _ringbackPlayer = null;
+    _busyPlayer = null;
+    _endPlayer = null;
+
+    // Stop playback
+    try { await rt?.stop(); } catch (_) {}
+    try { await rb?.stop(); } catch (_) {}
+    try { await bp?.stop(); } catch (_) {}
+    try { await ep?.stop(); } catch (_) {}
+
+    // Stop native ringtone
+    try { await _nativeChannel.invokeMethod('stopSystemRingtone'); } catch (_) {}
+
+    // Dispose after a short delay to avoid audio session conflicts
+    Future.delayed(const Duration(milliseconds: 300), () {
+      try { rt?.dispose(); } catch (_) {}
+      try { rb?.dispose(); } catch (_) {}
+      try { bp?.dispose(); } catch (_) {}
+      try { ep?.dispose(); } catch (_) {}
+    });
   }
 }
