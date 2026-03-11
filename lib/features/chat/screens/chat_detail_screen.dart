@@ -33,11 +33,15 @@ import '../../../core/services/crypto_service.dart';
 import '../../../core/services/media_encryption_service.dart';
 import '../../../core/services/session_manager.dart';
 import '../../../core/services/sound_service.dart';
+import '../../../core/services/chat_sound_service.dart';
 import '../../../core/l10n/app_localizations.dart';
 import '../widgets/audio_player_widget.dart';
 import '../../calls/screens/call_screen.dart';
 import 'document_viewer_screen.dart';
 import 'group_info_screen.dart';
+
+/// Placeholder mostrato per messaggi storici non decifrabili su questo dispositivo (chiavi perse).
+const String kMessageUndecryptablePlaceholder = 'Messaggio storico non decifrabile su questo dispositivo';
 
 class ChatDetailScreen extends StatefulWidget {
   const ChatDetailScreen({super.key});
@@ -200,6 +204,25 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
 
   int? get _effectiveCurrentUserId => _currentUser?.id ?? _currentUserId;
 
+  /// Risoluzione unica per currentUserId nel decrypt: prima state, poi prefs (fallback eccezionale).
+  /// Log uniformi: [AuthUser] source=... e eventuale [E2E] decrypt skipped.
+  Future<int?> _resolveCurrentUserIdForDecrypt({String? reason}) async {
+    final fromState = _effectiveCurrentUserId;
+    if (fromState != null) {
+      debugPrint('[AuthUser] source=runtime_state currentUserId=$fromState');
+      return fromState;
+    }
+    final prefs = await SharedPreferences.getInstance();
+    final fromPrefs = prefs.getInt('current_user_id') ??
+        int.tryParse(prefs.getString('current_user_id') ?? '');
+    if (fromPrefs != null) {
+      debugPrint('[AuthUser] source=prefs_fallback currentUserId=$fromPrefs reason=${reason ?? 'effectiveCurrentUserId_null'}');
+    } else {
+      debugPrint('[E2E] decrypt skipped reason=currentUserId_unavailable');
+    }
+    return fromPrefs;
+  }
+
   /// Other user's ID in 1:1 chat (for E2E session).
   int? _getOtherUserId() {
     // Nei gruppi non c'è un singolo "altro utente" per E2E
@@ -299,7 +322,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     }
     if (content.isEmpty ||
         content == '🔒 Messaggio cifrato' ||
-        content == '🔒 Messaggio non disponibile' ||
+        content == kMessageUndecryptablePlaceholder ||
         content == '🔒 Messaggio inviato (non disponibile)') {
       return;
     }
@@ -368,13 +391,16 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     final user = await userFuture;
     final currentUserId = await uidFuture;
     if (!mounted) return;
-    await _loadMessages(silent: false);
-    if (!mounted) return;
     setState(() {
       _conversation = conv;
       _currentUser = user;
       _currentUserId = currentUserId;
     });
+    if (currentUserId != null) {
+      debugPrint('[AuthUser] source=loadConversationAndMessages, currentUserId=$currentUserId');
+    }
+    await _loadMessages(silent: false);
+    if (!mounted) return;
     if (_messages.isNotEmpty) _scrollToBottom();
     await _markAsRead();
     if (mounted) _onMarkedAsRead?.call();
@@ -622,6 +648,19 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                   setState(() {
                     _messages.insert(0, msgData);
                   });
+                  final sender = msgData['sender'];
+                  final senderId = sender is Map
+                      ? (sender['id'] is int
+                          ? sender['id'] as int
+                          : int.tryParse(sender['id']?.toString() ?? ''))
+                      : null;
+                  if (!_isMuted) {
+                    ChatSoundService().tryPlayIncoming(
+                      messageId: msgId,
+                      senderId: senderId,
+                      currentUserId: _effectiveCurrentUserId,
+                    );
+                  }
                   _webSocket?.add(jsonEncode({
                     'action': 'read_receipt',
                     'message_ids': [msgId],
@@ -952,12 +991,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           }
         }
       }
-      // 1. Sort and 2. E2E decrypt always (so _hasChanges sees decrypted content)
-      int? currentUserId = _effectiveCurrentUserId;
-      if (currentUserId == null) {
-        final prefs = await SharedPreferences.getInstance();
-        currentUserId = prefs.getInt('current_user_id') ??
-            int.tryParse(prefs.getString('current_user_id') ?? '');
+      // 1. Sort and 2. E2E decrypt (currentUserId da helper unico)
+      final currentUserId = await _resolveCurrentUserIdForDecrypt(reason: 'polling_silent');
+      if (currentUserId != null) {
+        debugPrint('[E2E] currentUserId resolved before decrypt= $currentUserId');
       }
       newMessages.sort((a, b) =>
           (a['created_at']?.toString() ?? '').compareTo(b['created_at']?.toString() ?? ''));
@@ -1026,7 +1063,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         final encryptedB64 = msg['content_encrypted_b64']?.toString() ?? '';
         final messageId = msg['id']?.toString() ?? '';
         // Non saltare se è solo il placeholder E2E (gruppi): dobbiamo decifrare
-        final isPlaceholderOnly = plainContent == '🔒 Messaggio cifrato';
+        final isPlaceholderOnly = plainContent == '🔒 Messaggio cifrato' || plainContent == kMessageUndecryptablePlaceholder;
         if (plainContent.isNotEmpty && !isPlaceholderOnly) continue;
         if (encryptedB64.isEmpty) continue;
 
@@ -1039,16 +1076,16 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             senderIdInt != 0 &&
             senderIdInt.toString() == currentUserId.toString()) {
           if (_failedDecryptIds.contains(messageId)) {
-            msg['content'] = '🔒 Messaggio non disponibile';
+            msg['content'] = kMessageUndecryptablePlaceholder;
             continue;
           }
           final cached = await _sessionManager.getCachedPlaintext(messageId);
           if (cached != null) {
             msg['content'] = cached;
-          } else {
-            msg['content'] = '🔒 Messaggio inviato (non disponibile)';
+            continue;
           }
-          continue;
+          // Cache miss: tenta decifratura dal MessageRecipient (self-recipient)
+          // NON continue — proseguire nel flusso di decifratura sotto
         }
 
         if (currentUserId == null) {
@@ -1056,7 +1093,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           continue;
         }
         if (_failedDecryptIds.contains(messageId)) {
-          msg['content'] = '🔒 Messaggio non disponibile';
+          msg['content'] = kMessageUndecryptablePlaceholder;
           continue;
         }
         final diskCachedSilent = prefsForCacheSilent.getString('scp_msg_cache_$messageId');
@@ -1075,7 +1112,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         }
         final alreadyFailed = await _sessionManager.isDecryptFailed(messageId);
         if (alreadyFailed) {
-          msg['content'] = '🔒 Messaggio non disponibile';
+          msg['content'] = kMessageUndecryptablePlaceholder;
           _failedDecryptIds.add(messageId);
           await _persistFailedDecryptIds();
           continue;
@@ -1115,7 +1152,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           _decryptedMessageIds.add(messageId);
           contentDecrypted = true;
         } catch (e) {
-          msg['content'] = '🔒 Messaggio non disponibile';
+          msg['content'] = kMessageUndecryptablePlaceholder;
           _failedDecryptIds.add(messageId);
           await _sessionManager.markDecryptFailed(messageId);
           await _persistFailedDecryptIds();
@@ -1131,7 +1168,11 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           if (senderId != null && currentId != null) {
             final sid = senderId is int ? senderId : int.tryParse(senderId.toString());
             if (sid != currentId && !_isMuted) {
-              SoundService().playMessageReceived();
+              ChatSoundService().tryPlayIncoming(
+                messageId: lastMsg['id']?.toString(),
+                senderId: sid,
+                currentUserId: currentId,
+              );
             }
           }
         }
@@ -1206,12 +1247,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           }
         }
       }
-      // E2E: decrypt inline before setState (same logic as _loadMessages)
-      int? currentUserId = _effectiveCurrentUserId;
-      if (currentUserId == null) {
-        final prefs = await SharedPreferences.getInstance();
-        currentUserId = prefs.getInt('current_user_id') ??
-            int.tryParse(prefs.getString('current_user_id') ?? '');
+      // E2E: decrypt inline before setState (currentUserId da helper unico)
+      final currentUserId = await _resolveCurrentUserIdForDecrypt(reason: 'force_reload');
+      if (currentUserId != null) {
+        debugPrint('[E2E] currentUserId resolved before decrypt= $currentUserId');
       }
       newMessages.sort((a, b) =>
           (a['created_at']?.toString() ?? '').compareTo(b['created_at']?.toString() ?? ''));
@@ -1231,7 +1270,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         final plainContent = msg['content']?.toString() ?? '';
         final encryptedB64 = msg['content_encrypted_b64']?.toString() ?? '';
         final messageId = msg['id']?.toString() ?? '';
-        final isPlaceholderOnly = plainContent == '🔒 Messaggio cifrato';
+        final isPlaceholderOnly = plainContent == '🔒 Messaggio cifrato' || plainContent == kMessageUndecryptablePlaceholder;
         if (plainContent.isNotEmpty && !isPlaceholderOnly) continue;
         if (encryptedB64.isEmpty) continue;
 
@@ -1244,19 +1283,22 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             senderIdInt != 0 &&
             senderIdInt.toString() == currentUserId.toString()) {
           if (_failedDecryptIds.contains(messageId)) {
-            msg['content'] = '🔒 Messaggio non disponibile';
+            msg['content'] = kMessageUndecryptablePlaceholder;
             continue;
           }
           final cached = await _sessionManager.getCachedPlaintext(messageId);
-          msg['content'] = cached ?? '🔒 Messaggio inviato (non disponibile)';
-          continue;
+          if (cached != null) {
+            msg['content'] = cached;
+            continue;
+          }
+          // Cache miss: tenta decifratura dal MessageRecipient (self-recipient)
         }
         if (currentUserId == null) {
           msg['content'] = '🔒 Messaggio cifrato';
           continue;
         }
         if (_failedDecryptIds.contains(messageId)) {
-          msg['content'] = '🔒 Messaggio non disponibile';
+          msg['content'] = kMessageUndecryptablePlaceholder;
           continue;
         }
         final diskCachedForce = prefsForCacheForce.getString('scp_msg_cache_$messageId');
@@ -1276,7 +1318,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         }
         final alreadyFailed = await _sessionManager.isDecryptFailed(messageId);
         if (alreadyFailed) {
-          msg['content'] = '🔒 Messaggio non disponibile';
+          msg['content'] = kMessageUndecryptablePlaceholder;
           _failedDecryptIds.add(messageId);
           await _persistFailedDecryptIds();
           continue;
@@ -1316,7 +1358,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           }
           _decryptedMessageIds.add(messageId);
         } catch (e) {
-          msg['content'] = '🔒 Messaggio non disponibile';
+          msg['content'] = kMessageUndecryptablePlaceholder;
           _failedDecryptIds.add(messageId);
           await _sessionManager.markDecryptFailed(messageId);
           await _persistFailedDecryptIds();
@@ -1376,15 +1418,11 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         }
       }
 
-      // Decrypt E2E encrypted messages (once per message; use cache for re-loads)
-      int? currentUserId = _effectiveCurrentUserId;
-      if (currentUserId == null) {
-        final prefs = await SharedPreferences.getInstance();
-        currentUserId = prefs.getInt('current_user_id') ??
-            int.tryParse(prefs.getString('current_user_id') ?? '');
-        debugPrint('[E2E] WARNING: _effectiveCurrentUserId is null, fallback to prefs: $currentUserId');
+      // Decrypt E2E encrypted messages (currentUserId da helper unico)
+      final currentUserId = await _resolveCurrentUserIdForDecrypt(reason: 'main_decrypt_loop');
+      if (currentUserId != null) {
+        debugPrint('[E2E] currentUserId resolved before decrypt= $currentUserId');
       }
-      debugPrint('[E2E] currentUserId for E2E loop: $currentUserId');
 
       // Process in chronological order (oldest first) for Double Ratchet
       newMessages.sort((a, b) =>
@@ -1409,7 +1447,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         final encryptedB64 = msg['content_encrypted_b64']?.toString() ?? '';
         final messageId = msg['id']?.toString() ?? '';
 
-        final isPlaceholderOnly = plainContent == '🔒 Messaggio cifrato';
+        final isPlaceholderOnly = plainContent == '🔒 Messaggio cifrato' || plainContent == kMessageUndecryptablePlaceholder;
         if (plainContent.isNotEmpty && !isPlaceholderOnly) continue;
         if (encryptedB64.isEmpty) continue;
 
@@ -1418,17 +1456,20 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             ? senderIdRaw
             : (int.tryParse(senderIdRaw?.toString() ?? '') ?? 0);
 
-        // CRITICAL: Own messages — use cache only, NEVER decrypt (sender == me)
+        // Own messages: prefer cache; on cache miss try decryption from MessageRecipient
         if (currentUserId != null &&
             senderIdInt != 0 &&
             senderIdInt.toString() == currentUserId.toString()) {
           if (_failedDecryptIds.contains(messageId)) {
-            msg['content'] = '🔒 Messaggio non disponibile';
+            msg['content'] = kMessageUndecryptablePlaceholder;
             continue;
           }
           final cached = await _sessionManager.getCachedPlaintext(messageId);
-          msg['content'] = cached ?? '🔒 Messaggio inviato (non disponibile)';
-          continue;
+          if (cached != null) {
+            msg['content'] = cached;
+            continue;
+          }
+          // Cache miss: tenta decifratura dal MessageRecipient (self-recipient)
         }
 
         if (currentUserId == null) {
@@ -1437,7 +1478,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         }
 
         if (_failedDecryptIds.contains(messageId)) {
-          msg['content'] = '🔒 Messaggio non disponibile';
+          msg['content'] = kMessageUndecryptablePlaceholder;
           continue;
         }
 
@@ -1461,7 +1502,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
 
         final alreadyFailed = await _sessionManager.isDecryptFailed(messageId);
         if (alreadyFailed) {
-          msg['content'] = '🔒 Messaggio non disponibile';
+          msg['content'] = kMessageUndecryptablePlaceholder;
           _failedDecryptIds.add(messageId);
           await _persistFailedDecryptIds();
           continue;
@@ -1503,7 +1544,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           }
           _decryptedMessageIds.add(messageId);
         } catch (e) {
-          msg['content'] = '🔒 Messaggio non disponibile';
+          msg['content'] = kMessageUndecryptablePlaceholder;
           _failedDecryptIds.add(messageId);
           await _sessionManager.markDecryptFailed(messageId);
           await _persistFailedDecryptIds();
@@ -1766,7 +1807,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         await SharePlus.instance.share(
           ShareParams(
             files: [XFile(fileToShare.path)],
-            text: content.isNotEmpty && content != '🔒 Messaggio cifrato' ? content : null,
+            text: content.isNotEmpty && content != '🔒 Messaggio cifrato' && content != kMessageUndecryptablePlaceholder ? content : null,
             subject: 'SecureChat',
           ),
         );
@@ -2250,13 +2291,15 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     // Se chewie è attivo, mostra il player con controlli custom
     if (_chewieControllers.containsKey(messageId)) {
       final videoController = _videoControllers[messageId]!;
+      final aspectRatio = videoController.value.aspectRatio > 0
+          ? videoController.value.aspectRatio
+          : 16 / 9;
       return ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 240, maxHeight: 170),
+        constraints: const BoxConstraints(maxWidth: 240, maxHeight: 300),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(16),
-          child: SizedBox(
-            width: 240,
-            height: 170,
+          child: AspectRatio(
+            aspectRatio: aspectRatio,
             child: Stack(
               fit: StackFit.expand,
               children: [
@@ -2347,6 +2390,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     }
 
     // Thumbnail
+    final thumbnailAspectRatio = (_videoControllers.containsKey(messageId) &&
+            _videoControllers[messageId]!.value.isInitialized)
+        ? _videoControllers[messageId]!.value.aspectRatio
+        : 16 / 9;
     Widget thumbnailWidget;
     if (_videoControllers.containsKey(messageId) && _videoControllers[messageId]!.value.isInitialized) {
       thumbnailWidget = VideoPlayer(_videoControllers[messageId]!);
@@ -2372,31 +2419,31 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         }
       },
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 240, maxHeight: 170),
+        constraints: const BoxConstraints(maxWidth: 240, maxHeight: 300),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(16),
           child: Container(
-            width: 240,
-            height: 170,
             color: const Color(0xFFF0F0F0),
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                thumbnailWidget,
-                Center(
-                  child: Container(
-                    width: 56,
-                    height: 56,
-                    decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.5),
-                      shape: BoxShape.circle,
+            child: AspectRatio(
+              aspectRatio: thumbnailAspectRatio > 0 ? thumbnailAspectRatio : 16 / 9,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  thumbnailWidget,
+                  Center(
+                    child: Container(
+                      width: 56,
+                      height: 56,
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.5),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 36),
                     ),
-                    child: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 36),
                   ),
-                ),
-                Positioned(
-                  bottom: 8,
-                  right: 8,
+                  Positioned(
+                    bottom: 8,
+                    right: 8,
                   child: GestureDetector(
                     onTap: () {
                       if (localFile != null) {
@@ -2417,6 +2464,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                 ),
               ],
             ),
+          ),
           ),
         ),
       ),
@@ -3852,7 +3900,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           _editingMessageId = null;
         });
         _scrollToBottom();
-        SoundService().playMessageSent();
+        ChatSoundService().playOutgoing(messageId: messageId);
         // Update home preview cache so the Home screen shows the sent message text
         _saveHomePreview(_messages);
       }
@@ -4020,7 +4068,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             _replyToMessage = null;
           });
           _scrollToBottom();
-          SoundService().playMessageSent();
+          ChatSoundService().playOutgoing(messageId: messageId);
         }
       }
     } catch (e) {
@@ -4207,7 +4255,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           _replyToMessage = null;
         });
         _scrollToBottom();
-        SoundService().playMessageSent();
+        ChatSoundService().playOutgoing(messageId: messageId);
         _saveHomePreview(_messages);
       }
     } catch (e) {
@@ -4515,7 +4563,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       debugPrint('[ATTACH] response body: $responseBody');
       debugPrint('[ATTACH] attachments in response: ${response['attachments']}');
       debugPrint('[ATTACH] attachment_ids sent: $attachmentIds');
-      SoundService().playMessageSent();
+      ChatSoundService().playOutgoing(messageId: newMessageId);
       if (mounted) {
         setState(() => _replyToMessage = null);
         await _forceReloadMessages();
@@ -4607,7 +4655,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           'message_id': messageId ?? '',
           'conversation_id': _conversationId ?? '',
         }));
-        SoundService().playMessageSent();
+        ChatSoundService().playOutgoing(messageId: messageId);
         await Future.delayed(const Duration(milliseconds: 300));
         await _forceReloadMessages();
       } else {

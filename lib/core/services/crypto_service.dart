@@ -2,8 +2,23 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:pinenacl/ed25519.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'api_service.dart';
+import 'session_manager.dart';
+
+/// Result of E2E key initialization. No automatic key regeneration when server already has a bundle.
+enum CryptoInitResult {
+  /// Local private keys found in Keychain; device provisioned, no upload.
+  loadedFromKeychain,
+  /// No local keys and server had no bundle; new bundle generated and uploaded.
+  generatedAndUploaded,
+  /// No local keys but server already has a bundle — do not overwrite; manual recovery required.
+  needsManualRecovery,
+  /// Initialization failed (e.g. network error).
+  error,
+}
 
 /// SecureChat Protocol (SCP) Crypto Service — crypto_version=2
 ///
@@ -31,6 +46,9 @@ class CryptoService {
   static const String _keysGenerated = '${_storagePrefix}keys_generated';
   static const String _keysUploaded = '${_storagePrefix}keys_uploaded';
 
+  /// SharedPreferences key for "needs manual recovery" (local keys missing but server has bundle).
+  static const String _prefNeedsManualRecovery = 'e2e_needs_manual_recovery';
+
   final FlutterSecureStorage _secureStorage;
   final ApiService _apiService;
   bool _initialized = false;
@@ -42,8 +60,9 @@ class CryptoService {
         _secureStorage = secureStorage ??
             FlutterSecureStorage(
               aOptions: const AndroidOptions(encryptedSharedPreferences: true),
-              iOptions: IOSOptions(
+              iOptions: const IOSOptions(
                 accessibility: KeychainAccessibility.first_unlock_this_device,
+                accountName: 'com.axphone.app.e2e',
               ),
             );
 
@@ -54,6 +73,7 @@ class CryptoService {
   /// Generate complete key bundle and store private keys securely.
   /// Call this once at registration or first login.
   Future<Map<String, dynamic>> generateAndStoreKeyBundle() async {
+    debugPrint('[KeychainAudit] generate bundle invoked from generateAndStoreKeyBundle');
     debugPrint('[CryptoService] generateAndStoreKeyBundle START');
     // 1. Generate Ed25519 identity keypair (for signing)
     final signingKey = SigningKey.generate();
@@ -179,50 +199,241 @@ class CryptoService {
     }
   }
 
-  /// Generate keys and upload in one step.
-  Future<bool> initializeKeys() async {
+  /// Initialize E2E keys. Never auto-wipes or regenerates identity when server already has a bundle.
+  /// 1) If private keys exist in Keychain → load and consider device provisioned.
+  /// 2) If no local keys and server has NO bundle → generate new bundle, save to Keychain, upload.
+  /// 3) If no local keys but server HAS bundle → do NOT generate/upload; return needsManualRecovery.
+  Future<CryptoInitResult> initializeKeys() async {
     try {
-      // Prima verifica sempre il server
-      final serverHasKeys = await _verifyKeysOnServer();
-      debugPrint('[CryptoService] serverHasKeys: $serverHasKeys');
+      await _keychainAuditLog();
 
-      if (!serverHasKeys) {
-        // Server non ha le chiavi — resetta i flag locali e forza re-upload
-        debugPrint('[CryptoService] Server missing keys, clearing local flags...');
-        await _secureStorage.delete(key: _keysUploaded);
-        await _secureStorage.delete(key: _keysGenerated);
+      await _migrateKeysFromSharedPreferencesIfNeeded();
+
+      bool identityPrivate = await _secureStorage.read(key: _identityPrivateKey) != null;
+      bool identityDhPrivate = await _secureStorage.read(key: _identityDhPrivateKey) != null;
+      bool signedPrekeyPrivate = await _secureStorage.read(key: _signedPreKeyPrivate) != null;
+      bool localKeysFound = identityPrivate && identityDhPrivate && signedPrekeyPrivate;
+
+      debugPrint('[CryptoBootstrap] keyCheck identityPrivate=$identityPrivate');
+      debugPrint('[CryptoBootstrap] keyCheck identityDhPrivate=$identityDhPrivate');
+      debugPrint('[CryptoBootstrap] keyCheck signedPrekeyPrivate=$signedPrekeyPrivate');
+      debugPrint('[CryptoBootstrap] localKeysFound=$localKeysFound (false => any of the three reads above returned null)');
+
+      if (!localKeysFound) {
+        await _logLegacyPrefsCheck();
+        debugPrint('[CryptoBootstrap] retry_local_key_read=true');
+        identityPrivate = await _secureStorage.read(key: _identityPrivateKey) != null;
+        identityDhPrivate = await _secureStorage.read(key: _identityDhPrivateKey) != null;
+        signedPrekeyPrivate = await _secureStorage.read(key: _signedPreKeyPrivate) != null;
+        localKeysFound = identityPrivate && identityDhPrivate && signedPrekeyPrivate;
+        debugPrint('[CryptoBootstrap] retry_keyCheck identityPrivate=$identityPrivate');
+        debugPrint('[CryptoBootstrap] retry_keyCheck identityDhPrivate=$identityDhPrivate');
+        debugPrint('[CryptoBootstrap] retry_keyCheck signedPrekeyPrivate=$signedPrekeyPrivate');
+        debugPrint('[CryptoBootstrap] localKeysFoundAfterRetry=$localKeysFound');
       }
 
-      final alreadyGenerated = await _secureStorage.read(key: _keysGenerated);
-      final alreadyUploaded = await _secureStorage.read(key: _keysUploaded);
-      final hasPrivateKey = await _secureStorage.read(key: _identityPrivateKey) != null;
+      final serverBundleResult = await _verifyKeysOnServer();
+      if (serverBundleResult == null) {
+        debugPrint('[CryptoBootstrap] serverBundleCheck=error');
+        debugPrint('[CryptoBootstrap] reason=transient_server_check_failure');
+        debugPrint('[CryptoBootstrap] action=manual_recovery_due_to_server_check_error');
+        await _setNeedsManualRecoveryFlag();
+        return CryptoInitResult.needsManualRecovery;
+      }
+      final serverBundleExists = serverBundleResult;
+      debugPrint('[CryptoBootstrap] serverBundleCheck=${serverBundleExists ? 'present' : 'absent'}');
+      debugPrint('[CryptoBootstrap] serverBundleExists=$serverBundleExists');
 
-      debugPrint('[CryptoService] alreadyGenerated: $alreadyGenerated, alreadyUploaded: $alreadyUploaded, hasPrivateKey: $hasPrivateKey');
-
-      if (alreadyGenerated == 'true' && alreadyUploaded == 'true' && hasPrivateKey) {
-        debugPrint('[CryptoService] Keys already initialized and verified on server');
+      if (localKeysFound) {
+        final alreadyUploaded = await _secureStorage.read(key: _keysUploaded);
+        if (alreadyUploaded != 'true') {
+          await _secureStorage.write(key: _keysGenerated, value: 'true');
+          final publicBundle = await _rebuildPublicBundle();
+          final uploaded = await uploadKeyBundle(publicBundle);
+          if (!uploaded) {
+            debugPrint('[CryptoBootstrap] action=load_local_keys, upload_failed');
+            await _clearNeedsManualRecoveryFlag();
+            _initialized = true;
+            return CryptoInitResult.loadedFromKeychain;
+          }
+        }
+        debugPrint('[CryptoBootstrap] action=load_local_keys');
+        await _clearNeedsManualRecoveryFlag();
         _initialized = true;
-        return true;
+        return CryptoInitResult.loadedFromKeychain;
       }
 
-      Map<String, dynamic> publicBundle;
-      if (alreadyGenerated != 'true' || !hasPrivateKey) {
-        debugPrint('[CryptoService] Generating new key bundle...');
-        publicBundle = await generateAndStoreKeyBundle();
-      } else {
-        debugPrint('[CryptoService] Rebuilding public bundle...');
-        publicBundle = await _rebuildPublicBundle();
+      if (serverBundleExists) {
+        debugPrint('[CryptoBootstrap] action=needs_manual_recovery (local keys missing, server has bundle — no auto-regenerate)');
+        await _setNeedsManualRecoveryFlag();
+        return CryptoInitResult.needsManualRecovery;
       }
 
-      debugPrint('[CryptoService] Uploading key bundle...');
-      return await uploadKeyBundle(publicBundle);
+      debugPrint('[CryptoBootstrap] action=generate_new_bundle');
+      final publicBundle = await generateAndStoreKeyBundle();
+      final uploaded = await uploadKeyBundle(publicBundle);
+      await _clearNeedsManualRecoveryFlag();
+      if (uploaded) {
+        _initialized = true;
+        return CryptoInitResult.generatedAndUploaded;
+      }
+      return CryptoInitResult.error;
     } catch (e) {
-      debugPrint('[CryptoService] initializeKeys error: $e');
-      return false;
+      debugPrint('[CryptoBootstrap] initializeKeys error: $e');
+      return CryptoInitResult.error;
     }
   }
 
-  Future<bool> _verifyKeysOnServer() async {
+  Future<void> _setNeedsManualRecoveryFlag() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_prefNeedsManualRecovery, true);
+  }
+
+  Future<void> _clearNeedsManualRecoveryFlag() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_prefNeedsManualRecovery);
+  }
+
+  /// True if local E2E keys are missing but server already has a bundle (e.g. after reinstall on same device).
+  static Future<bool> getNeedsManualRecoveryFlag() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_prefNeedsManualRecovery) ?? false;
+  }
+
+  /// Clear the needs-manual-recovery flag (e.g. after explicit manual reset).
+  static Future<void> clearNeedsManualRecoveryFlag() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_prefNeedsManualRecovery);
+  }
+
+  /// Diagnostic audit: log Keychain read state and config so we can see why localKeysFound is false after reinstall.
+  Future<void> _keychainAuditLog() async {
+    const accountName = 'com.axphone.app.e2e';
+    const accessibility = 'KeychainAccessibility.first_unlock_this_device';
+    debugPrint('[KeychainAudit] secure storage options = accountName: $accountName, accessibility: $accessibility');
+    String bundleId = 'unknown';
+    try {
+      final info = await PackageInfo.fromPlatform();
+      bundleId = info.packageName;
+      debugPrint('[KeychainAudit] bundle id = $bundleId');
+    } catch (e) {
+      debugPrint('[KeychainAudit] bundle id = (failed: $e)');
+    }
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final storedInstallId = prefs.getString('e2e_install_id');
+      final buildNumber = (await PackageInfo.fromPlatform()).buildNumber;
+      if (storedInstallId != null && storedInstallId != buildNumber) {
+        debugPrint('[KeychainAudit] install phase = first launch after update/reinstall (stored: $storedInstallId, current: $buildNumber)');
+      } else if (storedInstallId == null) {
+        debugPrint('[KeychainAudit] install phase = first launch (no stored install id)');
+      } else {
+        debugPrint('[KeychainAudit] install phase = normal launch (same build $buildNumber)');
+      }
+    } catch (_) {
+      debugPrint('[KeychainAudit] install phase = (could not determine)');
+    }
+
+    final idPriv = await _secureStorage.read(key: _identityPrivateKey);
+    final idDhPriv = await _secureStorage.read(key: _identityDhPrivateKey);
+    final spkPriv = await _secureStorage.read(key: _signedPreKeyPrivate);
+    debugPrint('[KeychainAudit] reading identityPrivate -> ${idPriv != null ? "present" : "absent"}');
+    debugPrint('[KeychainAudit] reading identityDhPrivate -> ${idDhPriv != null ? "present" : "absent"}');
+    debugPrint('[KeychainAudit] reading signedPrekeyPrivate -> ${spkPriv != null ? "present" : "absent"}');
+    final wouldBeFound = idPriv != null && idDhPriv != null && spkPriv != null;
+    if (!wouldBeFound) {
+      final missing = <String>[];
+      if (idPriv == null) missing.add('identityPrivate');
+      if (idDhPriv == null) missing.add('identityDhPrivate');
+      if (spkPriv == null) missing.add('signedPrekeyPrivate');
+      debugPrint('[KeychainAudit] localKeysFound will be false because missing in Keychain: ${missing.join(", ")}');
+    }
+  }
+
+  /// Migrate E2E keys from SharedPreferences to Keychain only after read-back and final critical-key check.
+  /// Removes from prefs only when each key's read-back matches AND the three critical keys are readable after the loop.
+  Future<void> _migrateKeysFromSharedPreferencesIfNeeded() async {
+    final hasInKeychain = await _secureStorage.read(key: _identityPrivateKey) != null;
+    if (hasInKeychain) return;
+
+    await _keychainHealthCheck();
+
+    final prefs = await SharedPreferences.getInstance();
+    final keys = prefs.getKeys().where((k) => k.startsWith(_storagePrefix)).toList();
+    if (keys.isEmpty) return;
+
+    final verifiedKeys = <String>[];
+    int failed = 0;
+    for (final k in keys) {
+      final value = prefs.getString(k);
+      if (value == null || value.isEmpty) continue;
+      try {
+        await _secureStorage.write(key: k, value: value);
+        debugPrint('[Migration] wrote key $k to keychain');
+        final readBack = await _secureStorage.read(key: k);
+        if (readBack == value) {
+          verifiedKeys.add(k);
+          debugPrint('[Migration] verified key $k from keychain');
+        } else {
+          failed++;
+          debugPrint('[Migration] retained legacy key $k because verification failed (read-back mismatch)');
+        }
+      } catch (e) {
+        failed++;
+        debugPrint('[Migration] retained legacy key $k because verification failed: $e');
+      }
+    }
+
+    // Final check: ensure the three critical keys are readable (same read path as initializeKeys).
+    // Avoids removing from prefs if Keychain only served from cache and real persist failed.
+    final criticalReadable = (await _secureStorage.read(key: _identityPrivateKey) != null) &&
+        (await _secureStorage.read(key: _identityDhPrivateKey) != null) &&
+        (await _secureStorage.read(key: _signedPreKeyPrivate) != null);
+    if (criticalReadable && verifiedKeys.isNotEmpty) {
+      for (final k in verifiedKeys) {
+        await prefs.remove(k);
+      }
+      debugPrint('[CryptoService] Keys migrated from SharedPreferences to Keychain: ${verifiedKeys.length} keys');
+    } else if (verifiedKeys.isNotEmpty) {
+      debugPrint('[CryptoService] Migration not committed: critical keys not readable after write (prefs retained)');
+    }
+    if (failed > 0) {
+      debugPrint('[CryptoService] Migration left $failed legacy keys in prefs (keychain verify failed)');
+    }
+  }
+
+  /// Log whether SharedPreferences still contains legacy E2E keys (when local Keychain has none).
+  Future<void> _logLegacyPrefsCheck() async {
+    final prefs = await SharedPreferences.getInstance();
+    final prefsIdentityPrivate = prefs.getString(_identityPrivateKey) != null;
+    final prefsIdentityDhPrivate = prefs.getString(_identityDhPrivateKey) != null;
+    final prefsSignedPrekeyPrivate = prefs.getString(_signedPreKeyPrivate) != null;
+    debugPrint('[LegacyCheck] prefs identityPrivate=$prefsIdentityPrivate');
+    debugPrint('[LegacyCheck] prefs identityDhPrivate=$prefsIdentityDhPrivate');
+    debugPrint('[LegacyCheck] prefs signedPrekeyPrivate=$prefsSignedPrekeyPrivate');
+  }
+
+  /// Quick healthcheck: write/read/delete a temp key to ensure Keychain is working.
+  Future<void> _keychainHealthCheck() async {
+    const String tempKey = '${_storagePrefix}_keychain_health_check';
+    try {
+      await _secureStorage.write(key: tempKey, value: 'ok');
+      debugPrint('[KeychainHealth] write temp ok');
+      final read = await _secureStorage.read(key: tempKey);
+      if (read == 'ok') {
+        debugPrint('[KeychainHealth] read temp ok');
+      } else {
+        debugPrint('[KeychainHealth] read temp mismatch: got ${read != null ? "non-null" : "null"}');
+      }
+      await _secureStorage.delete(key: tempKey);
+      debugPrint('[KeychainHealth] delete temp ok');
+    } catch (e) {
+      debugPrint('[KeychainHealth] healthcheck failed: $e');
+    }
+  }
+
+  /// Returns true if server has bundle, false if server has no bundle, null if check failed (transient).
+  Future<bool?> _verifyKeysOnServer() async {
     try {
       final data = await _apiService.get('/encryption/keys/count/');
       final hasBundle = data['has_key_bundle'] == true;
@@ -231,7 +442,7 @@ class CryptoService {
       return hasBundle;
     } catch (e) {
       debugPrint('[CryptoService] _verifyKeysOnServer error: $e');
-      return false;
+      return null; // caller logs [CryptoBootstrap] serverBundleCheck=error
     }
   }
 
@@ -371,8 +582,52 @@ class CryptoService {
   // WIPE (logout/account delete)
   // ============================================================
 
+  /// Hard reset E2E: clear local + server, then generate and upload new bundle (test/recovery).
+  /// Order: clear flag, clear sessions, wipe keys, POST server reset, generate, save, upload, clear flag.
+  Future<void> hardResetE2E() async {
+    debugPrint('[E2E-Reset] hard reset started');
+    try {
+      await clearNeedsManualRecoveryFlag();
+      await SessionManager().clearAllSessions();
+      debugPrint('[E2E-Reset] local sessions cleared');
+      await wipeAllKeys();
+      debugPrint('[E2E-Reset] local keys wiped');
+      try {
+        await _apiService.post('/encryption/reset/', body: <String, dynamic>{});
+        debugPrint('[E2E-Reset] server reset completed');
+      } on ApiException catch (e) {
+        debugPrint('[E2E-Reset] step 4 failed (server reset) status=${e.statusCode} body=${e.message}');
+        rethrow;
+      } catch (e) {
+        debugPrint('[E2E-Reset] step 4 failed (server reset): $e');
+        rethrow;
+      }
+      Map<String, dynamic> publicBundle;
+      try {
+        publicBundle = await generateAndStoreKeyBundle();
+        debugPrint('[E2E-Reset] new bundle generated');
+      } catch (e) {
+        debugPrint('[E2E-Reset] generateAndStoreKeyBundle failed: $e');
+        rethrow;
+      }
+      final uploaded = await uploadKeyBundle(publicBundle);
+      if (!uploaded) {
+        debugPrint('[E2E-Reset] uploadKeyBundle failed (upload new bundle)');
+        throw Exception('Upload nuovo bundle fallito');
+      }
+      debugPrint('[E2E-Reset] new bundle uploaded');
+      await clearNeedsManualRecoveryFlag();
+      debugPrint('[E2E-Reset] local+server reset completed');
+    } catch (e, st) {
+      debugPrint('[E2E-Reset] failed: $e');
+      debugPrint('[E2E-Reset] stack: $st');
+      rethrow;
+    }
+  }
+
   /// Securely delete all keys from device.
   Future<void> wipeAllKeys() async {
+    debugPrint('[KeychainAudit] wipe invoked from CryptoService.wipeAllKeys');
     final allKeys = await _secureStorage.readAll();
     for (final key in allKeys.keys) {
       if (key.startsWith(_storagePrefix)) {

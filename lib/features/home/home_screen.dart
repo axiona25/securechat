@@ -16,6 +16,7 @@ import '../../core/services/chat_service.dart';
 import '../../core/services/crypto_service.dart';
 import '../../core/services/session_manager.dart';
 import '../../core/services/sound_service.dart';
+import '../../core/services/chat_sound_service.dart';
 import '../../core/services/call_service.dart';
 import '../../core/services/avatar_cache_service.dart';
 import '../../core/services/local_notification_service.dart';
@@ -69,6 +70,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
   bool _isCallScreenOpen = false;
   int _missedCallsCount = 0;
   final GlobalKey<CallsHistoryScreenState> _callsHistoryKey = GlobalKey<CallsHistoryScreenState>();
+  bool _e2eNeedsManualRecovery = false;
+  bool _hasShownRecoveryDialog = false;
 
   AppLocalizations get l10n => AppLocalizations.of(context)!;
 
@@ -121,18 +124,52 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
         });
       }
     });
-    // Ensure E2E keys are initialized and prekeys replenished when low (idempotent)
+    // Ensure E2E keys are initialized; show recovery modal once if local keys missing but server has bundle
     () async {
       try {
-        print('[Home] Starting crypto initialization...');
+        await SessionManager().warmupSessionStorage();
+        final needsRecoveryStored = await CryptoService.getNeedsManualRecoveryFlag();
+        debugPrint('[Home] e2e recovery flag at startup: $needsRecoveryStored');
+        if (mounted && needsRecoveryStored && !_e2eNeedsManualRecovery) {
+          setState(() => _e2eNeedsManualRecovery = true);
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            if (_e2eNeedsManualRecovery && !_hasShownRecoveryDialog) {
+              _hasShownRecoveryDialog = true;
+              debugPrint('[Home] showing recovery modal');
+              _showE2ERecoveryModalIfNeeded();
+            } else if (_hasShownRecoveryDialog) {
+              debugPrint('[Home] recovery modal skipped because already shown');
+            }
+          });
+        }
         final crypto = CryptoService(apiService: ApiService());
         final result = await crypto.initializeKeys();
-        print('[Home] Crypto init result: $result');
-        await crypto.checkAndReplenishPreKeys();
-        print('[Home] Prekey check done');
+        if (mounted) {
+          final needsRecovery = result == CryptoInitResult.needsManualRecovery ||
+              await CryptoService.getNeedsManualRecoveryFlag();
+          if (needsRecovery != _e2eNeedsManualRecovery) {
+            setState(() => _e2eNeedsManualRecovery = needsRecovery);
+            if (needsRecovery) {
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (!mounted) return;
+                if (_e2eNeedsManualRecovery && !_hasShownRecoveryDialog) {
+                  _hasShownRecoveryDialog = true;
+                  debugPrint('[Home] showing recovery modal');
+                  _showE2ERecoveryModalIfNeeded();
+                } else if (_hasShownRecoveryDialog) {
+                  debugPrint('[Home] recovery modal skipped because already shown');
+                }
+              });
+            }
+          }
+        }
+        if (result == CryptoInitResult.loadedFromKeychain || result == CryptoInitResult.generatedAndUploaded) {
+          await crypto.checkAndReplenishPreKeys();
+        }
       } catch (e, stack) {
-        print('[Home] Crypto FAILED: $e');
-        print('[Home] Stack: $stack');
+        debugPrint('[Home] Crypto init error: $e');
+        debugPrint('[Home] stack: $stack');
       }
     }();
     _pollingTimer = Timer.periodic(const Duration(seconds: 3), (_) {
@@ -392,25 +429,26 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
           final oldUnread = oldConv?.unreadCount ?? 0;
           final newUnread = newConv.unreadCount;
           if (newUnread > oldUnread && newUnread > 0) {
-            if (newConv.id == ChatDetailScreen.currentOpenConversationId) continue;
+            final lastMessage = newConv.lastMessage;
+            final messageId = lastMessage?.id?.toString();
+            final senderId = lastMessage?.senderId;
+            final currentUserId = _currentUser?.id;
+            if (senderId != null && currentUserId != null && senderId == currentUserId) continue;
             final senderName = newConv.displayNameFor(_currentUser?.id);
-            final lastMsg = _lastMessageToMap(newConv.lastMessage);
-            final icon = _getNotificationIcon(newConv.lastMessage?.messageType ?? 'text');
+            final lastMsg = _lastMessageToMap(lastMessage);
+            final icon = _getNotificationIcon(lastMessage?.messageType ?? 'text');
             if (mounted) {
-              SoundService().playNotification();
+              ChatSoundService().tryPlayIncoming(
+                messageId: messageId,
+                senderId: senderId,
+                currentUserId: currentUserId,
+              );
               _showNotificationToast(
                 senderName,
                 _buildNotificationPreview(lastMsg),
                 icon,
               );
-              final notifPrefs = await SharedPreferences.getInstance();
-              if (notifPrefs.getBool('notifications_enabled') != false) {
-                LocalNotificationService.instance.show(
-                  title: senderName,
-                  body: _notificationBodyText(lastMsg),
-                  payload: newConv.id.toString(),
-                );
-              }
+              // Nessuna local notification da polling: evita doppio con FCM; banner in background da FCM
             }
           }
         }
@@ -483,8 +521,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
     final totalUnread = _conversations.fold<int>(0, (sum, c) => sum + (c.unreadCount));
     if (totalUnread > 0) {
       FlutterAppBadger.updateBadgeCount(totalUnread);
+      debugPrint('[Badge] sync unread count = $totalUnread');
     } else {
       FlutterAppBadger.removeBadge();
+      debugPrint('[Badge] clear badge');
     }
   }
 
@@ -707,8 +747,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
 
   void _showNotificationToast(String senderName, Widget contentWidget, IconData icon) {
     if (!mounted) return;
-
-    SoundService().playNotification();
 
     late OverlayEntry overlayEntry;
 
@@ -1719,6 +1757,13 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
       _currentNavIndex = index;
       _isLockedMode = false;
     });
+    if (index == 0) {
+      CryptoService.getNeedsManualRecoveryFlag().then((needsRecovery) {
+        if (mounted && !needsRecovery && _e2eNeedsManualRecovery) {
+          setState(() => _e2eNeedsManualRecovery = false);
+        }
+      });
+    }
     if (index == 1) {
       _callsHistoryKey.currentState?.refresh();
       _loadMissedCallsCount();
@@ -1733,6 +1778,51 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
         setState(() => _missedCallsCount = count is int ? count : (int.tryParse(count?.toString() ?? '0') ?? 0));
       }
     } catch (_) {}
+  }
+
+  Future<void> _performSecureSessionReset() async {
+    try {
+      await CryptoService.clearNeedsManualRecoveryFlag();
+      await SessionManager().clearAllSessions();
+      final crypto = CryptoService(apiService: ApiService());
+      await crypto.wipeAllKeys();
+      final publicBundle = await crypto.generateAndStoreKeyBundle();
+      await crypto.uploadKeyBundle(publicBundle);
+      await CryptoService.clearNeedsManualRecoveryFlag();
+      if (mounted) {
+        setState(() => _e2eNeedsManualRecovery = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Sessione sicura reimpostata. I nuovi messaggi saranno cifrati correttamente.'),
+            backgroundColor: Color(0xFF2ABFBF),
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Secure session reset error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Errore durante il reset: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  /// Mostra la modale E2E recovery una sola volta (controllato da _hasShownRecoveryDialog).
+  void _showE2ERecoveryModalIfNeeded() {
+    if (!mounted) return;
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => _E2ERecoveryModal(
+        onReset: () async => await _performSecureSessionReset(),
+        onLater: () => Navigator.of(ctx).pop(),
+        onResetDone: () => Navigator.of(ctx).pop(),
+      ),
+    );
   }
 
   @override
@@ -1774,7 +1864,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
             )
           : null,
       body: _currentNavIndex == 3
-          ? Stack(
+                ? Stack(
               children: [
                 Positioned.fill(
                   child: Image.asset(
@@ -1995,7 +2085,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
                 ),
               ],
             ),
-
       bottomNavigationBar: Container(
         decoration: const BoxDecoration(
           color: Colors.white,
@@ -2048,6 +2137,88 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Modale centrata per recovery E2E. Stile coerente con il design dell'app (teal/navy, senza rosso aggressivo).
+class _E2ERecoveryModal extends StatefulWidget {
+  final Future<void> Function() onReset;
+  final VoidCallback onLater;
+  final VoidCallback onResetDone;
+
+  const _E2ERecoveryModal({
+    required this.onReset,
+    required this.onLater,
+    required this.onResetDone,
+  });
+
+  @override
+  State<_E2ERecoveryModal> createState() => _E2ERecoveryModalState();
+}
+
+class _E2ERecoveryModalState extends State<_E2ERecoveryModal> {
+  bool _loading = false;
+  static const Color _teal = Color(0xFF2ABFBF);
+  static const Color _navy = Color(0xFF1A2B4A);
+
+  Future<void> _handleReset() async {
+    if (_loading) return;
+    setState(() => _loading = true);
+    try {
+      await widget.onReset();
+      if (!mounted) return;
+      widget.onResetDone();
+    } catch (_) {
+      // Errore già mostrato da _performSecureSessionReset (snackbar)
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      title: Row(
+        children: [
+          Icon(Icons.security_rounded, color: _teal, size: 24),
+          const SizedBox(width: 10),
+          const Expanded(
+            child: Text(
+              'Sessione sicura da reimpostare',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: Color(0xFF1A2B4A)),
+            ),
+          ),
+        ],
+      ),
+      content: SingleChildScrollView(
+        child: Text(
+          'Le chiavi storiche di questo dispositivo non sono più disponibili. I messaggi precedenti non possono essere recuperati su questo device. Per continuare con i nuovi messaggi, reimposta la sessione sicura.',
+          style: TextStyle(fontSize: 15, color: Colors.grey[800], height: 1.4),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _loading ? null : () => widget.onLater(),
+          child: Text('Più tardi', style: TextStyle(color: Colors.grey[700])),
+        ),
+        ElevatedButton(
+          onPressed: _loading ? null : _handleReset,
+          style: ElevatedButton.styleFrom(
+            backgroundColor: _teal,
+            foregroundColor: Colors.white,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          ),
+          child: _loading
+              ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                )
+              : const Text('Reimposta sessione sicura'),
+        ),
+      ],
     );
   }
 }

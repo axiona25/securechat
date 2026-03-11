@@ -78,17 +78,12 @@ class _LoginFormState extends State<LoginForm> {
     setState(() => _isLoading = false);
 
     if (result.success) {
-      // Dopo login success, inizializza le chiavi E2E
       try {
-        final cryptoService = CryptoService(
-          apiService: ApiService(),
-          secureStorage: const FlutterSecureStorage(),
-        );
-        await cryptoService.initializeKeys();
-        debugPrint('[Auth] E2E keys initialized');
+        final cryptoService = CryptoService(apiService: ApiService());
+        final initResult = await cryptoService.initializeKeys();
+        debugPrint('[Auth] E2E init result: $initResult');
       } catch (e) {
         debugPrint('[Auth] E2E key init error: $e');
-        // Non bloccare il login se le chiavi falliscono
       }
       if (!mounted) return;
       Navigator.of(context).pushReplacementNamed(AppRouter.home);

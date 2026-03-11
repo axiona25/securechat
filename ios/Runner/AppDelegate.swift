@@ -2,7 +2,8 @@ import Flutter
 import UIKit
 import AudioToolbox
 import PushKit
-
+import FirebaseCore
+import FirebaseMessaging
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate, PKPushRegistryDelegate {
   private var ringtoneTimer: Timer?
@@ -13,6 +14,10 @@ import PushKit
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
+    // Registrazione APNs: chiamata sempre, prima di qualsiasi guard (con SceneDelegate window può essere nil qui)
+    NSLog("[iOS Push] registerForRemoteNotifications called")
+    application.registerForRemoteNotifications()
+
     guard let controller = window?.rootViewController as? FlutterViewController else {
       return super.application(application, didFinishLaunchingWithOptions: launchOptions)
     }
@@ -39,6 +44,23 @@ import PushKit
     voipRegistry.desiredPushTypes = [.voIP]
 
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+  }
+
+  override func application(
+    _ application: UIApplication,
+    didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
+  ) {
+    NSLog("[iOS Push] didRegisterForRemoteNotificationsWithDeviceToken")
+    Messaging.messaging().apnsToken = deviceToken
+    super.application(application, didRegisterForRemoteNotificationsWithDeviceToken: deviceToken)
+  }
+
+  override func application(
+    _ application: UIApplication,
+    didFailToRegisterForRemoteNotificationsWithError error: Error
+  ) {
+    NSLog("[iOS Push] didFailToRegisterForRemoteNotificationsWithError: %@", error.localizedDescription)
+    super.application(application, didFailToRegisterForRemoteNotificationsWithError: error)
   }
 
   func pushRegistry(_ registry: PKPushRegistry, didUpdate pushCredentials: PKPushCredentials, for type: PKPushType) {

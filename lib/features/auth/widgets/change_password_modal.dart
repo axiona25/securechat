@@ -77,13 +77,10 @@ class _ChangePasswordModalState extends State<ChangePasswordModal> {
         final prefs = await SharedPreferences.getInstance();
         if (data['access'] != null) prefs.setString('access_token', data['access'] as String);
         if (data['refresh'] != null) prefs.setString('refresh_token', data['refresh'] as String);
-        // Ensure E2E keys are initialized after password change
-        // (idempotent — safe if keys already exist, covers the case where
-        // initializeKeys() in AuthService.login() failed silently)
         try {
           debugPrint('[ChangePassword] Ensuring crypto keys after password change...');
-          final keysOk = await CryptoService(apiService: api).initializeKeys();
-          debugPrint('[ChangePassword] Crypto init result: $keysOk');
+          final result = await CryptoService(apiService: api).initializeKeys();
+          debugPrint('[ChangePassword] Crypto init result: $result');
         } catch (e) {
           debugPrint('[ChangePassword] Crypto init after password change failed: $e');
         }

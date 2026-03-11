@@ -45,6 +45,7 @@ urlpatterns = [
     path('api/calls/', include('calls.urls')),
     path('api/channels/', include('channels_pub.urls')),
     path('api/encryption/', include('encryption.urls')),
+    path('api/crypto/', include('encryption.backup_urls')),
     path('api/notifications/', include('notifications.urls')),
     path('api/admin-panel/', include('admin_api.urls')),
     path('api/admin/', include('admin_api.urls_admin')),

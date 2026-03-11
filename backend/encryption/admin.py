@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import UserKeyBundle, OneTimePreKey, SessionKey, KeyBundleFetchLog, SecurityAlert
+from .models import UserKeyBundle, OneTimePreKey, SessionKey, KeyBundleFetchLog, SecurityAlert, E2EKeyBackup
 
 
 @admin.register(UserKeyBundle)
@@ -36,3 +36,10 @@ class SecurityAlertAdmin(admin.ModelAdmin):
     list_display = ['user', 'alert_type', 'severity', 'is_resolved', 'created_at']
     list_filter = ['alert_type', 'severity', 'is_resolved']
     search_fields = ['user__email', 'message']
+
+
+@admin.register(E2EKeyBackup)
+class E2EKeyBackupAdmin(admin.ModelAdmin):
+    list_display = ['user', 'version', 'kdf_algorithm', 'created_at', 'updated_at']
+    search_fields = ['user__email']
+    readonly_fields = ['salt', 'nonce', 'ciphertext', 'created_at', 'updated_at']

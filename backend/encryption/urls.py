@@ -2,6 +2,10 @@ from django.urls import path
 from . import views
 
 urlpatterns = [
+    # Hard reset E2E (test/recovery: clear server bundle for current user)
+    path('reset/', views.E2EResetView.as_view(), name='e2e-reset'),
+    # Encrypted key backup (client-encrypted blob only)
+    path('backup/', views.E2EKeyBackupView.as_view(), name='e2e-backup'),
     # Key management
     path('keys/upload/', views.UploadKeyBundleView.as_view(), name='upload-keys'),
     path('keys/<int:user_id>/', views.GetKeyBundleView.as_view(), name='get-keys'),

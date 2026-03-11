@@ -9,7 +9,8 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.throttling import UserRateThrottle
-from .models import UserKeyBundle, OneTimePreKey, KeyBundleFetchLog, SecurityAlert
+from .models import UserKeyBundle, OneTimePreKey, KeyBundleFetchLog, SecurityAlert, E2EKeyBackup, SessionKey
+from .serializers import E2EKeyBackupSerializer
 from .scp_keys import (
     verify_signed_prekey,
     verify_signed_prekey_versioned,
@@ -451,3 +452,88 @@ class SecurityAlertsView(APIView):
             return Response({'message': 'Alert risolto.'})
         except SecurityAlert.DoesNotExist:
             return Response({'error': 'Alert non trovato.'}, status=status.HTTP_404_NOT_FOUND)
+
+
+class BackupThrottle(UserRateThrottle):
+    rate = '20/hour'
+
+
+class E2EKeyBackupView(APIView):
+    """
+    Encrypted E2E key backup. Server stores only client-encrypted blob.
+    PUT: create or replace backup (one per user).
+    GET: retrieve backup if present.
+    DELETE: remove backup.
+    """
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [BackupThrottle]
+
+    def get(self, request):
+        try:
+            backup = E2EKeyBackup.objects.get(user=request.user)
+        except E2EKeyBackup.DoesNotExist:
+            return Response({'detail': 'No backup found.'}, status=status.HTTP_404_NOT_FOUND)
+        logger.info(f'[BACKUP] GET user_id={request.user.id}')
+        return Response(E2EKeyBackupSerializer(backup).data)
+
+    def put(self, request):
+        serializer = E2EKeyBackupSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        data = serializer.validated_data
+        backup, created = E2EKeyBackup.objects.update_or_create(
+            user=request.user,
+            defaults={
+                'version': data['version'],
+                'kdf_algorithm': data['kdf_algorithm'],
+                'kdf_params': data['kdf_params'],
+                'salt': data['salt'],
+                'nonce': data['nonce'],
+                'ciphertext': data['ciphertext'],
+            },
+        )
+        action = 'created' if created else 'updated'
+        logger.info(f'[BACKUP] PUT {action} user_id={request.user.id}')
+        return Response(
+            E2EKeyBackupSerializer(backup).data,
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
+
+    def delete(self, request):
+        deleted, _ = E2EKeyBackup.objects.filter(user=request.user).delete()
+        if deleted:
+            logger.info(f'[BACKUP] DELETE user_id={request.user.id}')
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        return Response({'detail': 'No backup found.'}, status=status.HTTP_404_NOT_FOUND)
+
+
+class E2EResetView(APIView):
+    """
+    Hard reset E2E for the authenticated user (test/recovery).
+    Clears server-side key bundle, signed prekey, one-time prekeys, and any E2E state.
+    Client must then generate and upload a new bundle.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+        user_id = user.id
+        try:
+            bundle_deleted, _ = UserKeyBundle.objects.filter(user=user).delete()
+            otp_deleted = OneTimePreKey.objects.filter(user=user).delete()[0]
+            E2EKeyBackup.objects.filter(user=user).delete()
+            SessionKey.objects.filter(user=user).delete()
+            SessionKey.objects.filter(peer=user).delete()
+            logger.info(
+                f'[E2E-Reset] server bundle cleared for user {user_id} '
+                f'(bundle={bundle_deleted}, otp_keys={otp_deleted})'
+            )
+            return Response({
+                'message': 'E2E reset completato. Carica un nuovo bundle dal client.',
+            }, status=status.HTTP_200_OK)
+        except Exception as e:
+            logger.exception(f'[E2E-Reset] failed for user {user_id}: {e}')
+            return Response(
+                {'error': 'Reset E2E non riuscito.'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )

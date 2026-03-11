@@ -3,11 +3,12 @@ import os
 
 logger = logging.getLogger(__name__)
 
-# Inizializza Firebase Admin SDK
+# Cache dell'app Firebase Admin (può essere inizializzata da questo modulo o da altro, es. notifications)
 _firebase_app = None
 
 
 def _get_firebase_app():
+    """Restituisce l'app Firebase Admin: riusa quella esistente o ne crea una sola volta."""
     global _firebase_app
     if _firebase_app is not None:
         return _firebase_app
@@ -15,16 +16,25 @@ def _get_firebase_app():
         import firebase_admin
         from firebase_admin import credentials
 
+        # Se la default app esiste già (inizializzata altrove), riusala
+        try:
+            _firebase_app = firebase_admin.get_app()
+            logger.info('[PushBackend] firebase app reused')
+            return _firebase_app
+        except ValueError:
+            pass  # nessuna app ancora, procediamo con initialize_app
+
         cred_path = os.environ.get('FIREBASE_CREDENTIALS_PATH', '/app/firebase-credentials.json')
         if os.path.exists(cred_path):
             cred = credentials.Certificate(cred_path)
             _firebase_app = firebase_admin.initialize_app(cred)
+            logger.info('[PushBackend] firebase app initialized from credentials')
         else:
-            # Prova con le credenziali di default
             _firebase_app = firebase_admin.initialize_app()
+            logger.info('[PushBackend] firebase app initialized from default credentials')
         return _firebase_app
     except Exception as e:
-        logger.error('Firebase init error: %s', e)
+        logger.error('[PushBackend] firebase init failed: %s', e)
         return None
 
 
@@ -39,11 +49,37 @@ def _get_chat_badge_count(user_id):
     return result['total'] or 0
 
 
+# Chiavi FCM riservate: non usabili nel payload data (cf. FCM docs)
+_FCM_RESERVED_KEYS = frozenset({'from', 'message_type'})
+_FCM_RENAME = {'message_type': 'chat_message_type'}
+
+
+def _sanitize_fcm_data(data):
+    """
+    Restituisce un dict con chiavi non riservate e valori stringa per FCM.
+    Rinomina message_type -> chat_message_type; garantisce valori str.
+    """
+    if not data:
+        return {}
+    out = {}
+    for k, v in data.items():
+        if not isinstance(k, str) or k.startswith('google.') or k.startswith('gcm.'):
+            continue
+        key = _FCM_RENAME.get(k, k)
+        if key in _FCM_RESERVED_KEYS:
+            continue
+        out[key] = str(v) if v is not None else ''
+    return out
+
+
 def send_push_notification(user, title, body, data=None):
     """Invia una notifica push a un utente specifico."""
     if not getattr(user, 'notifications_enabled', True):
+        logger.info('[PushBackend] push skipped for user %s: notifications disabled', user.id)
         return False
-    if not getattr(user, 'fcm_token', None):
+    fcm_token = getattr(user, 'fcm_token', None)
+    if not fcm_token:
+        logger.info('[PushBackend] push skipped for user %s: no fcm token', user.id)
         return False
 
     try:
@@ -54,17 +90,23 @@ def send_push_notification(user, title, body, data=None):
             logger.warning('Firebase non inizializzato, skip notifica push')
             return False
 
+        badge = _get_chat_badge_count(user.id)
+        logger.info('[PushBackend] badge count = %s', badge)
+
+        sanitized_data = _sanitize_fcm_data(data or {})
+        logger.info('[PushBackend] sanitized data payload = %s', sanitized_data)
+
         message = messaging.Message(
             notification=messaging.Notification(
                 title=title,
                 body=body,
             ),
-            data=data or {},
+            data=sanitized_data,
             token=user.fcm_token,
             apns=messaging.APNSConfig(
                 payload=messaging.APNSPayload(
                     aps=messaging.Aps(
-                        badge=_get_chat_badge_count(user.id),
+                        badge=badge,
                         sound='default',
                         content_available=True,
                     ),
@@ -72,6 +114,7 @@ def send_push_notification(user, title, body, data=None):
             ),
         )
         response = messaging.send(message)
+        logger.info('[PushBackend] firebase response = %s', response)
         logger.info('Push sent to %s: %s', user.username, response)
         return True
     except Exception as e:
@@ -124,7 +167,7 @@ def send_android_incoming_call_data(user, call_data):
 
 
 def send_push_to_conversation_participants(conversation, sender, title, body, data=None):
-    """Invia push a tutti i partecipanti di una conversazione tranne il mittente."""
+    """Invia push a tutti i partecipanti di una conversazione tranne il mittente (con fcm_token)."""
     from chat.models import ConversationParticipant
 
     participants = ConversationParticipant.objects.filter(
@@ -133,6 +176,11 @@ def send_push_to_conversation_participants(conversation, sender, title, body, da
 
     for participant in participants:
         user = participant.user
-        # Non inviare se l'utente è online (sta guardando la chat)
-        if not getattr(user, 'is_online', False):
-            send_push_notification(user, title, body, data)
+        logger.info(
+            '[PushBackend] evaluating push for user %s (is_online=%s, conv=%s)',
+            user.id,
+            getattr(user, 'is_online', False),
+            conversation.id,
+        )
+        logger.info('[PushBackend] sending chat push to user %s', user.id)
+        send_push_notification(user, title, body, data)

@@ -78,6 +78,7 @@ dependencies:
   flutter_webrtc: ^0.12.4
   wakelock_plus: ^1.2.8
   just_audio: ^0.9.40
+  package_info_plus: ^8.0.0
   flutter_local_notifications: ^21.0.0
   flutter_callkit_incoming: ^2.0.0
 

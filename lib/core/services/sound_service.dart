@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:just_audio/just_audio.dart';
 
@@ -7,26 +6,10 @@ class SoundService {
   factory SoundService() => _instance;
   SoundService._internal();
 
-  bool? _isSimulator;
-
-  Future<bool> get isSimulator async {
-    if (_isSimulator != null) return _isSimulator!;
-    try {
-      _isSimulator = Platform.resolvedExecutable.contains('CoreSimulator');
-    } catch (_) {
-      _isSimulator = false;
-    }
-    return _isSimulator!;
-  }
-
   /// Suono + vibrazione per messaggio ricevuto
   Future<void> playMessageReceived() async {
     await HapticFeedback.mediumImpact();
-    if (await isSimulator) {
-      await _playCustomSound();
-    } else {
-      await SystemSound.play(SystemSoundType.alert);
-    }
+    await _playCustomSound();
   }
 
   /// Suono leggero per messaggio inviato
@@ -37,11 +20,7 @@ class SoundService {
   /// Suono per notifica toast in home
   Future<void> playNotification() async {
     await HapticFeedback.heavyImpact();
-    if (await isSimulator) {
-      await _playCustomSound();
-    } else {
-      await SystemSound.play(SystemSoundType.alert);
-    }
+    await _playCustomSound();
   }
 
   /// Vibrazione semplice per azioni (tap, reaction, etc)

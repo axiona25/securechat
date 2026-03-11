@@ -190,20 +190,18 @@ class _SplashScreenState extends State<SplashScreen>
     await Future.delayed(const Duration(milliseconds: 1000));
     if (!mounted) return;
     if (AuthService().isLoggedIn) {
-      // Utente già autenticato che riapre l'app — inizializza chiavi E2E
+      debugPrint('[Splash] startup begin');
       try {
-        final cryptoService = CryptoService(
-          apiService: ApiService(),
-          secureStorage: const FlutterSecureStorage(),
-        );
-        await cryptoService.initializeKeys();
-        debugPrint('[Splash] E2E keys initialized for returning user');
-      } catch (e) {
-        debugPrint('[Splash] E2E key init error: $e');
+        final cryptoService = CryptoService(apiService: ApiService());
+        final result = await cryptoService.initializeKeys();
+        debugPrint('[Splash] initializeKeys result: $result');
+      } catch (e, st) {
+        debugPrint('[Splash] initializeKeys exception: $e');
+        debugPrint('[Splash] initializeKeys stack: $st');
       }
-      if (mounted) {
-        Navigator.of(context).pushReplacementNamed(AppRouter.home);
-      }
+      if (!mounted) return;
+      debugPrint('[Splash] navigation to Home');
+      Navigator.of(context).pushReplacementNamed(AppRouter.home);
     } else {
       Navigator.of(context).pushReplacementNamed(AppRouter.login);
     }

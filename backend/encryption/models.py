@@ -165,3 +165,48 @@ class SecurityAlert(models.Model):
 
     def __str__(self):
         return f'[{self.severity}] {self.alert_type} for {self.user.email}'
+
+
+class E2EKeyBackup(models.Model):
+    """
+    Encrypted E2E key backup blob. Server stores only client-encrypted data.
+    Server never derives keys from passphrase nor decrypts the payload.
+    One active backup per user (replaced on PUT).
+    """
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='e2e_key_backup',
+    )
+    version = models.PositiveSmallIntegerField(
+        default=1,
+        help_text='Backup format version for future compatibility',
+    )
+    kdf_algorithm = models.CharField(
+        max_length=32,
+        help_text='e.g. scrypt, argon2id (client-side only; server does not use)',
+    )
+    kdf_params = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text='KDF parameters (iterations, etc.) — metadata only',
+    )
+    salt = models.BinaryField(
+        help_text='Salt used for key derivation (client-side)',
+    )
+    nonce = models.BinaryField(
+        help_text='Nonce/IV for encryption (client-side)',
+    )
+    ciphertext = models.BinaryField(
+        help_text='Encrypted key material; server never decrypts',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'e2e_key_backups'
+        verbose_name = 'E2E key backup'
+        verbose_name_plural = 'E2E key backups'
+
+    def __str__(self):
+        return f'E2EKeyBackup user={self.user_id} v{self.version}'

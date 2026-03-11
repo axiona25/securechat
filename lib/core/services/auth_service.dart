@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -55,16 +56,23 @@ class AuthService {
         final userId = user?['id'];
         if (userId != null) {
           final prefs = await SharedPreferences.getInstance();
-          await prefs.setInt(_keyCurrentUserId, userId is int ? userId : int.tryParse(userId.toString()) ?? 0);
+          final id = userId is int ? userId : int.tryParse(userId.toString()) ?? 0;
+          await prefs.setInt(_keyCurrentUserId, id);
+          debugPrint('[AuthUser] source=login, currentUserId=$id');
         }
-        // Initialize E2E encryption keys (idempotent; does not block login on failure)
+        // Initialize E2E encryption keys (no auto-wipe; keys from Keychain if present)
         try {
           print('[Auth] Starting crypto key initialization...');
-          final keysOk = await CryptoService(apiService: _api).initializeKeys();
-          print('[Auth] Crypto init result: $keysOk');
+          final result = await CryptoService(apiService: _api).initializeKeys();
+          print('[Auth] Crypto init result: $result');
         } catch (e, stack) {
-          print('[Auth] Crypto init FAILED: $e');
+          print('[Auth] initializeKeys exception during startup: $e');
           print('[Auth] Stack: $stack');
+        }
+        try {
+          await SessionManager.autoResetIfNewInstall(_api);
+        } catch (e) {
+          print('[Auth] Install id update failed: $e');
         }
         // Registra token FCM per notifiche push (dopo login abbiamo access token)
         try {
@@ -215,12 +223,15 @@ class AuthService {
   /// ID utente loggato (salvato al login). Null se non disponibile.
   static Future<int?> getCurrentUserId() async {
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getInt(_keyCurrentUserId);
+    final id = prefs.getInt(_keyCurrentUserId);
+    debugPrint('[AuthUser] source=prefs, currentUserId=$id');
+    return id;
   }
 
-  /// Salva l'id utente corrente (es. dopo aver caricato il profilo).
+  /// Salva l'id utente corrente (es. dopo aver caricato il profilo). Source of truth per runtime.
   static Future<void> setCurrentUserId(int id) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt(_keyCurrentUserId, id);
+    debugPrint('[AuthUser] source=setCurrentUserId, currentUserId=$id');
   }
 }

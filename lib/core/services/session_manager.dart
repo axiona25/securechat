@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:pinenacl/ed25519.dart';
 import 'package:pinenacl/tweetnacl.dart';
 import 'package:pinenacl/x25519.dart';
@@ -21,12 +22,44 @@ class SessionManager {
   static const String _sessionPrefix = 'scp_session_';
   static const String _cachePrefix = 'scp_msg_cache_';
   static const String _failedPrefix = 'e2e_failed_';
+  static const String _e2eInstallIdKey = 'e2e_install_id';
+
+  /// No automatic wipe or key regeneration. Keys persist in Keychain across reinstall/update.
+  /// Only updates install id for logging; never clears sessions or keys.
+  static Future<void> autoResetIfNewInstall(ApiService apiService) async {
+    final prefs = await SharedPreferences.getInstance();
+    String currentBuildNumber;
+    try {
+      final info = await PackageInfo.fromPlatform();
+      currentBuildNumber = info.buildNumber;
+    } catch (_) {
+      currentBuildNumber = '0';
+    }
+    final storedInstallId = prefs.getString(_e2eInstallIdKey);
+    if (storedInstallId != currentBuildNumber) {
+      await prefs.setString(_e2eInstallIdKey, currentBuildNumber);
+      debugPrint('[SessionManager] Install id updated (no wipe, keys preserved in Keychain)');
+    } else {
+      debugPrint('[SessionManager] E2E sessions OK, same install');
+    }
+  }
 
   final FlutterSecureStorage _secureStorage;
   final ApiService _apiService;
   final CryptoService _cryptoService;
 
   final Map<int, _DoubleRatchetSession> _sessions = {};
+
+  /// Call early at app startup to validate session storage; never throws.
+  Future<void> warmupSessionStorage() async {
+    debugPrint('[SessionManager] startup session load begin');
+    try {
+      await _secureStorage.readAll();
+      debugPrint('[SessionManager] startup session load completed');
+    } catch (e) {
+      debugPrint('[SessionManager] startup session load failed: $e');
+    }
+  }
 
   /// Cache of plaintext for messages we sent (messageId → plaintext).
   final Map<String, String> _sentMessagePlaintexts = {};
@@ -56,35 +89,91 @@ class SessionManager {
         _secureStorage = secureStorage ??
             FlutterSecureStorage(
               aOptions: const AndroidOptions(encryptedSharedPreferences: true),
-              iOptions: IOSOptions(
+              iOptions: const IOSOptions(
                 accessibility: KeychainAccessibility.first_unlock_this_device,
+                accountName: 'com.axphone.app.e2e',
               ),
             );
 
   /// Ensure we have an active session with the given user (for sending).
-  /// If no session exists, performs X3DH handshake and initializes Double Ratchet.
+  /// If no session exists, performs X3DH handshake. If existing session's remote bundle changed, drops it and does fresh X3DH.
   Future<_DoubleRatchetSession> _getOrCreateSession(int otherUserId) async {
+    _DoubleRatchetSession? session;
     if (_sessions.containsKey(otherUserId)) {
-      return _sessions[otherUserId]!;
-    }
-
-    final stored = await _secureStorage.read(key: '$_sessionPrefix$otherUserId');
-    if (stored != null) {
+      session = _sessions[otherUserId]!;
+    } else {
       try {
-        final session = _DoubleRatchetSession.fromJson(jsonDecode(stored) as Map<String, dynamic>);
-        _sessions[otherUserId] = session;
-        debugPrint('[SessionManager] Loaded existing session for user $otherUserId');
-        return session;
+        debugPrint('[SessionManager] session load begin for user $otherUserId');
+        final stored = await _secureStorage.read(key: '$_sessionPrefix$otherUserId');
+        if (stored != null) {
+          session = _DoubleRatchetSession.fromJson(jsonDecode(stored) as Map<String, dynamic>);
+          _sessions[otherUserId] = session;
+          debugPrint('[SessionManager] Loaded existing session for user $otherUserId');
+        }
       } catch (e) {
-        debugPrint('[SessionManager] Failed to load session: $e, creating new one');
+        debugPrint('[SessionManager] session load failed for user $otherUserId: $e');
       }
     }
 
-    debugPrint('[SessionManager] No session for user $otherUserId, performing X3DH...');
-    final session = await _performX3DHAndInitSession(otherUserId);
-    _sessions[otherUserId] = session;
-    await _saveSession(otherUserId, session);
-    return session;
+    if (session != null) {
+      final stillValid = await _ensureSessionMatchesRemoteBundle(otherUserId, session);
+      if (stillValid != null) {
+        return stillValid;
+      }
+      session = null;
+    }
+
+    debugPrint('[E2E-Send] forcing fresh X3DH bootstrap for peer $otherUserId');
+    final newSession = await _performX3DHAndInitSession(otherUserId);
+    _sessions[otherUserId] = newSession;
+    await _saveSession(otherUserId, newSession);
+    final newFp = _DoubleRatchetSession.fingerprint(newSession.remoteIdentityDhPublicKey, newSession.remoteDhPublicKey);
+    debugPrint('[E2E-Send] new session saved with fingerprint=$newFp');
+    debugPrint('[E2E-Send] fresh bootstrap completed for peer $otherUserId');
+    debugPrint('[E2E-Flow] peer session recovered after remote bundle change for peer $otherUserId');
+    return newSession;
+  }
+
+  /// If session has stored remote fingerprint, fetch current bundle and compare. If bundle changed, drop session and return null.
+  Future<_DoubleRatchetSession?> _ensureSessionMatchesRemoteBundle(int otherUserId, _DoubleRatchetSession session) async {
+    if (session.remoteIdentityDhPublicKey == null || session.remoteDhPublicKey == null) {
+      return session;
+    }
+    try {
+      final bundleResponse = await _apiService.get('/encryption/keys/$otherUserId/');
+      final currentIdentityDh = Uint8List.fromList(base64Decode(
+        (bundleResponse['identity_dh_key'] ?? bundleResponse['identity_dh_key_public']) as String,
+      ));
+      final currentSignedPrekey = Uint8List.fromList(base64Decode(
+        (bundleResponse['signed_prekey'] ?? bundleResponse['signed_prekey_public']) as String,
+      ));
+      final peerFp = _DoubleRatchetSession.fingerprint(currentIdentityDh, currentSignedPrekey);
+      final storedFp = _DoubleRatchetSession.fingerprint(session.remoteIdentityDhPublicKey, session.remoteDhPublicKey);
+      debugPrint('[E2E-Send] peer bundle fingerprint=$peerFp');
+      debugPrint('[E2E-Send] stored session fingerprint=$storedFp');
+      final identityMatch = session.remoteIdentityDhPublicKey!.length == currentIdentityDh.length &&
+          _bytesEqualStatic(session.remoteIdentityDhPublicKey!, currentIdentityDh);
+      final prekeyMatch = session.remoteDhPublicKey!.length == currentSignedPrekey.length &&
+          _bytesEqualStatic(session.remoteDhPublicKey!, currentSignedPrekey);
+      if (identityMatch && prekeyMatch) {
+        return session;
+      }
+      debugPrint('[E2E-Send] remote bundle changed for peer $otherUserId');
+      await deleteSession(otherUserId);
+      debugPrint('[E2E-Send] deleted stale session for peer $otherUserId');
+      return null;
+    } catch (e) {
+      debugPrint('[E2E-Send] remote bundle check skipped for peer $otherUserId because fetch failed');
+      return session;
+    }
+  }
+
+  static bool _bytesEqualStatic(Uint8List a, Uint8List b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
   }
 
   /// Cache the plaintext of a message (sent or decrypted) — persists to disk.
@@ -247,6 +336,7 @@ class SessionManager {
 
     // Un messaggio iniziale (X3DH) sovrascrive sempre la sessione esistente (session reset).
     if (isInitialMessage) {
+      debugPrint('[E2E-Recv] initial message detected from peer $senderUserId');
       debugPrint('[SessionManager] Creating receiver session from initial message (overwriting if any)');
       session = await _createReceiverSession(senderUserId, parsedHeader);
       _sessions[senderUserId] = session;
@@ -254,26 +344,25 @@ class SessionManager {
       session = _sessions[senderUserId]!;
       debugPrint('[SessionManager] Using existing session for user $senderUserId');
     } else {
-      final stored = await _secureStorage.read(key: '$_sessionPrefix$senderUserId');
-      if (stored != null) {
-        try {
+      try {
+        debugPrint('[SessionManager] session load begin for user $senderUserId');
+        final stored = await _secureStorage.read(key: '$_sessionPrefix$senderUserId');
+        if (stored != null) {
           session = _DoubleRatchetSession.fromJson(jsonDecode(stored) as Map<String, dynamic>);
           _sessions[senderUserId] = session;
           debugPrint('[SessionManager] Loaded session from storage for user $senderUserId');
-        } catch (e) {
-          debugPrint('[SessionManager] Failed to load session: $e');
-          if (!isInitial) {
-            throw Exception('No session and not an initial message — cannot decrypt');
-          }
+        } else if (isInitial) {
+          debugPrint('[SessionManager] Creating receiver session from initial message');
           session = await _createReceiverSession(senderUserId, parsedHeader);
           _sessions[senderUserId] = session;
-        }
-      } else if (isInitial) {
-        debugPrint('[SessionManager] Creating receiver session from initial message');
+        } else {
+        throw Exception('No session exists and message is not initial — cannot decrypt');
+      }
+      } catch (e) {
+        debugPrint('[SessionManager] session load failed for user $senderUserId: $e');
+        if (!isInitial) rethrow;
         session = await _createReceiverSession(senderUserId, parsedHeader);
         _sessions[senderUserId] = session;
-      } else {
-        throw Exception('No session exists and message is not initial — cannot decrypt');
       }
     }
 
@@ -287,16 +376,31 @@ class SessionManager {
       return result;
     } catch (e) {
       debugPrint('[SessionManager] Decrypt failed for $messageId: $e');
-
-      if (e.toString().contains('forged') ||
-          e.toString().contains('malformed') ||
-          e.toString().contains('shared secret') ||
-          e.toString().contains('invalid')) {
-        debugPrint('[SessionManager] Deleting corrupted session for user $senderUserId');
-        await deleteSession(senderUserId);
+      final looksInitial = headerLen >= 100 && (header[0] & 0x01) != 0;
+      bool retryAttempted = false;
+      if (looksInitial && !retryAttempted) {
+        retryAttempted = true;
+        debugPrint('[E2E-Recv] replacing stale session for peer $senderUserId');
+        try {
+          session = await _createReceiverSession(senderUserId, parsedHeader);
+          _sessions[senderUserId] = session;
+          final plaintext = session.decrypt(encryptedPayload, header);
+          await _saveSession(senderUserId, session);
+          final result = utf8.decode(plaintext);
+          debugPrint('[E2E-Recv] decrypt success with rebuilt session for peer $senderUserId');
+          debugPrint('[E2E-Flow] peer session recovered after remote bundle change for peer $senderUserId');
+          return result;
+        } catch (e2) {
+          debugPrint('[E2E-Recv] decrypt failed using stale session for peer $senderUserId');
+        }
+      } else {
+        debugPrint('[E2E-Recv] decrypt failed using stale session for peer $senderUserId');
+        debugPrint('[Decrypt] failed for message ${messageId ?? "?"}, keeping session intact');
       }
-
-      if (messageId != null) await markDecryptFailed(messageId);
+      if (messageId != null) {
+        debugPrint('[E2E] message $messageId marked undecryptable (placeholder will be shown)');
+        await markDecryptFailed(messageId);
+      }
       rethrow;
     }
   }
@@ -354,8 +458,6 @@ class SessionManager {
       Uint8List? myOtpPrivate;
       if (otpKeyId != null) {
         myOtpPrivate = await _cryptoService.getOneTimePreKeyPrivate(otpKeyId);
-      } else {
-        myOtpPrivate = await _cryptoService.getFirstAvailableOneTimePreKeyPrivate();
       }
       if (myOtpPrivate != null) {
         final dh4 = _x25519DH(myOtpPrivate, senderEphemeralPub);
@@ -503,6 +605,7 @@ class SessionManager {
     final session = _DoubleRatchetSession.initSender(
       sharedSecret: sharedSecret,
       remotePublicKey: otherSignedPreKeyPub,
+      remoteIdentityDhPublicKey: otherIdentityDhPub,
       ephemeralPublicKey: Uint8List.fromList(ephemeralPublic.asTypedList),
       identityDhPublicKey: myIdentityDhPublic,
       otpKeyId: otpKeyId,
@@ -581,6 +684,8 @@ class _DoubleRatchetSession {
   Uint8List? remoteDhPublicKey;
   Uint8List? ephemeralPublicKey;
   Uint8List? identityDhPublicKey;
+  /// Peer's identity DH public (from bundle when we are sender). Used to detect remote bundle change.
+  Uint8List? remoteIdentityDhPublicKey;
   int? _otpKeyId;
   bool isInitialMessage = true;
   final Map<String, Uint8List> _skippedMessageKeys = {};
@@ -595,12 +700,22 @@ class _DoubleRatchetSession {
     this.remoteDhPublicKey,
     this.ephemeralPublicKey,
     this.identityDhPublicKey,
+    this.remoteIdentityDhPublicKey,
     int? otpKeyId,
   }) : _otpKeyId = otpKeyId;
+
+  /// Short fingerprint for logging (identity_dh + signed_prekey first bytes).
+  static String fingerprint(Uint8List? identityDh, Uint8List? signedPrekey) {
+    if (identityDh == null && signedPrekey == null) return 'none';
+    final a = identityDh != null ? base64Encode(identityDh.sublist(0, identityDh.length.clamp(0, 8))) : '';
+    final b = signedPrekey != null ? base64Encode(signedPrekey.sublist(0, signedPrekey.length.clamp(0, 8))) : '';
+    return '$a|$b';
+  }
 
   factory _DoubleRatchetSession.initSender({
     required Uint8List sharedSecret,
     required Uint8List remotePublicKey,
+    required Uint8List remoteIdentityDhPublicKey,
     required Uint8List ephemeralPublicKey,
     required Uint8List identityDhPublicKey,
     int? otpKeyId,
@@ -619,6 +734,7 @@ class _DoubleRatchetSession {
       dhPublicKey: newDhPublic,
       sendingChainKey: derived['chainKey']!,
       remoteDhPublicKey: remotePublicKey,
+      remoteIdentityDhPublicKey: remoteIdentityDhPublicKey,
       ephemeralPublicKey: ephemeralPublicKey,
       identityDhPublicKey: identityDhPublicKey,
       otpKeyId: otpKeyId,
@@ -847,6 +963,7 @@ class _DoubleRatchetSession {
         'dhPrivateKey': base64Encode(dhPrivateKey),
         'dhPublicKey': base64Encode(dhPublicKey),
         'remoteDhPublicKey': remoteDhPublicKey != null ? base64Encode(remoteDhPublicKey!) : null,
+        'remoteIdentityDhPublicKey': remoteIdentityDhPublicKey != null ? base64Encode(remoteIdentityDhPublicKey!) : null,
         'ephemeralPublicKey': ephemeralPublicKey != null ? base64Encode(ephemeralPublicKey!) : null,
         'identityDhPublicKey': identityDhPublicKey != null ? base64Encode(identityDhPublicKey!) : null,
         'isInitialMessage': isInitialMessage,
@@ -865,6 +982,9 @@ class _DoubleRatchetSession {
           : null,
       remoteDhPublicKey: json['remoteDhPublicKey'] != null
           ? Uint8List.fromList(base64Decode(json['remoteDhPublicKey'] as String))
+          : null,
+      remoteIdentityDhPublicKey: json['remoteIdentityDhPublicKey'] != null
+          ? Uint8List.fromList(base64Decode(json['remoteIdentityDhPublicKey'] as String))
           : null,
       ephemeralPublicKey: json['ephemeralPublicKey'] != null
           ? Uint8List.fromList(base64Decode(json['ephemeralPublicKey'] as String))

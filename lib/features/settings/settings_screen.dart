@@ -14,6 +14,8 @@ import '../../core/services/avatar_cache_service.dart';
 import '../../core/widgets/user_avatar_widget.dart';
 import '../../core/l10n/app_localizations.dart';
 import '../../core/l10n/locale_provider.dart';
+import '../splash/splash_screen.dart';
+import 'e2e_backup_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key, this.onBack});
@@ -553,18 +555,55 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ]),
                     const SizedBox(height: 16),
 
-                    // Sezione Sicurezza — Reset E2E
+                    // Sezione primaria — Backup chiavi sicure
+                    _buildBackupChiaviCard(),
+                    const SizedBox(height: 16),
+
+                    // Strumenti avanzati (reset E2E)
+                    Padding(
+                      padding: const EdgeInsets.only(left: 4, bottom: 8),
+                      child: Text(
+                        'Strumenti avanzati',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.grey[600],
+                        ),
+                      ),
+                    ),
                     _buildSection([
                       _buildMenuItem(
                         icon: Icons.refresh_rounded,
-                        iconColor: _teal,
-                        title: 'Resetta sessioni E2E',
+                        iconColor: Colors.orange,
+                        title: 'Reimposta sessione sicura',
+                        titleColor: Colors.orange.shade800,
                         onTap: _showResetE2ESessionsDialog,
                       ),
+                      _buildDivider(),
+                      _buildMenuItemWithSubtitle(
+                        icon: Icons.security,
+                        iconColor: Colors.red.shade700,
+                        title: 'Hard reset E2E completo',
+                        subtitle: 'Cancella stato E2E locale e server e rigenera da zero le chiavi sicure.',
+                        titleColor: Colors.red.shade800,
+                        onTap: _showHardResetE2EDialog,
+                      ),
                     ]),
+                    Padding(
+                      padding: const EdgeInsets.only(left: 16, right: 16, top: 8, bottom: 4),
+                      child: Text(
+                        'Questa azione può rendere non leggibili i messaggi storici su questo dispositivo.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.orange.shade800,
+                          height: 1.3,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
                     const SizedBox(height: 16),
 
-                    // Sezione 2 — Help
+                    // Sezione Help
                     _buildSection([
                       _buildMenuItem(
                         icon: Icons.help_outline_rounded,
@@ -615,6 +654,63 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ],
       ),
       child: Column(children: children),
+    );
+  }
+
+  Widget _buildMenuItemWithSubtitle({
+    required IconData icon,
+    required Color iconColor,
+    required String title,
+    required String subtitle,
+    Color? titleColor,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        child: Row(
+          children: [
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: iconColor.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(icon, color: iconColor, size: 20),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: titleColor ?? _navy,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey[700],
+                      height: 1.3,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Icon(Icons.chevron_right_rounded, color: Colors.grey[300], size: 22),
+          ],
+        ),
+      ),
     );
   }
 
@@ -712,14 +808,88 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  /// Card principale "Backup chiavi sicure" — azione primaria E2E.
+  Widget _buildBackupChiaviCard() {
+    return InkWell(
+      onTap: () {
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (context) => const E2EBackupScreen(),
+          ),
+        );
+      },
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.95),
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: _teal.withOpacity(0.08),
+              blurRadius: 12,
+              offset: const Offset(0, 2),
+            ),
+            BoxShadow(
+              color: Colors.black.withOpacity(0.04),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 44,
+              height: 44,
+              decoration: BoxDecoration(
+                color: _teal.withOpacity(0.15),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Icon(Icons.backup_rounded, color: _teal, size: 24),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Backup chiavi sicure',
+                    style: TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w700,
+                      color: _navy,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Proteggi i tuoi messaggi e recupera le chiavi in caso di reinstallazione o cambio dispositivo.',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: Colors.grey[700],
+                      height: 1.35,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Icon(Icons.chevron_right_rounded, color: Colors.grey[400], size: 24),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _showResetE2ESessionsDialog() async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Resetta sessioni E2E'),
+        title: const Text('Reimposta sessione sicura'),
         content: const Text(
-          'Vuoi resettare tutte le sessioni di crittografia? I messaggi vecchi non saranno più decifrabili, ma i nuovi messaggi funzioneranno correttamente.',
+          'Questa azione può rendere non leggibili i messaggi storici su questo dispositivo.\n\n'
+          'Vuoi reimpostare la sessione sicura? I nuovi messaggi funzioneranno correttamente dopo il reset.',
         ),
         actions: [
           TextButton(
@@ -728,11 +898,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF2ABFBF),
+              backgroundColor: Colors.orange,
               foregroundColor: Colors.white,
             ),
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Resetta'),
+            child: const Text('Reimposta'),
           ),
         ],
       ),
@@ -740,19 +910,113 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (confirmed != true || !mounted) return;
     try {
       await SessionManager().clearAllSessions();
-      await CryptoService(apiService: ApiService()).wipeAllKeys();
-      await CryptoService(apiService: ApiService()).initializeKeys();
+      final crypto = CryptoService(apiService: ApiService());
+      await crypto.wipeAllKeys();
+      final publicBundle = await crypto.generateAndStoreKeyBundle();
+      final uploaded = await crypto.uploadKeyBundle(publicBundle);
+      await CryptoService.clearNeedsManualRecoveryFlag();
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Sessioni E2E resettate con successo'),
-            backgroundColor: Color(0xFF2ABFBF),
-          ),
-        );
+        if (uploaded) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Sessioni E2E resettate con successo'),
+              backgroundColor: Color(0xFF2ABFBF),
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Chiavi rigenerate; upload bundle fallito. Riprova più tardi.'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
       }
     } catch (e) {
       debugPrint('Reset E2E sessions error: $e');
       if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Errore: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  /// Hard reset E2E completo (test/recovery): locale + server, poi nuovo bundle.
+  Future<void> _showHardResetE2EDialog() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Hard reset E2E completo'),
+        content: const Text(
+          'Questa azione:\n'
+          '- cancella sessioni E2E locali\n'
+          '- cancella chiavi locali\n'
+          '- chiama il reset E2E sul server\n'
+          '- rigenera e ricarica un nuovo bundle di chiavi\n\n'
+          'I messaggi storici cifrati potrebbero non essere più leggibili su questo dispositivo.\n\n'
+          'Vuoi continuare?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Annulla'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red.shade700,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Hard reset'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => const Center(
+        child: Card(
+          child: Padding(
+            padding: EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(height: 16),
+                Text('Hard reset in corso...'),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    try {
+      final crypto = CryptoService(apiService: ApiService());
+      await crypto.hardResetE2E();
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Hard reset E2E completato'),
+          backgroundColor: Color(0xFF2ABFBF),
+        ),
+      );
+      debugPrint('[E2E-Reset-UI] hard reset success, navigating to SplashScreen');
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute<void>(builder: (_) => const SplashScreen()),
+        (route) => false,
+      );
+    } catch (e) {
+      debugPrint('[E2E-Reset-UI] hard reset failed: $e');
+      if (mounted) {
+        Navigator.of(context).pop();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Errore: $e'),
