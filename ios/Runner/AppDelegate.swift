@@ -4,62 +4,53 @@ import AudioToolbox
 import PushKit
 import FirebaseCore
 import FirebaseMessaging
+
 @main
-@objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate, PKPushRegistryDelegate {
-  private var ringtoneTimer: Timer?
-  private weak var flutterController: FlutterViewController?
-  private var voipChannel: FlutterMethodChannel?
+@objc class AppDelegate: FlutterAppDelegate, PKPushRegistryDelegate, FlutterImplicitEngineDelegate {
+  var ringtoneTimer: Timer?
+  var voipChannel: FlutterMethodChannel?
 
   override func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
-    // Registrazione APNs: chiamata sempre, prima di qualsiasi guard (con SceneDelegate window può essere nil qui)
-    NSLog("[iOS Push] registerForRemoteNotifications called")
+    FirebaseApp.configure()
     application.registerForRemoteNotifications()
-
-    guard let controller = window?.rootViewController as? FlutterViewController else {
-      return super.application(application, didFinishLaunchingWithOptions: launchOptions)
-    }
-    flutterController = controller
-
-    let soundsChannel = FlutterMethodChannel(name: "com.axphone.app/sounds", binaryMessenger: controller.binaryMessenger)
-    soundsChannel.setMethodCallHandler { [weak self] (call, result) in
-      if call.method == "playSystemRingtone" {
-        self?.playSystemRingtone()
-        result(nil)
-      } else if call.method == "stopSystemRingtone" {
-        self?.stopSystemRingtone()
-        result(nil)
-      } else {
-        result(FlutterMethodNotImplemented)
-      }
-    }
-
-    let voipChannel = FlutterMethodChannel(name: "com.axphone.app/voip", binaryMessenger: controller.binaryMessenger)
-    self.voipChannel = voipChannel
-
     let voipRegistry = PKPushRegistry(queue: .main)
     voipRegistry.delegate = self
     voipRegistry.desiredPushTypes = [.voIP]
-
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 
-  override func application(
-    _ application: UIApplication,
-    didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
-  ) {
-    NSLog("[iOS Push] didRegisterForRemoteNotificationsWithDeviceToken")
+  func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
+    GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
+
+    let messenger = engineBridge.applicationRegistrar.messenger()
+
+    let soundsChannel = FlutterMethodChannel(
+      name: "com.axphone.app/sounds",
+      binaryMessenger: messenger
+    )
+    soundsChannel.setMethodCallHandler { [weak self] call, result in
+      switch call.method {
+      case "playSystemRingtone": self?.playSystemRingtone(); result(nil)
+      case "stopSystemRingtone": self?.stopSystemRingtone(); result(nil)
+      default: result(FlutterMethodNotImplemented)
+      }
+    }
+
+    voipChannel = FlutterMethodChannel(
+      name: "com.axphone.app/voip",
+      binaryMessenger: messenger
+    )
+  }
+
+  override func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
     Messaging.messaging().apnsToken = deviceToken
     super.application(application, didRegisterForRemoteNotificationsWithDeviceToken: deviceToken)
   }
 
-  override func application(
-    _ application: UIApplication,
-    didFailToRegisterForRemoteNotificationsWithError error: Error
-  ) {
-    NSLog("[iOS Push] didFailToRegisterForRemoteNotificationsWithError: %@", error.localizedDescription)
+  override func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
     super.application(application, didFailToRegisterForRemoteNotificationsWithError: error)
   }
 
@@ -81,12 +72,8 @@ import FirebaseMessaging
     let callerUserId = (dict["callerUserId"] as? String) ?? ""
     let conversationId = (dict["conversationId"] as? String) ?? ""
     let args: [String: Any] = [
-      "handle": handle,
-      "callerName": callerName,
-      "callId": callId,
-      "callType": callType,
-      "callerUserId": callerUserId,
-      "conversationId": conversationId
+      "handle": handle, "callerName": callerName, "callId": callId,
+      "callType": callType, "callerUserId": callerUserId, "conversationId": conversationId
     ]
     DispatchQueue.main.async { [weak self] in
       self?.voipChannel?.invokeMethod("incomingCall", arguments: args)
@@ -94,7 +81,7 @@ import FirebaseMessaging
     completion()
   }
 
-  private func playSystemRingtone() {
+  func playSystemRingtone() {
     stopSystemRingtone()
     AudioServicesPlaySystemSound(1005)
     ringtoneTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { _ in
@@ -103,12 +90,8 @@ import FirebaseMessaging
     RunLoop.main.add(ringtoneTimer!, forMode: .common)
   }
 
-  private func stopSystemRingtone() {
+  func stopSystemRingtone() {
     ringtoneTimer?.invalidate()
     ringtoneTimer = nil
-  }
-
-  func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
-    GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
   }
 }
