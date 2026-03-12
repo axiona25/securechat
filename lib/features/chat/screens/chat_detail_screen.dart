@@ -1152,10 +1152,14 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           _decryptedMessageIds.add(messageId);
           contentDecrypted = true;
         } catch (e) {
+          final errStr = e.toString();
+          final isSessionMissing = errStr.contains('No session exists') || errStr.contains('message is not initial');
           msg['content'] = kMessageUndecryptablePlaceholder;
-          _failedDecryptIds.add(messageId);
-          await _sessionManager.markDecryptFailed(messageId);
-          await _persistFailedDecryptIds();
+          if (!isSessionMissing) {
+            _failedDecryptIds.add(messageId);
+            await _sessionManager.markDecryptFailed(messageId);
+            await _persistFailedDecryptIds();
+          }
         }
       }
       // 3. Only now compare (decrypted) newMessages with _messages; aggiorna anche se solo il content è cambiato (decifratura)
@@ -1358,10 +1362,14 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           }
           _decryptedMessageIds.add(messageId);
         } catch (e) {
+          final errStr = e.toString();
+          final isSessionMissing = errStr.contains('No session exists') || errStr.contains('message is not initial');
           msg['content'] = kMessageUndecryptablePlaceholder;
-          _failedDecryptIds.add(messageId);
-          await _sessionManager.markDecryptFailed(messageId);
-          await _persistFailedDecryptIds();
+          if (!isSessionMissing) {
+            _failedDecryptIds.add(messageId);
+            await _sessionManager.markDecryptFailed(messageId);
+            await _persistFailedDecryptIds();
+          }
         }
       }
       if (mounted) {
@@ -1485,6 +1493,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         // BUG A: Check disk cache first — avoid re-decrypt and ratchet corruption
         final diskCached = prefsForCache.getString('scp_msg_cache_$messageId');
         if (diskCached != null) {
+          debugPrint('[ChatDecrypt] messageId=$messageId senderId=$senderIdInt hasEncryptedPayload=true sessionLookup=skipped decryptResult=skipped placeholderReason=ok plaintextSource=cache');
           msg['content'] = diskCached;
           _decryptedMessageIds.add(messageId);
           continue;
@@ -1493,6 +1502,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         if (_decryptedMessageIds.contains(messageId)) {
           final cached = await _sessionManager.getCachedPlaintext(messageId);
           if (cached != null) {
+            debugPrint('[ChatDecrypt] messageId=$messageId senderId=$senderIdInt hasEncryptedPayload=true sessionLookup=skipped decryptResult=skipped placeholderReason=ok plaintextSource=cache');
             msg['content'] = cached;
             continue;
           }
@@ -1502,11 +1512,17 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
 
         final alreadyFailed = await _sessionManager.isDecryptFailed(messageId);
         if (alreadyFailed) {
+          debugPrint('[ChatDecrypt] messageId=$messageId senderId=$senderIdInt isHistorical=true hasEncryptedPayload=true sessionLookup=skipped decryptResult=skipped placeholderReason=already_marked_failed plaintextSource=placeholder');
           msg['content'] = kMessageUndecryptablePlaceholder;
           _failedDecryptIds.add(messageId);
           await _persistFailedDecryptIds();
           continue;
         }
+
+        final createdAt = msg['created_at']?.toString();
+        final isHistorical = createdAt != null && DateTime.tryParse(createdAt) != null &&
+            DateTime.now().difference(DateTime.parse(createdAt)).inMinutes > 1;
+        debugPrint('[ChatDecrypt] messageId=$messageId senderId=$senderIdInt isHistorical=$isHistorical hasEncryptedPayload=true sessionLookup=pending decryptResult=pending plaintextSource=pending');
 
         // Try decrypt only when not in disk cache (re-decrypt corrupts Double Ratchet)
         try {
@@ -1516,6 +1532,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             Uint8List.fromList(combined),
             messageId: messageId,
           );
+          debugPrint('[ChatDecrypt] messageId=$messageId senderId=$senderIdInt isHistorical=$isHistorical hasEncryptedPayload=true sessionLookup=success decryptResult=success plaintextSource=decrypt');
           final attachmentPayload = SessionManager.parseAttachmentPayload(decrypted);
           if (attachmentPayload != null) {
             final caption = attachmentPayload['caption']?.toString() ?? '';
@@ -1544,11 +1561,15 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           }
           _decryptedMessageIds.add(messageId);
         } catch (e) {
+          final errStr = e.toString();
+          final isSessionMissing = errStr.contains('No session exists') || errStr.contains('message is not initial');
+          debugPrint('[ChatDecrypt] messageId=$messageId senderId=$senderIdInt isHistorical=$isHistorical hasEncryptedPayload=true sessionLookup=${isSessionMissing ? "missing" : "error"} decryptResult=failed placeholderReason=${isSessionMissing ? "session_missing_no_mark" : errStr} plaintextSource=placeholder');
           msg['content'] = kMessageUndecryptablePlaceholder;
-          _failedDecryptIds.add(messageId);
-          await _sessionManager.markDecryptFailed(messageId);
-          await _persistFailedDecryptIds();
-          debugPrint('[E2E] Decrypt failed for message $messageId from user $senderIdInt: $e');
+          if (!isSessionMissing) {
+            _failedDecryptIds.add(messageId);
+            await _sessionManager.markDecryptFailed(messageId);
+            await _persistFailedDecryptIds();
+          }
         }
       }
 

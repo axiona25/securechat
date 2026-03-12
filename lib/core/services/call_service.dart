@@ -98,6 +98,7 @@ class CallService {
   int? _remoteUserId;
   List<Map<String, dynamic>>? _iceServers;
   RTCPeerConnection? _peerConnection;
+  MediaStream? _remoteStream;
   DateTime? _callStartTime;
   StreamSubscription? _wsSubscription;
   bool _disposed = false;
@@ -454,19 +455,23 @@ class CallService {
         });
       };
       _peerConnection!.onAddStream = (MediaStream stream) {
-        _emit(_state.copyWith(remoteStream: stream, status: CallStatus.connected));
+        _setRemoteStream(stream);
         _callStartTime ??= DateTime.now();
-        _setSpeakerOnByDefault();
+        _emit(_state.copyWith(remoteStream: _remoteStream, status: CallStatus.connected));
+        _scheduleSpeakerDefault();
       };
       _peerConnection!.onTrack = (RTCTrackEvent event) {
-        if (event.streams.isNotEmpty) {
-          _emit(_state.copyWith(
-            remoteStream: event.streams.first,
-            status: CallStatus.connected,
-          ));
-          _callStartTime ??= DateTime.now();
-          _setSpeakerOnByDefault();
+        final stream = event.streams.isNotEmpty
+            ? event.streams.first
+            : null;
+        if (stream != null) {
+          _addRemoteTrackFromStream(stream, event.track);
+        } else if (event.track != null) {
+          _addRemoteTrack(event.track!);
         }
+        _callStartTime ??= DateTime.now();
+        _emit(_state.copyWith(remoteStream: _remoteStream, status: CallStatus.connected));
+        _scheduleSpeakerDefault();
       };
       _peerConnection!.onIceConnectionState = (RTCIceConnectionState state) {
         if (state == RTCIceConnectionState.RTCIceConnectionStateDisconnected ||
@@ -507,11 +512,36 @@ class CallService {
     }
   }
 
+  void _setRemoteStream(MediaStream stream) {
+    _remoteStream = stream;
+  }
+
+  void _addRemoteTrackFromStream(MediaStream stream, MediaStreamTrack? track) {
+    if (_remoteStream == null) {
+      _remoteStream = stream;
+    } else if (track != null && !_remoteStream!.getTracks().contains(track)) {
+      _remoteStream!.addTrack(track);
+    }
+  }
+
+  void _addRemoteTrack(MediaStreamTrack track) {
+    if (_remoteStream != null) {
+      _remoteStream!.addTrack(track);
+    }
+  }
+
+  void _scheduleSpeakerDefault() {
+    Future.delayed(const Duration(milliseconds: 350), () {
+      if (!_disposed && _peerConnection != null) _setSpeakerOnByDefault();
+    });
+  }
+
   void _cleanup() {
     final localStream = _state.localStream;
-    final remoteStream = _state.remoteStream;
+    final remoteStream = _state.remoteStream ?? _remoteStream;
     _peerConnection?.close();
     _peerConnection = null;
+    _remoteStream = null;
     localStream?.getTracks().forEach((t) => t.stop());
     remoteStream?.getTracks().forEach((t) => t.stop());
     _emit(const CallState(status: CallStatus.idle));
@@ -608,22 +638,10 @@ class CallService {
   Future<void> _setSpeaker(bool on) async {
     _emit(_state.copyWith(isSpeakerOn: on));
     try {
-      // Use a short delay to let the audio session stabilize
-      await Future.delayed(const Duration(milliseconds: 100));
-      if (_peerConnection != null) {
-        // Use the peer connection's audio helper for safer speaker control
-        final senders = await _peerConnection!.getSenders();
-        for (final sender in senders) {
-          if (sender.track?.kind == 'audio') {
-            await Helper.setSpeakerphoneOn(on);
-            return;
-          }
-        }
-      }
+      await Future.delayed(const Duration(milliseconds: 150));
       await Helper.setSpeakerphoneOn(on);
     } catch (e) {
       if (kDebugMode) debugPrint('[CallService] setSpeaker error: $e');
-      // On simulator this may crash — just update UI state
     }
   }
 

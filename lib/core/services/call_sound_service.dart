@@ -41,37 +41,20 @@ class CallSoundService {
     }
   }
 
-  /// Ringtone (callee hears the ring)
+  /// Ringtone (callee hears the ring) — always uses assets/sounds/ringtone.wav
   Future<void> playRingtone() async {
     await stopAll();
-    if (await isSimulator) {
-      // Simulatore: usa il nostro file audio
-      _ringtonePlayer = AudioPlayer();
-      try {
-        await _ringtonePlayer!.setAsset('assets/sounds/ringtone.wav');
-        await _ringtonePlayer!.setLoopMode(LoopMode.all);
-        await _ringtonePlayer!.setVolume(0.8);
-        await _ringtonePlayer!.play();
-      } catch (e) {
-        debugPrint('[CallSound] Error playing ringtone: $e');
-      }
-    } else {
-      // Device fisico: usa la suoneria di sistema tramite MethodChannel
-      try {
-        await _nativeChannel.invokeMethod('playSystemRingtone');
-      } catch (e) {
-        debugPrint('[CallSound] Native ringtone not available, falling back to custom');
-        _ringtonePlayer = AudioPlayer();
-        try {
-          await _ringtonePlayer!.setAsset('assets/sounds/ringtone.wav');
-          await _ringtonePlayer!.setLoopMode(LoopMode.all);
-          await _ringtonePlayer!.setVolume(0.8);
-          await _ringtonePlayer!.play();
-        } catch (e2) {
-          debugPrint('[CallSound] Fallback ringtone error: $e2');
-        }
-      }
+    _ringtonePlayer = AudioPlayer();
+    try {
+      await _ringtonePlayer!.setAsset('assets/sounds/ringtone.wav');
+      await _ringtonePlayer!.setLoopMode(LoopMode.all);
+      await _ringtonePlayer!.setVolume(0.8);
+      await _ringtonePlayer!.play();
+    } catch (e) {
+      debugPrint('[CallSound] Error playing ringtone: $e');
     }
+    // Stop native ringtone if it was started elsewhere (e.g. CallKit)
+    try { await _nativeChannel.invokeMethod('stopSystemRingtone'); } catch (_) {}
   }
 
   /// Busy tone (fast tu-tu-tu) — always custom

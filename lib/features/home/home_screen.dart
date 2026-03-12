@@ -172,6 +172,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
         debugPrint('[Home] stack: $stack');
       }
     }();
+    _pollingTimer?.cancel();
     _pollingTimer = Timer.periodic(const Duration(seconds: 3), (_) {
       if (mounted) _loadDataSilent();
     });
@@ -181,6 +182,13 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       CallService().ensureConnected();
+      _pollingTimer?.cancel();
+      _pollingTimer = Timer.periodic(const Duration(seconds: 3), (_) {
+        if (mounted) _loadDataSilent();
+      });
+    }
+    if (state == AppLifecycleState.paused) {
+      _pollingTimer?.cancel();
     }
   }
 
@@ -240,7 +248,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
               if (resetUserId != null && mounted) {
                 final uid = resetUserId is int ? resetUserId : int.tryParse(resetUserId.toString());
                 if (uid != null) {
-                  SessionManager().deleteSession(uid).then((_) {
+                  SessionManager().deleteSession(uid, reason: 'server_session_reset').then((_) {
                     debugPrint('[E2E] Session reset received for user $uid');
                   });
                 }
@@ -1076,7 +1084,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
       try {
         final response = await _chatService.createPrivateConversation(otherUserId!);
         if (response != null && response['session_reset'] == true) {
-          await SessionManager().deleteSession(otherUserId);
+          await SessionManager().deleteSession(otherUserId, reason: 'session_reset_before_open_chat_reactivated_hidden');
           debugPrint('[E2E] Session reset before opening chat (re-activated hidden) for user $otherUserId');
         }
       } catch (_) {
@@ -1126,7 +1134,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
               final other = conv.otherParticipant(_currentUser?.id);
               final otherUserId = other?.userId;
               if (otherUserId != null && !conv.isGroup) {
-                await SessionManager().deleteSession(otherUserId);
+                await SessionManager().deleteSession(otherUserId, reason: 'conversation_deleted');
                 debugPrint('[E2E] Session deleted on conversation delete for user $otherUserId');
               }
 
@@ -1643,7 +1651,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
                 if (otherUserId != null) {
                   final uid = otherUserId is int ? otherUserId : int.tryParse(otherUserId.toString());
                   if (uid != null) {
-                    await SessionManager().deleteSession(uid);
+                    await SessionManager().deleteSession(uid, reason: 'session_reset_after_chat_reopen');
                     debugPrint('[E2E] Session reset after chat re-open (cleared local session toward $uid for new X3DH)');
                   }
                 }

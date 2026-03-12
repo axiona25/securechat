@@ -153,6 +153,7 @@ class VoipService {
             remoteUserId: callerUserId,
             remoteUserName: callerName,
             remoteUserAvatar: null,
+            skipRingingSound: true,
           ),
         ),
       );

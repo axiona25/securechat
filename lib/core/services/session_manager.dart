@@ -20,6 +20,7 @@ class SessionManager {
   static SessionManager? _instance;
 
   static const String _sessionPrefix = 'scp_session_';
+  static const String _sessionPrevPrefix = 'scp_session_prev_';
   static const String _cachePrefix = 'scp_msg_cache_';
   static const String _failedPrefix = 'e2e_failed_';
   static const String _e2eInstallIdKey = 'e2e_install_id';
@@ -126,7 +127,13 @@ class SessionManager {
     debugPrint('[E2E-Send] forcing fresh X3DH bootstrap for peer $otherUserId');
     final newSession = await _performX3DHAndInitSession(otherUserId);
     _sessions[otherUserId] = newSession;
+    final currentStored = await _secureStorage.read(key: '$_sessionPrefix$otherUserId');
+    if (currentStored != null && currentStored.isNotEmpty) {
+      await _secureStorage.write(key: '$_sessionPrevPrefix$otherUserId', value: currentStored);
+      debugPrint('[SessionAudit] action=backup_current senderId=$otherUserId reason=before_overwrite_after_remote_bundle_change');
+    }
     await _saveSession(otherUserId, newSession);
+    debugPrint('[SessionAudit] action=overwrite senderId=$otherUserId reason=new_session_created_after_remote_bundle_change');
     final newFp = _DoubleRatchetSession.fingerprint(newSession.remoteIdentityDhPublicKey, newSession.remoteDhPublicKey);
     debugPrint('[E2E-Send] new session saved with fingerprint=$newFp');
     debugPrint('[E2E-Send] fresh bootstrap completed for peer $otherUserId');
@@ -158,9 +165,8 @@ class SessionManager {
       if (identityMatch && prekeyMatch) {
         return session;
       }
-      debugPrint('[E2E-Send] remote bundle changed for peer $otherUserId');
-      await deleteSession(otherUserId);
-      debugPrint('[E2E-Send] deleted stale session for peer $otherUserId');
+      debugPrint('[SessionAudit] action=send_path_stale_session_detected senderId=$otherUserId reason=remote_bundle_changed');
+      debugPrint('[SessionAudit] action=skip_delete senderId=$otherUserId reason=preserve_historical_session_until_replaced');
       return null;
     } catch (e) {
       debugPrint('[E2E-Send] remote bundle check skipped for peer $otherUserId because fetch failed');
@@ -336,12 +342,14 @@ class SessionManager {
 
     // Un messaggio iniziale (X3DH) sovrascrive sempre la sessione esistente (session reset).
     if (isInitialMessage) {
+      debugPrint('[ChatDecrypt] sessionLookup=initial_message_creates_session (senderId=$senderUserId messageId=$messageId)');
       debugPrint('[E2E-Recv] initial message detected from peer $senderUserId');
       debugPrint('[SessionManager] Creating receiver session from initial message (overwriting if any)');
       session = await _createReceiverSession(senderUserId, parsedHeader);
       _sessions[senderUserId] = session;
     } else if (_sessions.containsKey(senderUserId)) {
       session = _sessions[senderUserId]!;
+      debugPrint('[ChatDecrypt] sessionLookup=success_in_memory (senderId=$senderUserId messageId=$messageId)');
       debugPrint('[SessionManager] Using existing session for user $senderUserId');
     } else {
       try {
@@ -350,17 +358,29 @@ class SessionManager {
         if (stored != null) {
           session = _DoubleRatchetSession.fromJson(jsonDecode(stored) as Map<String, dynamic>);
           _sessions[senderUserId] = session;
+          debugPrint('[ChatDecrypt] sessionLookup=success_from_storage (senderId=$senderUserId messageId=$messageId)');
           debugPrint('[SessionManager] Loaded session from storage for user $senderUserId');
-        } else if (isInitial) {
-          debugPrint('[SessionManager] Creating receiver session from initial message');
-          session = await _createReceiverSession(senderUserId, parsedHeader);
-          _sessions[senderUserId] = session;
         } else {
-        throw Exception('No session exists and message is not initial — cannot decrypt');
-      }
+          final backupStored = await _secureStorage.read(key: '$_sessionPrevPrefix$senderUserId');
+          if (backupStored != null) {
+            session = _DoubleRatchetSession.fromJson(jsonDecode(backupStored) as Map<String, dynamic>);
+            _sessions[senderUserId] = session;
+            debugPrint('[SessionAudit] action=load_backup senderId=$senderUserId source=storage');
+            debugPrint('[SessionManager] Loaded backup session from storage for user $senderUserId');
+          } else if (isInitial) {
+            debugPrint('[ChatDecrypt] sessionLookup=initial_creates_session (senderId=$senderUserId messageId=$messageId)');
+            debugPrint('[SessionManager] Creating receiver session from initial message');
+            session = await _createReceiverSession(senderUserId, parsedHeader);
+            _sessions[senderUserId] = session;
+          } else {
+            debugPrint('[ChatDecrypt] sessionLookup=missing (senderId=$senderUserId messageId=$messageId) — No session exists and message is not initial');
+            throw Exception('No session exists and message is not initial — cannot decrypt');
+          }
+        }
       } catch (e) {
         debugPrint('[SessionManager] session load failed for user $senderUserId: $e');
         if (!isInitial) rethrow;
+        debugPrint('[ChatDecrypt] sessionLookup=recovered_after_error (senderId=$senderUserId messageId=$messageId)');
         session = await _createReceiverSession(senderUserId, parsedHeader);
         _sessions[senderUserId] = session;
       }
@@ -396,6 +416,16 @@ class SessionManager {
       } else {
         debugPrint('[E2E-Recv] decrypt failed using stale session for peer $senderUserId');
         debugPrint('[Decrypt] failed for message ${messageId ?? "?"}, keeping session intact');
+      }
+      final backupStored = await _secureStorage.read(key: '$_sessionPrevPrefix$senderUserId');
+      if (backupStored != null) {
+        try {
+          final backupSession = _DoubleRatchetSession.fromJson(jsonDecode(backupStored) as Map<String, dynamic>);
+          final plaintext = backupSession.decrypt(encryptedPayload, header);
+          final result = utf8.decode(plaintext);
+          debugPrint('[SessionAudit] action=decrypt_with_backup senderId=$senderUserId messageId=$messageId');
+          return result;
+        } catch (_) {}
       }
       if (messageId != null) {
         debugPrint('[E2E] message $messageId marked undecryptable (placeholder will be shown)');
@@ -502,10 +532,17 @@ class SessionManager {
   }
 
   /// Remove the E2E session for one user (e.g. after chat re-open from hidden).
-  Future<void> deleteSession(int otherUserId) async {
-    debugPrint('[SessionManager] deleteSession called, instance hashCode: ${hashCode}');
+  /// Clears both active and backup session for that peer.
+  /// [reason] used for [SessionAudit] logging.
+  Future<void> deleteSession(int otherUserId, {String reason = 'unspecified'}) async {
+    debugPrint('[SessionAudit] action=delete senderId=$otherUserId reason=$reason');
     _sessions.remove(otherUserId);
     await _secureStorage.delete(key: '$_sessionPrefix$otherUserId');
+    final hadBackup = await _secureStorage.read(key: '$_sessionPrevPrefix$otherUserId');
+    if (hadBackup != null) {
+      debugPrint('[SessionAudit] action=delete_backup senderId=$otherUserId reason=$reason');
+    }
+    await _secureStorage.delete(key: '$_sessionPrevPrefix$otherUserId');
     debugPrint('[SessionManager] Session deleted for user $otherUserId');
   }
 
@@ -514,7 +551,7 @@ class SessionManager {
     _sentMessagePlaintexts.clear();
     final all = await _secureStorage.readAll();
     for (final key in all.keys) {
-      if (key.startsWith(_sessionPrefix)) {
+      if (key.startsWith(_sessionPrefix) || key.startsWith(_sessionPrevPrefix)) {
         await _secureStorage.delete(key: key);
       }
     }

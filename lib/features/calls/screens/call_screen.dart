@@ -17,6 +17,8 @@ class CallScreen extends StatefulWidget {
   final int? remoteUserId;
   final String? remoteUserName;
   final String? remoteUserAvatar;
+  /// When true (e.g. opened after accepting from CallKit), do not start ringtone.
+  final bool skipRingingSound;
 
   const CallScreen({
     super.key,
@@ -27,6 +29,7 @@ class CallScreen extends StatefulWidget {
     this.remoteUserId,
     this.remoteUserName,
     this.remoteUserAvatar,
+    this.skipRingingSound = false,
   });
 
   @override
@@ -58,10 +61,10 @@ class _CallScreenState extends State<CallScreen> {
         remoteUserAvatar: widget.remoteUserAvatar,
         conversationId: widget.conversationId,
       );
-      CallSoundService().playRingtone();
+      if (!widget.skipRingingSound) CallSoundService().playRingtone();
     } else if (!widget.isIncoming) {
       _callService.initiateCall(widget.conversationId, widget.callType);
-    } else if (widget.isIncoming) {
+    } else if (widget.isIncoming && !widget.skipRingingSound) {
       CallSoundService().playRingtone();
     }
     _stateSub = _callService.stateStream.listen(_onStateUpdate);
