@@ -103,6 +103,8 @@ class CallService {
   StreamSubscription? _wsSubscription;
   bool _disposed = false;
   bool _isConnected = false;
+  bool _speakerDefaultApplied = false;
+  Timer? _speakerTimer;
 
   Stream<CallState> get stateStream => _stateController.stream;
   Stream<CallState> get onIncomingCall => _incomingCallController.stream;
@@ -428,20 +430,30 @@ class CallService {
     // Optional: update UI for remote mute/video (e.g. show icon)
   }
 
+  Future<void> _remoteLog(String msg) async {
+    try {
+      await _api.post('/encryption/debug/log/', body: {'message': msg}, requiresAuth: true);
+    } catch (_) {}
+  }
+
   /// Configures AVAudioSession on iOS (playAndRecord + voiceChat) before WebRTC.
   /// Required for audio to pass on iOS; no-op or ignored on other platforms.
   Future<void> _configureAudioSession() async {
+    _remoteLog('[CallService] _configureAudioSession start');
     try {
       await Helper.setAppleAudioConfiguration(AppleAudioConfiguration(
         appleAudioCategory: AppleAudioCategory.playAndRecord,
         appleAudioCategoryOptions: {
           AppleAudioCategoryOption.allowBluetooth,
           AppleAudioCategoryOption.allowBluetoothA2DP,
+          AppleAudioCategoryOption.defaultToSpeaker,
         },
         appleAudioMode: AppleAudioMode.voiceChat,
       ));
+      _remoteLog('[CallService] _configureAudioSession ok');
     } catch (e) {
       debugPrint('[CallService] _configureAudioSession error: $e');
+      _remoteLog('[CallService] _configureAudioSession error: $e');
     }
   }
 
@@ -477,19 +489,23 @@ class CallService {
       _peerConnection!.onAddStream = (MediaStream stream) {
         _setRemoteStream(stream);
         _callStartTime ??= DateTime.now();
+        _remoteLog('[CallService] onAddStream connected');
         _emit(_state.copyWith(remoteStream: _remoteStream, status: CallStatus.connected));
-        _scheduleSpeakerDefault();
       };
       _peerConnection!.onTrack = (RTCTrackEvent event) {
         final stream = event.streams.isNotEmpty
             ? event.streams.first
             : null;
+        final kind = event.track?.kind ?? 'unknown';
+        final streamId = stream?.id ?? 'no-stream';
+        _remoteLog('[CallService] onTrack kind=$kind streamId=$streamId');
         if (stream != null) {
           _addRemoteTrackFromStream(stream, event.track);
         } else if (event.track != null) {
           _addRemoteTrack(event.track!);
         }
         _callStartTime ??= DateTime.now();
+        _remoteLog('[CallService] onTrack connected');
         _emit(_state.copyWith(remoteStream: _remoteStream, status: CallStatus.connected));
         _scheduleSpeakerDefault();
       };
@@ -509,6 +525,7 @@ class CallService {
     if (_state.localStream != null) return;
     final audio = true;
     final video = _callType == 'video';
+    _remoteLog('[CallService] _getUserMedia start audio=$audio video=$video');
     try {
       // ignore: deprecated_member_use — navigator.mediaDevices from factory not used to keep API simple
       final stream = await MediaDevices.getUserMedia({
@@ -521,6 +538,8 @@ class CallService {
               }
             : false,
       });
+      final tracksCount = stream.getTracks().length;
+      _remoteLog('[CallService] _getUserMedia success tracks=$tracksCount');
       _emit(_state.copyWith(localStream: stream));
       if (_peerConnection != null) {
         stream.getTracks().forEach((track) {
@@ -529,6 +548,7 @@ class CallService {
       }
     } catch (e) {
       debugPrint('[CallService] getUserMedia error: $e');
+      _remoteLog('[CallService] _getUserMedia error: $e');
     }
   }
 
@@ -551,14 +571,23 @@ class CallService {
   }
 
   void _scheduleSpeakerDefault() {
-    Future.delayed(const Duration(milliseconds: 800), () {
-      if (!_disposed && _peerConnection != null) _setSpeakerOnByDefault();
+    if (_speakerDefaultApplied) return;
+    _speakerDefaultApplied = true;
+    _speakerTimer?.cancel();
+    _speakerTimer = Timer(const Duration(milliseconds: 1500), () {
+      if (!_disposed && _peerConnection != null) {
+        _setSpeakerOnByDefault();
+        _remoteLog('[CallService] _scheduleSpeakerDefault executing');
+      }
     });
+    _remoteLog('[CallService] _scheduleSpeakerDefault scheduled 1500ms');
   }
 
   void _cleanup() {
     final localStream = _state.localStream;
     final remoteStream = _state.remoteStream ?? _remoteStream;
+    _speakerTimer?.cancel();
+    _speakerTimer = null;
     _peerConnection?.close();
     _peerConnection = null;
     _remoteStream = null;
@@ -570,6 +599,7 @@ class CallService {
     _remoteUserId = null;
     _iceServers = null;
     _callStartTime = null;
+    _speakerDefaultApplied = false;
   }
 
   /// Start an outgoing call (1-to-1). Participants are derived from conversation on the backend.
@@ -656,10 +686,10 @@ class CallService {
   }
 
   Future<void> _setSpeaker(bool on) async {
+    _remoteLog('[CallService] _setSpeaker on=$on');
     _emit(_state.copyWith(isSpeakerOn: on));
     try {
-      await _configureAudioSession();
-      await Future.delayed(const Duration(milliseconds: 500));
+      await Future.delayed(const Duration(milliseconds: 200));
       await Helper.setSpeakerphoneOn(on);
     } catch (e) {
       if (kDebugMode) debugPrint('[CallService] setSpeaker error: $e');
