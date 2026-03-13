@@ -422,7 +422,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
             final senderName = newConv.displayNameFor(_currentUser?.id);
             final lastMsg = _lastMessageToMap(lastMessage);
             final icon = _getNotificationIcon(lastMessage?.messageType ?? 'text');
-            if (mounted) {
+            final isCurrentlyOpenChat =
+                ChatDetailScreen.currentOpenConversationId == newConv.id;
+            if (mounted && !isCurrentlyOpenChat) {
               ChatSoundService().tryPlayIncoming(
                 messageId: messageId,
                 senderId: senderId,
