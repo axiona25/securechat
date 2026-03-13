@@ -183,15 +183,18 @@ class CryptoService {
   // ============================================================
 
   /// Upload public key bundle to server.
-  /// Call after generateAndStoreKeyBundle().
-  Future<bool> uploadKeyBundle(Map<String, dynamic> publicBundle) async {
+  /// Call after generateAndStoreKeyBundle() or _rebuildPublicBundle().
+  /// [resetOtp] when true (default) calls reset-otp before upload; pass false when re-uploading after rebuild to avoid clearing OTPs.
+  Future<bool> uploadKeyBundle(Map<String, dynamic> publicBundle, {bool resetOtp = true}) async {
     print('[CryptoDebug] uploadKeyBundle called');
     try {
-      await _apiService.post(
-        '/encryption/keys/reset-otp/',
-        body: {},
-        requiresAuth: true,
-      );
+      if (resetOtp) {
+        await _apiService.post(
+          '/encryption/keys/reset-otp/',
+          body: {},
+          requiresAuth: true,
+        );
+      }
       debugPrint('[CryptoService] uploadKeyBundle START - keys: ${publicBundle.keys.toList()}');
       await _apiService.post(
         '/encryption/keys/upload/',
@@ -285,7 +288,7 @@ class CryptoService {
         }
         await _secureStorage.delete(key: '${_storagePrefix}force_reupload');
         final publicBundle = await _rebuildPublicBundle();
-        await uploadKeyBundle(publicBundle);
+        await uploadKeyBundle(publicBundle, resetOtp: false);
         await _secureStorage.write(key: _keysUploaded, value: 'true');
         await _clearNeedsManualRecoveryFlag();
         _initialized = true;
@@ -717,10 +720,12 @@ class CryptoService {
     final countStr = await _secureStorage.read(key: _otpkCount);
     final count = int.tryParse(countStr ?? '0') ?? 0;
 
-    final List<String> otpkPublics = [];
+    final List<Map<String, dynamic>> oneTimePrekeys = [];
     for (int i = 0; i < count; i++) {
       final pub = await _secureStorage.read(key: '$_otpkPrefix${i}_public');
-      if (pub != null) otpkPublics.add(pub);
+      if (pub != null) {
+        oneTimePrekeys.add({'key_id': i, 'public_key': pub});
+      }
     }
 
     return {
@@ -730,7 +735,7 @@ class CryptoService {
       'signed_prekey_public': spkPub,
       'signed_prekey_signature': spkSig,
       'signed_prekey_timestamp': int.parse(spkTs ?? '0'),
-      'one_time_prekeys': otpkPublics,
+      'one_time_prekeys': oneTimePrekeys,
     };
   }
 

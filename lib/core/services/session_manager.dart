@@ -384,16 +384,21 @@ class SessionManager {
       // Check if sender's bundle changed (e.g. after reinstall) — if so, invalidate session
       final stillValid = await _ensureSessionMatchesRemoteBundle(senderUserId, session);
       if (stillValid == null) {
-        debugPrint('[ChatDecrypt] sender bundle changed — invalidating session for $senderUserId, retrying as initial');
-        await _remoteLog('[DecryptRX] senderBundleChanged userId=$senderUserId — retrying as initial');
         _sessions.remove(senderUserId);
         await _secureStorage.delete(key: '$_sessionPrefix$senderUserId');
-        try {
-          session = await _createReceiverSession(senderUserId, parsedHeader);
-          _sessions[senderUserId] = session;
-        } catch (e) {
-          await _remoteLog('[DecryptRX] senderBundleChanged retry failed userId=$senderUserId error=$e');
-          throw Exception('Sender bundle changed — session invalidated, retry failed: $e');
+        if (isInitialMessage) {
+          debugPrint('[ChatDecrypt] sender bundle changed — retrying as initial for $senderUserId');
+          await _remoteLog('[DecryptRX] senderBundleChanged userId=$senderUserId — retrying as initial');
+          try {
+            session = await _createReceiverSession(senderUserId, parsedHeader);
+            _sessions[senderUserId] = session;
+          } catch (e) {
+            await _remoteLog('[DecryptRX] senderBundleChanged retry failed userId=$senderUserId error=$e');
+            throw Exception('Sender bundle changed — session invalidated, retry failed: $e');
+          }
+        } else {
+          await _remoteLog('[DecryptRX] senderBundleChanged userId=$senderUserId — non-initial, session dropped');
+          throw Exception('Sender bundle changed — waiting for new initial message from $senderUserId');
         }
       }
     } else {
