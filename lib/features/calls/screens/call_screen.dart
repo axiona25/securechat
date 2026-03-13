@@ -92,7 +92,13 @@ class _CallScreenState extends State<CallScreen> {
       _startDurationTimer();
     }
     if (s.remoteStream != null && _renderersInitialized) {
-      _remoteRenderer.srcObject = s.remoteStream;
+      if (_remoteRenderer.srcObject != s.remoteStream) {
+        _remoteRenderer.srcObject = s.remoteStream;
+      } else {
+        // Forza refresh per nuovi track aggiunti allo stesso stream
+        _remoteRenderer.srcObject = null;
+        _remoteRenderer.srcObject = s.remoteStream;
+      }
     }
     if (s.localStream != null && _renderersInitialized && widget.callType == 'video') {
       _localRenderer.srcObject = s.localStream;
