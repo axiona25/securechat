@@ -81,6 +81,8 @@ void _handleOpenFromPush(Map<String, dynamic>? data) {
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp();
+  final prefs = await SharedPreferences.getInstance();
+  if (prefs.getInt('current_user_id') == null) return;
   final data = message.data;
   final type = data['type']?.toString() ?? '';
 

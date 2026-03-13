@@ -4,5 +4,9 @@
 <dict>
 	<key>aps-environment</key>
 	<string>development</string>
+	<key>keychain-access-groups</key>
+	<array>
+		<string>F28CW3467A.com.axphone.app.e2e</string>
+	</array>
 </dict>
 </plist>

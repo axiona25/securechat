@@ -93,6 +93,7 @@ class SessionManager {
               iOptions: const IOSOptions(
                 accessibility: KeychainAccessibility.first_unlock_this_device,
                 accountName: 'com.axphone.app.e2e',
+                groupId: 'F28CW3467A.com.axphone.app.e2e',
               ),
             );
 
@@ -126,6 +127,9 @@ class SessionManager {
 
     debugPrint('[E2E-Send] forcing fresh X3DH bootstrap for peer $otherUserId');
     final newSession = await _performX3DHAndInitSession(otherUserId);
+    await _remoteLog('[GetOrCreate] newSession created for peer=$otherUserId '
+        'remoteDhPub=${base64Encode(newSession.remoteDhPublicKey ?? Uint8List(0))} '
+        'remoteIdDhPub=${base64Encode(newSession.remoteIdentityDhPublicKey ?? Uint8List(0))}');
     _sessions[otherUserId] = newSession;
     final currentStored = await _secureStorage.read(key: '$_sessionPrefix$otherUserId');
     if (currentStored != null && currentStored.isNotEmpty) {
@@ -229,6 +233,17 @@ class SessionManager {
     }
   }
 
+  /// Clear all persisted failed-decrypt marks (e.g. after login when sessions are cleared).
+  Future<void> clearAllFailedDecryptMarks() async {
+    final prefs = await SharedPreferences.getInstance();
+    final keys = prefs.getKeys().where((k) => k.startsWith(_failedPrefix)).toList();
+    for (final k in keys) {
+      await prefs.remove(k);
+    }
+    _failedDecryptCache.clear();
+    print('[SessionManager] Cleared ${keys.length} failed decrypt marks');
+  }
+
   /// Check if a message is in our cache (memory or disk).
   Future<bool> hasCachedPlaintext(String messageId) async {
     if (_sentMessagePlaintexts.containsKey(messageId)) return true;
@@ -294,22 +309,36 @@ class SessionManager {
   /// Encrypt a plaintext message for a specific user.
   /// Returns the complete wire-format payload (ready to base64-encode and send).
   Future<Uint8List> encryptMessage(int otherUserId, String plaintext) async {
-    debugPrint('[SessionManager] encrypt called, instance hashCode: ${hashCode}');
-    final session = await _getOrCreateSession(otherUserId);
-    final plaintextBytes = Uint8List.fromList(utf8.encode(plaintext));
-    final encrypted = session.encrypt(plaintextBytes);
-    final header = encrypted['header'] as Uint8List;
-    final ciphertext = encrypted['ciphertext'] as Uint8List;
-    final headerLen = header.length;
-    final combined = Uint8List.fromList([
-      (headerLen >> 8) & 0xFF,
-      headerLen & 0xFF,
-      ...header,
-      ...ciphertext,
-    ]);
-    await _saveSession(otherUserId, session);
-    debugPrint('[SessionManager] Message encrypted for user $otherUserId (${combined.length} bytes)');
-    return combined;
+    try {
+      print('[CryptoDebug] encryptMessage for userId=$otherUserId needsRehandshake=${await needsRehandshake(otherUserId)}');
+      debugPrint('[SessionManager] encrypt called, instance hashCode: ${hashCode}');
+      if (await needsRehandshake(otherUserId)) {
+        await deleteSession(otherUserId, reason: 'rehandshake_before_encrypt');
+        await clearRehandshakeFlag(otherUserId);
+      }
+      final session = await _getOrCreateSession(otherUserId);
+      await _remoteLog('[Encrypt] session for peer=$otherUserId '
+          'remoteDhPub=${base64Encode(session.remoteDhPublicKey ?? Uint8List(0))}');
+      final plaintextBytes = Uint8List.fromList(utf8.encode(plaintext));
+      final encrypted = session.encrypt(plaintextBytes);
+      final header = encrypted['header'] as Uint8List;
+      final ciphertext = encrypted['ciphertext'] as Uint8List;
+      final headerLen = header.length;
+      final combined = Uint8List.fromList([
+        (headerLen >> 8) & 0xFF,
+        headerLen & 0xFF,
+        ...header,
+        ...ciphertext,
+      ]);
+      await _saveSession(otherUserId, session);
+      debugPrint('[SessionManager] Message encrypted for user $otherUserId (${combined.length} bytes)');
+      return combined;
+    } catch (e, st) {
+      await _remoteLog(
+        '[EncryptCrash] userId=$otherUserId error=${e.toString()} stack=${st.toString().substring(0, 300)}',
+      );
+      rethrow;
+    }
   }
 
   /// Decrypt a received message from a specific user.
@@ -320,6 +349,7 @@ class SessionManager {
     Uint8List combinedPayload, {
     String? messageId,
   }) async {
+    print('[CryptoDebug] decryptMessage from userId=$senderUserId');
     if (combinedPayload.length < 3) {
       throw Exception('Message too short');
     }
@@ -351,6 +381,15 @@ class SessionManager {
       session = _sessions[senderUserId]!;
       debugPrint('[ChatDecrypt] sessionLookup=success_in_memory (senderId=$senderUserId messageId=$messageId)');
       debugPrint('[SessionManager] Using existing session for user $senderUserId');
+      // Check if sender's bundle changed (e.g. after reinstall) — if so, invalidate session
+      final stillValid = await _ensureSessionMatchesRemoteBundle(senderUserId, session);
+      if (stillValid == null) {
+        debugPrint('[ChatDecrypt] sender bundle changed — invalidating session for $senderUserId');
+        await _remoteLog('[DecryptRX] senderBundleChanged userId=$senderUserId — dropping session');
+        _sessions.remove(senderUserId);
+        await _secureStorage.delete(key: '$_sessionPrefix$senderUserId');
+        throw Exception('Sender bundle changed — session invalidated, message not decryptable');
+      }
     } else {
       try {
         debugPrint('[SessionManager] session load begin for user $senderUserId');
@@ -374,6 +413,14 @@ class SessionManager {
             _sessions[senderUserId] = session;
           } else {
             debugPrint('[ChatDecrypt] sessionLookup=missing (senderId=$senderUserId messageId=$messageId) — No session exists and message is not initial');
+            // Auto-clear broken session so next message triggers new X3DH
+            try {
+              await deleteSession(senderUserId, reason: 'decrypt_fail_auto_heal');
+              await _secureStorage.write(
+                key: 'scp_needs_rehandshake_$senderUserId',
+                value: 'true',
+              );
+            } catch (_) {}
             throw Exception('No session exists and message is not initial — cannot decrypt');
           }
         }
@@ -395,28 +442,14 @@ class SessionManager {
       );
       return result;
     } catch (e) {
+      print('[CryptoDebug] decryptMessage FAILED: $e');
+      print('[DecryptError] messageId=$messageId '
+          'sender=$senderUserId '
+          'payloadLen=${combinedPayload.length} '
+          'error=$e '
+          'stack=${StackTrace.current}');
       debugPrint('[SessionManager] Decrypt failed for $messageId: $e');
-      final looksInitial = headerLen >= 100 && (header[0] & 0x01) != 0;
-      bool retryAttempted = false;
-      if (looksInitial && !retryAttempted) {
-        retryAttempted = true;
-        debugPrint('[E2E-Recv] replacing stale session for peer $senderUserId');
-        try {
-          session = await _createReceiverSession(senderUserId, parsedHeader);
-          _sessions[senderUserId] = session;
-          final plaintext = session.decrypt(encryptedPayload, header);
-          await _saveSession(senderUserId, session);
-          final result = utf8.decode(plaintext);
-          debugPrint('[E2E-Recv] decrypt success with rebuilt session for peer $senderUserId');
-          debugPrint('[E2E-Flow] peer session recovered after remote bundle change for peer $senderUserId');
-          return result;
-        } catch (e2) {
-          debugPrint('[E2E-Recv] decrypt failed using stale session for peer $senderUserId');
-        }
-      } else {
-        debugPrint('[E2E-Recv] decrypt failed using stale session for peer $senderUserId');
-        debugPrint('[Decrypt] failed for message ${messageId ?? "?"}, keeping session intact');
-      }
+      debugPrint('[E2E-Recv] decrypt failed, no retry to avoid OTP double-consume');
       final backupStored = await _secureStorage.read(key: '$_sessionPrevPrefix$senderUserId');
       if (backupStored != null) {
         try {
@@ -431,8 +464,30 @@ class SessionManager {
         debugPrint('[E2E] message $messageId marked undecryptable (placeholder will be shown)');
         await markDecryptFailed(messageId);
       }
+      // Auto-clear broken session so next message triggers new X3DH
+      try {
+        await deleteSession(senderUserId, reason: 'decrypt_fail_auto_heal');
+        await _secureStorage.write(
+          key: 'scp_needs_rehandshake_$senderUserId',
+          value: 'true',
+        );
+      } catch (_) {}
       rethrow;
     }
+  }
+
+  /// Whether the session with [otherUserId] was marked for rehandshake after a decrypt failure.
+  Future<bool> needsRehandshake(int otherUserId) async {
+    return await _secureStorage.read(
+      key: 'scp_needs_rehandshake_$otherUserId',
+    ) == 'true';
+  }
+
+  /// Clear the rehandshake flag for [otherUserId] after a new X3DH handshake.
+  Future<void> clearRehandshakeFlag(int otherUserId) async {
+    await _secureStorage.delete(
+      key: 'scp_needs_rehandshake_$otherUserId',
+    );
   }
 
   /// Create a receiver session from an initial X3DH message (receiver-side X3DH).
@@ -488,7 +543,11 @@ class SessionManager {
       Uint8List? myOtpPrivate;
       if (otpKeyId != null) {
         myOtpPrivate = await _cryptoService.getOneTimePreKeyPrivate(otpKeyId);
+        await _remoteLog('[X3DH-RX-OTP2] otpKeyId=$otpKeyId '
+            'found=${myOtpPrivate != null}');
       }
+      await _remoteLog('[X3DH-RX-OTP] otpKeyId=$otpKeyId '
+          'myOtpPrivate=${myOtpPrivate != null}');
       if (myOtpPrivate != null) {
         final dh4 = _x25519DH(myOtpPrivate, senderEphemeralPub);
         dhConcat = Uint8List.fromList([...dh1, ...dh2, ...dh3, ...dh4]);
@@ -498,12 +557,23 @@ class SessionManager {
         debugPrint('[SessionManager] Receiver X3DH: 3 DH operations (no OTP)');
       }
 
+      await _remoteLog('[X3DH-RX-HKDF] dhConcat_len=${dhConcat.length} '
+          'dhConcat_first8=${base64Encode(dhConcat.sublist(0, 8))} '
+          'dhConcat_last8=${base64Encode(dhConcat.sublist(dhConcat.length - 8))} '
+          'hasOtp=${myOtpPrivate != null}');
       final sharedSecret = _hkdfSha512(
         ikm: dhConcat,
         info: utf8.encode('SCP_X3DH_SharedSecret_v1'),
         length: 32,
         salt: Uint8List(32),
       );
+      await _remoteLog('[X3DH-RX] ss=${base64Encode(sharedSecret.sublist(0, 8))} '
+          'dh1=${base64Encode(dh1.sublist(0, 8))} '
+          'dh2=${base64Encode(dh2.sublist(0, 8))} '
+          'dh3=${base64Encode(dh3.sublist(0, 8))} '
+          'mySpkPub=${base64Encode(mySignedPreKeyPublic.sublist(0, 8))} '
+          'senderIdDhPub=${base64Encode(senderIdentityDhPub.sublist(0, 8))} '
+          'senderEphPub=${base64Encode(senderEphemeralPub.sublist(0, 8))}');
       debugPrint('[X3DH-RX] Shared secret derived: ${sharedSecret.length} bytes');
       debugPrint('[SessionManager] Receiver X3DH shared secret derived (${sharedSecret.length} bytes)');
 
@@ -558,6 +628,21 @@ class SessionManager {
     debugPrint('[SessionManager] All sessions cleared');
   }
 
+  Future<void> _remoteLog(String message) async {
+    try {
+      await _apiService.post('/encryption/debug/log/',
+          body: {'message': message}, requiresAuth: true);
+    } catch (e1) {
+      try {
+        await _apiService.post('/encryption/debug/log/',
+            body: {'message': message}, requiresAuth: false);
+      } catch (_) {}
+    }
+  }
+
+  /// Public API for callers (e.g. chat UI) to send debug logs to the server.
+  Future<void> remoteLog(String message) async => _remoteLog(message);
+
   Future<_DoubleRatchetSession> _performX3DHAndInitSession(int otherUserId) async {
     debugPrint('[SessionManager] Fetching key bundle for user $otherUserId...');
     final bundleResponse = await _apiService.get('/encryption/keys/$otherUserId/');
@@ -585,6 +670,10 @@ class SessionManager {
     final int? otpKeyId = otpKeyIdRaw is int
         ? otpKeyIdRaw
         : (otpKeyIdRaw != null ? int.tryParse(otpKeyIdRaw.toString()) : null);
+    if (otherOneTimePreKey != null) {
+      await _remoteLog('[X3DH-TX-OTP] otpKeyId=$otpKeyId '
+          'otherOtpPub=${base64Encode(otherOneTimePreKey)}');
+    }
 
     try {
       final verifyKey = VerifyKey(otherIdentityKeyPub);
@@ -625,19 +714,29 @@ class SessionManager {
       dhConcat = Uint8List.fromList([...dh1, ...dh2, ...dh3]);
     }
 
+    await _remoteLog('[X3DH-TX-HKDF] dhConcat_len=${dhConcat.length} '
+        'dhConcat_first8=${base64Encode(dhConcat.sublist(0, 8))} '
+        'dhConcat_last8=${base64Encode(dhConcat.sublist(dhConcat.length - 8))} '
+        'hasOtp=${otherOneTimePreKey != null}');
     final sharedSecret = _hkdfSha512(
       ikm: dhConcat,
       info: utf8.encode('SCP_X3DH_SharedSecret_v1'),
       length: 32,
       salt: Uint8List(32),
     );
-
     debugPrint('[SessionManager] X3DH shared secret derived (${sharedSecret.length} bytes)');
 
     final myIdentityDhPublic = await _cryptoService.getIdentityDhPublicKey();
     if (myIdentityDhPublic == null) {
       throw Exception('Identity DH public key not found');
     }
+    await _remoteLog('[X3DH-TX] ss=${base64Encode(sharedSecret.sublist(0, 8))} '
+        'dh1=${base64Encode(dh1.sublist(0, 8))} '
+        'dh2=${base64Encode(dh2.sublist(0, 8))} '
+        'dh3=${base64Encode(dh3.sublist(0, 8))} '
+        'myIdDhPub=${base64Encode(myIdentityDhPublic.sublist(0, 8))} '
+        'otherSpkPub=${base64Encode(otherSignedPreKeyPub.sublist(0, 8))} '
+        'ephPub=${base64Encode(Uint8List.fromList(ephemeralPublic.asTypedList).sublist(0, 8))}');
 
     final session = _DoubleRatchetSession.initSender(
       sharedSecret: sharedSecret,

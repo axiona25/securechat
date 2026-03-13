@@ -63,6 +63,7 @@ class CryptoService {
               iOptions: const IOSOptions(
                 accessibility: KeychainAccessibility.first_unlock_this_device,
                 accountName: 'com.axphone.app.e2e',
+                groupId: 'F28CW3467A.com.axphone.app.e2e',
               ),
             );
 
@@ -170,7 +171,10 @@ class CryptoService {
       'signed_prekey_public': base64Encode(Uint8List.fromList(signedPreKeyPublic.asTypedList)),
       'signed_prekey_signature': base64Encode(signature),
       'signed_prekey_timestamp': timestamp,
-      'one_time_prekeys': oneTimePreKeys.map((otpk) => base64Encode(otpk['public']!)).toList(),
+      'one_time_prekeys': oneTimePreKeys.asMap().entries.map((e) => {
+            'key_id': e.key,
+            'public_key': base64Encode(e.value['public']!),
+          }).toList(),
     };
   }
 
@@ -181,7 +185,13 @@ class CryptoService {
   /// Upload public key bundle to server.
   /// Call after generateAndStoreKeyBundle().
   Future<bool> uploadKeyBundle(Map<String, dynamic> publicBundle) async {
+    print('[CryptoDebug] uploadKeyBundle called');
     try {
+      await _apiService.post(
+        '/encryption/keys/reset-otp/',
+        body: {},
+        requiresAuth: true,
+      );
       debugPrint('[CryptoService] uploadKeyBundle START - keys: ${publicBundle.keys.toList()}');
       await _apiService.post(
         '/encryption/keys/upload/',
@@ -189,12 +199,15 @@ class CryptoService {
       );
       await _secureStorage.write(key: _keysUploaded, value: 'true');
       debugPrint('[CryptoService] uploadKeyBundle SUCCESS');
+      print('[CryptoDebug] uploadKeyBundle result=true');
       return true;
     } on ApiException catch (e) {
       debugPrint('[CryptoService] uploadKeyBundle FAILED: $e');
+      print('[CryptoDebug] uploadKeyBundle result=false');
       return false;
     } catch (e) {
       debugPrint('[CryptoService] uploadKeyBundle FAILED: $e');
+      print('[CryptoDebug] uploadKeyBundle result=false');
       return false;
     }
   }
@@ -205,6 +218,17 @@ class CryptoService {
   /// 3) If no local keys but server HAS bundle → do NOT generate/upload; return needsManualRecovery.
   Future<CryptoInitResult> initializeKeys() async {
     try {
+      // Rileva reinstallazione: UserDefaults viene cancellato
+      // dalla disinstallazione, il Keychain no.
+      final prefs = await SharedPreferences.getInstance();
+      final appInstalled = prefs.getBool('app_installed') ?? false;
+      if (!appInstalled) {
+        // Prima esecuzione dopo installazione/reinstallazione
+        // Cancella tutto il Keychain per evitare chiavi orfane
+        await _secureStorage.deleteAll();
+        await prefs.setBool('app_installed', true);
+      }
+
       await _keychainAuditLog();
 
       await _migrateKeysFromSharedPreferencesIfNeeded();
@@ -245,19 +269,24 @@ class CryptoService {
       debugPrint('[CryptoBootstrap] serverBundleExists=$serverBundleExists');
 
       if (localKeysFound) {
-        final alreadyUploaded = await _secureStorage.read(key: _keysUploaded);
-        if (alreadyUploaded != 'true') {
-          await _secureStorage.write(key: _keysGenerated, value: 'true');
-          final publicBundle = await _rebuildPublicBundle();
-          final uploaded = await uploadKeyBundle(publicBundle);
-          if (!uploaded) {
-            debugPrint('[CryptoBootstrap] action=load_local_keys, upload_failed');
-            await _clearNeedsManualRecoveryFlag();
-            _initialized = true;
-            return CryptoInitResult.loadedFromKeychain;
-          }
+        final localSpkTsStr = await _secureStorage.read(key: _signedPreKeyTimestamp);
+        final localSpkTs = int.tryParse(localSpkTsStr ?? '') ?? 0;
+        final serverMeta = await _getServerBundleMeta();
+        final serverSpkTs = serverMeta?['signed_prekey_timestamp'];
+        final serverTs = serverSpkTs is int ? serverSpkTs : (serverSpkTs is num ? serverSpkTs.toInt() : null);
+        final aligned = serverTs != null && localSpkTs != 0 && serverTs == localSpkTs;
+        print('[CryptoDebug] localSpkTs=$localSpkTs serverTs=$serverTs aligned=$aligned');
+        final forceReupload = await _secureStorage.read(key: '${_storagePrefix}force_reupload') == 'true';
+        if (!forceReupload && aligned) {
+          print('[CryptoBootstrap] action=load_local_keys (skip upload, server aligned with local signed_prekey_timestamp)');
+          await _clearNeedsManualRecoveryFlag();
+          _initialized = true;
+          return CryptoInitResult.loadedFromKeychain;
         }
-        debugPrint('[CryptoBootstrap] action=load_local_keys');
+        await _secureStorage.delete(key: '${_storagePrefix}force_reupload');
+        final publicBundle = await _rebuildPublicBundle();
+        await uploadKeyBundle(publicBundle);
+        await _secureStorage.write(key: _keysUploaded, value: 'true');
         await _clearNeedsManualRecoveryFlag();
         _initialized = true;
         return CryptoInitResult.loadedFromKeychain;
@@ -446,6 +475,38 @@ class CryptoService {
     }
   }
 
+  /// Fetches current user's bundle metadata from GET /encryption/keys/me/ for alignment check.
+  /// Returns map with uploaded_at (String iso), signed_prekey_timestamp (int); null on error or 404.
+  Future<Map<String, dynamic>?> _getServerBundleMeta() async {
+    try {
+      final response = await _apiService.get('/encryption/keys/me/');
+      return response is Map<String, dynamic> ? response : null;
+    } catch (e) {
+      debugPrint('[CryptoService] _getServerBundleMeta: $e');
+      return null;
+    }
+  }
+
+  /// Returns server bundle uploaded_at as DateTime, or null.
+  Future<DateTime?> _getServerBundleUploadedAt() async {
+    final meta = await _getServerBundleMeta();
+    final uploadedAt = meta?['uploaded_at'];
+    if (uploadedAt != null) {
+      return DateTime.tryParse(uploadedAt.toString());
+    }
+    return null;
+  }
+
+  /// Fetch remote user's key bundle from server (no local storage).
+  /// Used to force refresh before opening chat so encrypt uses up-to-date keys.
+  Future<void> prefetchKeyBundle(int userId) async {
+    try {
+      await _apiService.get('/encryption/keys/$userId/');
+    } catch (e) {
+      debugPrint('[CryptoService] prefetchKeyBundle error: $e');
+    }
+  }
+
   // ============================================================
   // KEY RETRIEVAL (from secure storage)
   // ============================================================
@@ -623,6 +684,11 @@ class CryptoService {
       debugPrint('[E2E-Reset] stack: $st');
       rethrow;
     }
+  }
+
+  /// Force re-upload of public bundle on next initializeKeys() (e.g. after login when sessions were cleared).
+  Future<void> forceReuploadOnNextInit() async {
+    await _secureStorage.write(key: '${_storagePrefix}force_reupload', value: 'true');
   }
 
   /// Securely delete all keys from device.

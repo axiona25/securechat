@@ -194,6 +194,20 @@ class UploadKeyBundleView(APIView):
         return x_forwarded.split(',')[0].strip() if x_forwarded else request.META.get('REMOTE_ADDR')
 
 
+class MyKeyBundleMetaView(APIView):
+    """GET /encryption/keys/me/ — metadata of current user's key bundle for client-side alignment check."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        bundle = UserKeyBundle.objects.filter(user=request.user).first()
+        if not bundle:
+            return Response({'error': 'Nessun bundle caricato.'}, status=status.HTTP_404_NOT_FOUND)
+        return Response({
+            'uploaded_at': bundle.uploaded_at.isoformat(),
+            'signed_prekey_timestamp': int(bundle.signed_prekey_created_at.timestamp()),
+        })
+
+
 class GetKeyBundleView(APIView):
     permission_classes = [IsAuthenticated]
     throttle_classes = [KeyFetchThrottle]
@@ -505,6 +519,19 @@ class E2EKeyBackupView(APIView):
             logger.info(f'[BACKUP] DELETE user_id={request.user.id}')
             return Response(status=status.HTTP_204_NO_CONTENT)
         return Response({'detail': 'No backup found.'}, status=status.HTTP_404_NOT_FOUND)
+
+
+class ResetOtpView(APIView):
+    """
+    Delete all OneTimePreKey for the current user (used and unused).
+    Called before uploading a new key bundle so server OTP list matches client indices.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        deleted = OneTimePreKey.objects.filter(user=request.user).delete()[0]
+        logger.info(f'[ResetOtp] user={request.user.id} deleted {deleted} OTP keys')
+        return Response({'deleted': deleted}, status=status.HTTP_200_OK)
 
 
 class E2EResetView(APIView):

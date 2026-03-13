@@ -60,19 +60,31 @@ class AuthService {
           await prefs.setInt(_keyCurrentUserId, id);
           debugPrint('[AuthUser] source=login, currentUserId=$id');
         }
-        // Initialize E2E encryption keys (no auto-wipe; keys from Keychain if present)
-        try {
-          print('[Auth] Starting crypto key initialization...');
-          final result = await CryptoService(apiService: _api).initializeKeys();
-          print('[Auth] Crypto init result: $result');
-        } catch (e, stack) {
-          print('[Auth] initializeKeys exception during startup: $e');
-          print('[Auth] Stack: $stack');
-        }
         try {
           await SessionManager.autoResetIfNewInstall(_api);
         } catch (e) {
           print('[Auth] Install id update failed: $e');
+        }
+        try {
+          final sessionMgr = SessionManager(apiService: _api);
+          await sessionMgr.clearAllSessions();
+          print('[Auth] E2E sessions cleared on login');
+        } catch (e) {
+          print('[Auth] clearAllSessions failed: $e');
+        }
+        try {
+          final sessionMgr = SessionManager(apiService: _api);
+          await sessionMgr.clearAllFailedDecryptMarks();
+          print('[Auth] Failed decrypt marks cleared');
+        } catch (e) {
+          print('[Auth] clearAllFailedDecryptMarks failed: $e');
+        }
+        try {
+          final crypto = CryptoService(apiService: _api);
+          await crypto.forceReuploadOnNextInit();
+          print('[Auth] E2E reupload flag set');
+        } catch (e) {
+          print('[Auth] forceReuploadOnNextInit failed: $e');
         }
         // Registra token FCM per notifiche push (dopo login abbiamo access token)
         try {
@@ -174,8 +186,18 @@ class AuthService {
     }
   }
 
-  /// Logout: clear E2E sessions, wipe keys, notifica backend, cancella token e prefs.
+  /// Logout: rimuovi token FCM/VoIP dal backend e dal device, clear E2E sessions, notifica backend, cancella token e prefs.
   Future<void> logout() async {
+    // Prima di clearTokens(): invalida FCM sul device e rimuovi token dal backend (richiede ancora auth).
+    try {
+      await FirebaseMessaging.instance.deleteToken();
+    } catch (_) {}
+    try {
+      await _api.delete('/auth/fcm-token/');
+    } catch (_) {}
+    try {
+      await _api.delete('/auth/voip-token/');
+    } catch (_) {}
     try {
       final sessionMgr = SessionManager(
         apiService: _api,

@@ -42,6 +42,28 @@ class ChatSoundService {
     debugPrint('[ChatSound] outgoing disabled');
   }
 
+  /// Reaction ricevuta su un proprio messaggio (da altro utente): suono breve/leggero.
+  /// Riusa notification.wav a volume ridotto (nessun asset dedicato).
+  final Set<String> _playedReactionKeys = {};
+  static const int _maxReactionKeys = 50;
+
+  void tryPlayReaction({String? messageId, int? reactorUserId, String? emoji}) {
+    if (messageId == null || messageId.isEmpty) return;
+    final key = '${messageId}_${reactorUserId ?? 0}_$emoji';
+    if (_playedReactionKeys.contains(key)) return;
+    _playedReactionKeys.add(key);
+    if (_playedReactionKeys.length > _maxReactionKeys) {
+      final toRemove = _playedReactionKeys.length - _maxReactionKeys;
+      final list = _playedReactionKeys.toList()..sort();
+      for (var i = 0; i < toRemove && i < list.length; i++) {
+        _playedReactionKeys.remove(list[i]);
+      }
+    }
+    _playAsset(_assetIncoming, volume: 0.4, label: 'reaction').then((_) {
+      debugPrint('[ChatSound] reaction sound played for $messageId');
+    });
+  }
+
   void _prunePlayedIds() {
     if (_playedIncomingIds.length > _maxPlayedIds) {
       final toRemove = _playedIncomingIds.length - _maxPlayedIds;

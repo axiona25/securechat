@@ -124,13 +124,13 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
         });
       }
     });
-    // Ensure E2E keys are initialized; show recovery modal once if local keys missing but server has bundle
+    // E2E: warmup session storage, show recovery modal if needed, replenish prekeys (keys already inited by Splash/LoginForm)
     () async {
       try {
         await SessionManager().warmupSessionStorage();
-        final needsRecoveryStored = await CryptoService.getNeedsManualRecoveryFlag();
-        debugPrint('[Home] e2e recovery flag at startup: $needsRecoveryStored');
-        if (mounted && needsRecoveryStored && !_e2eNeedsManualRecovery) {
+        final needsRecovery = await CryptoService.getNeedsManualRecoveryFlag();
+        debugPrint('[Home] e2e recovery flag at startup: $needsRecovery');
+        if (mounted && needsRecovery && !_e2eNeedsManualRecovery) {
           setState(() => _e2eNeedsManualRecovery = true);
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (!mounted) return;
@@ -143,30 +143,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
             }
           });
         }
-        final crypto = CryptoService(apiService: ApiService());
-        final result = await crypto.initializeKeys();
-        if (mounted) {
-          final needsRecovery = result == CryptoInitResult.needsManualRecovery ||
-              await CryptoService.getNeedsManualRecoveryFlag();
-          if (needsRecovery != _e2eNeedsManualRecovery) {
-            setState(() => _e2eNeedsManualRecovery = needsRecovery);
-            if (needsRecovery) {
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                if (!mounted) return;
-                if (_e2eNeedsManualRecovery && !_hasShownRecoveryDialog) {
-                  _hasShownRecoveryDialog = true;
-                  debugPrint('[Home] showing recovery modal');
-                  _showE2ERecoveryModalIfNeeded();
-                } else if (_hasShownRecoveryDialog) {
-                  debugPrint('[Home] recovery modal skipped because already shown');
-                }
-              });
-            }
-          }
-        }
-        if (result == CryptoInitResult.loadedFromKeychain || result == CryptoInitResult.generatedAndUploaded) {
-          await crypto.checkAndReplenishPreKeys();
-        }
+        await CryptoService(apiService: ApiService()).checkAndReplenishPreKeys();
       } catch (e, stack) {
         debugPrint('[Home] Crypto init error: $e');
         debugPrint('[Home] stack: $stack');

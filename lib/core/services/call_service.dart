@@ -325,6 +325,7 @@ class CallService {
       _remoteUserId = acceptedById;
     }
     _emit(_state.copyWith(status: CallStatus.connecting));
+    await _configureAudioSession();
     await _createPeerConnection();
     if (_peerConnection == null) return;
     if (_state.isIncoming) {
@@ -332,6 +333,7 @@ class CallService {
     } else {
       await _getUserMedia();
       if (_state.localStream == null) return;
+      if (_peerConnection == null) return;
       final offer = await _peerConnection!.createOffer({
         'offerToReceiveAudio': true,
         'offerToReceiveVideo': _callType == 'video',
@@ -358,6 +360,7 @@ class CallService {
   Future<void> _onCallOffer(Map<String, dynamic> map) async {
     final sdpMap = map['sdp'];
     if (sdpMap is! Map) return;
+    await _configureAudioSession();
     await _createPeerConnection();
     if (_peerConnection == null) return;
     final desc = RTCSessionDescription(
@@ -423,6 +426,23 @@ class CallService {
 
   void _onParticipantUpdate(Map<String, dynamic> map) {
     // Optional: update UI for remote mute/video (e.g. show icon)
+  }
+
+  /// Configures AVAudioSession on iOS (playAndRecord + voiceChat) before WebRTC.
+  /// Required for audio to pass on iOS; no-op or ignored on other platforms.
+  Future<void> _configureAudioSession() async {
+    try {
+      await Helper.setAppleAudioConfiguration(AppleAudioConfiguration(
+        appleAudioCategory: AppleAudioCategory.playAndRecord,
+        appleAudioCategoryOptions: {
+          AppleAudioCategoryOption.allowBluetooth,
+          AppleAudioCategoryOption.allowBluetoothA2DP,
+        },
+        appleAudioMode: AppleAudioMode.voiceChat,
+      ));
+    } catch (e) {
+      debugPrint('[CallService] _configureAudioSession error: $e');
+    }
   }
 
   Future<void> _createPeerConnection() async {
@@ -531,7 +551,7 @@ class CallService {
   }
 
   void _scheduleSpeakerDefault() {
-    Future.delayed(const Duration(milliseconds: 350), () {
+    Future.delayed(const Duration(milliseconds: 800), () {
       if (!_disposed && _peerConnection != null) _setSpeakerOnByDefault();
     });
   }
@@ -638,7 +658,8 @@ class CallService {
   Future<void> _setSpeaker(bool on) async {
     _emit(_state.copyWith(isSpeakerOn: on));
     try {
-      await Future.delayed(const Duration(milliseconds: 150));
+      await _configureAudioSession();
+      await Future.delayed(const Duration(milliseconds: 500));
       await Helper.setSpeakerphoneOn(on);
     } catch (e) {
       if (kDebugMode) debugPrint('[CallService] setSpeaker error: $e');

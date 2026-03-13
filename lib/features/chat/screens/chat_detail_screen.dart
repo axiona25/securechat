@@ -34,6 +34,7 @@ import '../../../core/services/media_encryption_service.dart';
 import '../../../core/services/session_manager.dart';
 import '../../../core/services/sound_service.dart';
 import '../../../core/services/chat_sound_service.dart';
+import '../../../core/services/local_notification_service.dart';
 import '../../../core/l10n/app_localizations.dart';
 import '../widgets/audio_player_widget.dart';
 import '../../calls/screens/call_screen.dart';
@@ -49,6 +50,12 @@ class ChatDetailScreen extends StatefulWidget {
   /// ID of the conversation currently open in this screen (null if none or disposed).
   /// Used by home to avoid showing in-app notification for the open chat.
   static String? currentOpenConversationId;
+
+  /// Cache decifrati per allegati E2E (attachmentId -> File). Sopravvive al dispose della pagina.
+  static const int _decryptedFileCacheMaxSize = 100;
+  static final Map<String, File> _staticDecryptedFileCache = {};
+  /// Cache bytes in memoria per immagini E2E (attachmentId -> Uint8List). Evita lettura da disco su rebuild.
+  static final Map<String, Uint8List> _staticBytesCache = {};
 
   /// Testo preview per allegato E2E in base al message_type (usato in home e _saveHomePreview).
   static String encryptedAttachmentPreviewText(String? messageType) {
@@ -163,10 +170,23 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   final ValueNotifier<int> _typingDotsPhase = ValueNotifier<int>(0);
   Timer? _typingDotsTimer;
 
+  /// Mostra il pulsante "torna all'ultimo messaggio" quando lo scroll è oltre 200px dal fondo (lista reverse).
+  bool _showScrollToBottom = false;
+  static const double _scrollToBottomThreshold = 200;
+  static const double _scrollToBottomButtonBottom = 140;
+
+  void _onScrollForScrollToBottomButton() {
+    if (!mounted || !_scrollController.hasClients) return;
+    final offset = _scrollController.offset;
+    final show = offset > _scrollToBottomThreshold;
+    if (show != _showScrollToBottom) setState(() => _showScrollToBottom = show);
+  }
+
   @override
   void initState() {
     super.initState();
     _sessionManager = SessionManager();
+    _scrollController.addListener(_onScrollForScrollToBottomButton);
     _textController.addListener(_onTextChanged);
     _audioPlayer = ap.AudioPlayer();
     _audioPlayer!.onDurationChanged.listen((d) {
@@ -402,6 +422,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     await _loadMessages(silent: false);
     if (!mounted) return;
     if (_messages.isNotEmpty) _scrollToBottom();
+    await _ensureE2ESession();
+    if (!mounted) return;
     await _markAsRead();
     if (mounted) _onMarkedAsRead?.call();
     // Avvia polling DOPO il primo load
@@ -411,6 +433,24 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     });
     _connectWebSocket();
     _loadMuteStatus();
+  }
+
+  /// Force re-handshake at chat open when session was marked broken (decrypt fail).
+  Future<void> _ensureE2ESession() async {
+    final otherId = _otherParticipant?.userId;
+    if (otherId == null) return;
+    try {
+      final sessionMgr = SessionManager();
+      final needsRehandshake = await sessionMgr.needsRehandshake(otherId);
+      if (needsRehandshake) {
+        await sessionMgr.deleteSession(otherId, reason: 'ensure_e2e_on_open');
+        await sessionMgr.clearRehandshakeFlag(otherId);
+        final crypto = CryptoService(apiService: ApiService());
+        await crypto.prefetchKeyBundle(otherId);
+      }
+    } catch (e) {
+      debugPrint('[Chat] _ensureE2ESession error: $e');
+    }
   }
 
   Future<void> _loadMuteStatus() async {
@@ -615,6 +655,36 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
               if (messageId != null && mounted) {
                 final idx = _messages.indexWhere((m) => m['id']?.toString() == messageId);
                 if (idx >= 0) {
+                  final msg = _messages[idx];
+                  final messageSender = msg['sender'];
+                  final messageSenderId = messageSender is Map
+                      ? (messageSender['id'] is int
+                          ? messageSender['id'] as int
+                          : int.tryParse(messageSender['id']?.toString() ?? ''))
+                      : null;
+                  final reactorId = userId is int ? userId : int.tryParse(userId?.toString() ?? '');
+                  final currentId = _effectiveCurrentUserId;
+                  final isReactionOnMyMessage = messageSenderId != null &&
+                      currentId != null &&
+                      messageSenderId == currentId;
+                  final isReactionFromOtherUser = reactorId != null && currentId != null && reactorId != currentId;
+                  if (action == 'add' && isReactionOnMyMessage && isReactionFromOtherUser) {
+                    if (!_isMuted) {
+                      ChatSoundService().tryPlayReaction(
+                        messageId: messageId,
+                        reactorUserId: reactorId,
+                        emoji: emoji,
+                      );
+                    }
+                    if (ChatDetailScreen.currentOpenConversationId != _conversationId) {
+                      LocalNotificationService.instance.show(
+                        title: username?.trim().isNotEmpty == true ? username! : 'Qualcuno',
+                        body: 'ha reagito con $emoji al tuo messaggio',
+                        payload: _conversationId,
+                        channelId: 'messages',
+                      );
+                    }
+                  }
                   setState(() {
                     _applyReactionFromWs(_messages[idx], emoji, action, userId, username);
                   });
@@ -648,19 +718,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                   setState(() {
                     _messages.insert(0, msgData);
                   });
-                  final sender = msgData['sender'];
-                  final senderId = sender is Map
-                      ? (sender['id'] is int
-                          ? sender['id'] as int
-                          : int.tryParse(sender['id']?.toString() ?? ''))
-                      : null;
-                  if (!_isMuted) {
-                    ChatSoundService().tryPlayIncoming(
-                      messageId: msgId,
-                      senderId: senderId,
-                      currentUserId: _effectiveCurrentUserId,
-                    );
-                  }
+                  // Suono solo DOPO che il messaggio è in _messages e la UI aggiornata; per allegati cifrati dopo decrypt.
+                  _fireIncomingSoundAfterReady(msgData);
                   _webSocket?.add(jsonEncode({
                     'action': 'read_receipt',
                     'message_ids': [msgId],
@@ -1164,22 +1223,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       }
       // 3. Only now compare (decrypted) newMessages with _messages; aggiorna anche se solo il content è cambiato (decifratura)
       if (mounted && (_hasChanges(newMessages) || contentDecrypted)) {
-        if (newMessages.length > _messages.length && newMessages.isNotEmpty) {
-          final lastMsg = newMessages.first;
-          final sender = lastMsg['sender'];
-          final senderId = sender is Map ? (sender as Map)['id'] : null;
-          final currentId = _effectiveCurrentUserId;
-          if (senderId != null && currentId != null) {
-            final sid = senderId is int ? senderId : int.tryParse(senderId.toString());
-            if (sid != currentId && !_isMuted) {
-              ChatSoundService().tryPlayIncoming(
-                messageId: lastMsg['id']?.toString(),
-                senderId: sid,
-                currentUserId: currentId,
-              );
-            }
-          }
-        }
+        final hadNewMessage = newMessages.length > _messages.length && newMessages.isNotEmpty;
+        final newIncomingMsg = hadNewMessage ? newMessages.first : null;
         newMessages = newMessages.reversed.toList();
         final prevCount = _messages.length;
         setState(() {
@@ -1196,6 +1241,17 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             return existing;
           }).toList();
         });
+        if (newIncomingMsg != null) {
+          final sender = newIncomingMsg['sender'];
+          final senderId = sender is Map ? (sender as Map)['id'] : null;
+          final currentId = _effectiveCurrentUserId;
+          if (senderId != null && currentId != null) {
+            final sid = senderId is int ? senderId : int.tryParse(senderId.toString());
+            if (sid != currentId) {
+              _fireIncomingSoundAfterReady(newIncomingMsg);
+            }
+          }
+        }
         _preloadAttachmentCaptionsFromPrefs();
         if (newMessages.length > prevCount) {
           _scrollToBottom();
@@ -1206,6 +1262,56 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     } catch (_) {
       // Ignora errori nel polling silenzioso
     }
+  }
+
+  /// Trigger suono (e ritardo per allegati) solo DOPO che il messaggio è in _messages e la UI è aggiornata.
+  /// Per allegati cifrati aspetta il completamento del decrypt prima di suonare.
+  void _fireIncomingSoundAfterReady(Map<String, dynamic> msgData) {
+    if (_isMuted) return;
+    final msgId = msgData['id']?.toString();
+    final sender = msgData['sender'];
+    final senderId = sender is Map
+        ? (sender['id'] is int ? sender['id'] as int : int.tryParse(sender['id']?.toString() ?? ''))
+        : null;
+    final currentUserId = _effectiveCurrentUserId;
+    if (senderId != null && currentUserId != null && senderId == currentUserId) return;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final attachments = msgData['attachments'] as List? ?? [];
+      final hasEncrypted = attachments.any((a) => (a as Map)['is_encrypted'] == true);
+      if (hasEncrypted && attachments.isNotEmpty) {
+        final futures = <Future<File?>>[];
+        for (final a in attachments) {
+          final att = a as Map<String, dynamic>;
+          if (att['is_encrypted'] == true) {
+            final attId = att['id']?.toString();
+            if (attId != null) {
+              futures.add(_decryptFutureCache.putIfAbsent(attId, () => _decryptAttachmentToFile(att, msgData)));
+            }
+          }
+        }
+        if (futures.isNotEmpty) {
+          Future.wait(futures).then((_) {
+            if (!mounted) return;
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (!mounted) return;
+              ChatSoundService().tryPlayIncoming(
+                messageId: msgId,
+                senderId: senderId,
+                currentUserId: currentUserId,
+              );
+            });
+          });
+          return;
+        }
+      }
+      ChatSoundService().tryPlayIncoming(
+        messageId: msgId,
+        senderId: senderId,
+        currentUserId: currentUserId,
+      );
+    });
   }
 
   /// Confronta messaggi: count, ultimo ID, poi statuses (per spunte) — evita confronto profondo.
@@ -1563,7 +1669,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         } catch (e) {
           final errStr = e.toString();
           final isSessionMissing = errStr.contains('No session exists') || errStr.contains('message is not initial');
-          debugPrint('[ChatDecrypt] messageId=$messageId senderId=$senderIdInt isHistorical=$isHistorical hasEncryptedPayload=true sessionLookup=${isSessionMissing ? "missing" : "error"} decryptResult=failed placeholderReason=${isSessionMissing ? "session_missing_no_mark" : errStr} plaintextSource=placeholder');
+          print('[DecryptFail] messageId=$messageId '
+              'senderId=$senderIdInt '
+              'error=$errStr');
           msg['content'] = kMessageUndecryptablePlaceholder;
           if (!isSessionMissing) {
             _failedDecryptIds.add(messageId);
@@ -2136,13 +2244,15 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   }
 
   /// Decifra l'allegato E2E e restituisce il file temporaneo; null in caso di errore.
-  /// Usa _decryptedFileCache per evitare ri-decrypt a ogni rebuild.
+  /// Controlla prima la cache statica (sopravvive al dispose), poi quella d'istanza, poi scarica/decifra.
   Future<File?> _decryptAttachmentToFile(
     Map<String, dynamic> att,
     Map<String, dynamic> message,
   ) async {
     final attachmentId = att['id']?.toString();
     if (attachmentId == null || attachmentId.isEmpty) return null;
+    final staticCached = ChatDetailScreen._staticDecryptedFileCache[attachmentId];
+    if (staticCached != null && staticCached.existsSync()) return staticCached;
     if (_decryptedFileCache.containsKey(attachmentId)) {
       final cached = _decryptedFileCache[attachmentId]!;
       if (cached.existsSync()) return cached;
@@ -2190,7 +2300,20 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         if (actualHash != expectedHash) return null;
       }
       final tempFile = await _saveTempFile(plainBytes, fileName, attachmentId: attachmentId);
-      if (mounted) _decryptedFileCache[attachmentId] = tempFile;
+      if (mounted) {
+        _decryptedFileCache[attachmentId] = tempFile;
+        ChatDetailScreen._staticDecryptedFileCache[attachmentId] = tempFile;
+        ChatDetailScreen._staticBytesCache[attachmentId] = plainBytes;
+        while (ChatDetailScreen._staticDecryptedFileCache.length > ChatDetailScreen._decryptedFileCacheMaxSize) {
+          final key = ChatDetailScreen._staticDecryptedFileCache.keys.first;
+          ChatDetailScreen._staticDecryptedFileCache.remove(key);
+          ChatDetailScreen._staticBytesCache.remove(key);
+        }
+        while (ChatDetailScreen._staticBytesCache.length > ChatDetailScreen._decryptedFileCacheMaxSize) {
+          final key = ChatDetailScreen._staticBytesCache.keys.first;
+          ChatDetailScreen._staticBytesCache.remove(key);
+        }
+      }
       return tempFile;
     } catch (e) {
       if (!e.toString().contains('DOBJC_initializeApi')) {
@@ -2204,7 +2327,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     OpenFilex.open(file.path);
   }
 
-  void _showFullImage(String imageUrl, [File? imageFile]) {
+  void _showFullImage(String imageUrl, [File? imageFile, Uint8List? imageBytes]) {
     Navigator.push(
       context,
       MaterialPageRoute<void>(
@@ -2216,9 +2339,11 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           ),
           body: Center(
             child: InteractiveViewer(
-              child: imageFile != null
-                  ? Image.file(imageFile, fit: BoxFit.contain)
-                  : Image.network(imageUrl, fit: BoxFit.contain),
+              child: imageBytes != null
+                  ? Image.memory(imageBytes, fit: BoxFit.contain)
+                  : imageFile != null
+                      ? Image.file(imageFile, fit: BoxFit.contain)
+                      : Image.network(imageUrl, fit: BoxFit.contain),
             ),
           ),
         ),
@@ -2637,7 +2762,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     final reactions = message['reactions'] as List?;
     if (reactions == null || reactions.isEmpty) return const SizedBox.shrink();
     return Padding(
-      padding: const EdgeInsets.only(top: 4),
+      padding: const EdgeInsets.only(top: 2),
       child: Align(
         alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
         child: Container(
@@ -2672,8 +2797,30 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
 
     if (isEncrypted) {
       final attId = att['id']?.toString() ?? '';
+      final mimeType = att['mime_type']?.toString() ?? '';
+      final isImageType = messageType == 'image' || (mimeType.isNotEmpty && mimeType.startsWith('image/'));
+      // LIVELLO 1: bytes già in memoria -> Image.memory subito, nessun Future né lettura da disco
+      final cachedBytes = ChatDetailScreen._staticBytesCache[attId];
+      if (isImageType && cachedBytes != null) {
+        return GestureDetector(
+          onTap: () => _showFullImage('', null, cachedBytes),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(16),
+            child: Image.memory(
+              cachedBytes,
+              width: 240,
+              height: 180,
+              fit: BoxFit.cover,
+            ),
+          ),
+        );
+      }
       return FutureBuilder<File?>(
-        future: _decryptFutureCache.putIfAbsent(attId, () => _decryptAttachmentToFile(att, message)),
+        future: _decryptFutureCache.putIfAbsent(attId, () {
+          final cached = ChatDetailScreen._staticDecryptedFileCache[attId];
+          if (cached != null && cached.existsSync()) return Future<File?>.value(cached);
+          return _decryptAttachmentToFile(att, message);
+        }),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return Container(
@@ -2717,23 +2864,31 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
               ),
             );
           }
-          final mimeType = att['mime_type']?.toString() ?? '';
           final attachmentId = att['id']?.toString() ?? '';
           String displayFileName = _attachmentCaptionCache[attachmentId] ?? att['file_name']?.toString() ?? '';
           if (displayFileName.isEmpty || displayFileName == 'encrypted') {
             displayFileName = decryptedFile.path.split(RegExp(r'[/\\]')).last;
           }
-          if (messageType == 'image' || (mimeType.isNotEmpty && mimeType.startsWith('image/'))) {
+          // Immagini: usa bytes da cache se presenti (MemoryImage = niente lettura disco), altrimenti Image.file
+          if (isImageType) {
+            final bytes = ChatDetailScreen._staticBytesCache[attachmentId];
             return GestureDetector(
-              onTap: () => _showFullImage('', decryptedFile),
+              onTap: () => _showFullImage('', bytes != null ? null : decryptedFile, bytes),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(16),
-                child: Image.file(
-                  decryptedFile,
-                  width: 240,
-                  height: 180,
-                  fit: BoxFit.cover,
-                ),
+                child: bytes != null
+                    ? Image.memory(
+                        bytes,
+                        width: 240,
+                        height: 180,
+                        fit: BoxFit.cover,
+                      )
+                    : Image.file(
+                        decryptedFile,
+                        width: 240,
+                        height: 180,
+                        fit: BoxFit.cover,
+                      ),
               ),
             );
           }
@@ -3093,6 +3248,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
+              if ((message['reactions'] as List?)?.isNotEmpty ?? false)
+                _buildReactionsRow(message, isMe),
               Padding(
                 padding: const EdgeInsets.only(top: 4),
                 child: Row(
@@ -3110,8 +3267,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                   ],
                 ),
               ),
-                if ((message['reactions'] as List?)?.isNotEmpty ?? false)
-                  _buildReactionsRow(message, isMe),
               ],
             ),
           ),
@@ -3564,96 +3719,112 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           top: 4,
           bottom: 4,
         ),
-        padding: (messageType == 'image' || messageType == 'video')
-            ? const EdgeInsets.all(4)
-            : const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        decoration: BoxDecoration(
-          color: isMe ? _teal : Colors.white,
-          borderRadius: BorderRadius.only(
-            topLeft: const Radius.circular(16),
-            topRight: const Radius.circular(16),
-            bottomLeft: Radius.circular(isMe ? 16 : 4),
-            bottomRight: Radius.circular(isMe ? 4 : 16),
-          ),
-          border: isMe ? null : Border.all(color: const Color(0xFFE0E0E0)),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.05),
-              blurRadius: 4,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
         child: Column(
+          mainAxisSize: MainAxisSize.min,
           crossAxisAlignment:
               isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
           children: [
-            if (hasReply) ...[
-              GestureDetector(
-                onTap: () => _scrollToMessage(message['reply_to']?.toString()),
-                child: Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(8),
-                  margin: const EdgeInsets.only(bottom: 6),
-                  decoration: BoxDecoration(
-                    color: isMe
-                        ? Colors.white.withValues(alpha: 0.25)
-                        : const Color(0xFF2ABFBF).withValues(alpha: 0.08),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border(
-                      left: BorderSide(
-                        color: isMe ? Colors.white : const Color(0xFF2ABFBF),
-                        width: 3,
+            // 1. Box del messaggio (testo o media)
+            Container(
+              padding: (messageType == 'image' || messageType == 'video')
+                  ? const EdgeInsets.all(4)
+                  : const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: isMe ? _teal : Colors.white,
+                borderRadius: BorderRadius.only(
+                  topLeft: const Radius.circular(16),
+                  topRight: const Radius.circular(16),
+                  bottomLeft: Radius.circular(isMe ? 16 : 4),
+                  bottomRight: Radius.circular(isMe ? 4 : 16),
+                ),
+                border: isMe ? null : Border.all(color: const Color(0xFFE0E0E0)),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.05),
+                    blurRadius: 4,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment:
+                    isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+                children: [
+                  if (hasReply) ...[
+                    GestureDetector(
+                      onTap: () => _scrollToMessage(message['reply_to']?.toString()),
+                      child: Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(8),
+                        margin: const EdgeInsets.only(bottom: 6),
+                        decoration: BoxDecoration(
+                          color: isMe
+                              ? Colors.white.withValues(alpha: 0.25)
+                              : const Color(0xFF2ABFBF).withValues(alpha: 0.08),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border(
+                            left: BorderSide(
+                              color: isMe ? Colors.white : const Color(0xFF2ABFBF),
+                              width: 3,
+                            ),
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              (replyPreview is Map
+                                      ? (replyPreview as Map)['sender_name']?.toString()
+                                      : null) ??
+                                  '',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: isMe ? Colors.white : const Color(0xFF2ABFBF),
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              _getReplyText(message),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: isMe ? Colors.white.withValues(alpha: 0.8) : const Color(0xFF6B7280),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        (replyPreview is Map
-                                ? (replyPreview as Map)['sender_name']?.toString()
-                                : null) ??
-                            '',
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: isMe ? Colors.white : const Color(0xFF2ABFBF),
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        _getReplyText(message),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: isMe ? Colors.white.withValues(alpha: 0.8) : const Color(0xFF6B7280),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-            _buildMessageContent(message, isMe),
-            const SizedBox(height: 4),
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              mainAxisAlignment: isMe ? MainAxisAlignment.end : MainAxisAlignment.start,
-              children: [
-                Text(
-                  timeStr,
-                  style: TextStyle(
-                    color: isMe ? Colors.white70 : _statusGray,
-                    fontSize: 11,
-                  ),
-                ),
-                if (isMe) ...[
-                  const SizedBox(width: 3),
-                  _buildMessageStatus(message, isMe),
+                  ],
+                  _buildMessageContent(message, isMe),
                 ],
-              ],
+              ),
+            ),
+            // 2. Reactions row — subito sotto il box
+            if (hasReactions) _buildReactionsRow(message, isMe),
+            // 3. Timestamp/ora — sotto le reactions (o sotto il box se non ci sono reactions)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: isMe ? MainAxisAlignment.end : MainAxisAlignment.start,
+                children: [
+                  Text(
+                    timeStr,
+                    style: TextStyle(
+                      color: isMe ? Colors.white70 : _statusGray,
+                      fontSize: 11,
+                    ),
+                  ),
+                  if (isMe) ...[
+                    const SizedBox(width: 3),
+                    _buildMessageStatus(message, isMe),
+                  ],
+                ],
+              ),
             ),
           ],
         ),
@@ -3714,42 +3885,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             onLongPress: () => _showMessageActions(context, message, isMe),
             child: bubble,
           ),
-        if (hasReactions)
-          Padding(
-            padding: EdgeInsets.only(
-              left: isMe ? 60 : ((_conversation?.isGroup ?? false) ? 0 : 12),
-              right: isMe ? 12 : 60,
-              bottom: 4,
-            ),
-            child: Align(
-              alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(12),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.08),
-                      blurRadius: 4,
-                    ),
-                  ],
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: _groupReactions(reactions!).entries.map((e) {
-                    return Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 2),
-                      child: Text(
-                        '${e.key} ${e.value}',
-                        style: const TextStyle(fontSize: 13),
-                      ),
-                    );
-                  }).toList(),
-                ),
-              ),
-            ),
-          ),
       ],
     );
 
@@ -3794,6 +3929,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     _audioPositionNotifier.dispose();
     _messageFocusNode.dispose();
     _textController.dispose();
+    _scrollController.removeListener(_onScrollForScrollToBottomButton);
     _scrollController.dispose();
     super.dispose();
   }
@@ -3829,6 +3965,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       return;
     }
 
+    await _sessionManager.remoteLog(
+      '[SendMessage] START otherUser=${_getOtherUserId()} conversationId=$_conversationId',
+    );
     _textController.clear();
     setState(() {});
     try {
@@ -3853,6 +3992,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           debugPrint('[E2E] Message encrypted for user $otherUser (${combinedPayload.length} bytes) with recipients_encrypted');
         } catch (e) {
           debugPrint('[E2E] Encryption failed: $e');
+          await _sessionManager.remoteLog(
+            '[EncryptFail] error=${e.toString()} stack=${StackTrace.current.toString().substring(0, 200)}',
+          );
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
@@ -4900,8 +5042,13 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           ),
         ],
       ),
-      body: Column(
-        children: [
+      body: GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onTap: () => FocusScope.of(context).unfocus(),
+        child: Stack(
+          children: [
+            Column(
+              children: [
           Expanded(
             child: _loading
                 ? const Center(
@@ -5135,6 +5282,57 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             ),
           ),
         ],
+            ),
+          if (!_loading && _messages.isNotEmpty)
+              Positioned(
+                right: 12,
+                bottom: _scrollToBottomButtonBottom,
+                child: IgnorePointer(
+                  ignoring: !_showScrollToBottom,
+                  child: AnimatedOpacity(
+                    opacity: _showScrollToBottom ? 1 : 0,
+                    duration: const Duration(milliseconds: 200),
+                    child: Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        onTap: () {
+                          if (_scrollController.hasClients) {
+                            final pos = _scrollController.position;
+                            _scrollController.animateTo(
+                              pos.minScrollExtent,
+                              duration: const Duration(milliseconds: 300),
+                              curve: Curves.easeOut,
+                            );
+                          }
+                        },
+                        borderRadius: BorderRadius.circular(20),
+                        child: Container(
+                          width: 40,
+                          height: 40,
+                          decoration: const BoxDecoration(
+                            color: _teal,
+                            shape: BoxShape.circle,
+                            boxShadow: [
+                              BoxShadow(
+                                color: Color(0x30000000),
+                                blurRadius: 6,
+                                offset: Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                          child: const Icon(
+                            Icons.keyboard_arrow_down,
+                            color: Colors.white,
+                            size: 28,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }

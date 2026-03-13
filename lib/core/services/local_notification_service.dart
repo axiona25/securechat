@@ -2,6 +2,7 @@ import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// Suono messaggi chat: solo da ChatSoundService (notification.wav). Su iOS il suono di sistema
 /// delle local notification per i messaggi è disattivato (presentSound: false) per evitare doppio suono.
@@ -64,6 +65,8 @@ class LocalNotificationService {
   /// Show a notification from an FCM RemoteMessage (foreground)
   Future<void> showFromFCM(RemoteMessage message) async {
     if (!_initialized) await init();
+    final prefs = await SharedPreferences.getInstance();
+    if (prefs.getInt('current_user_id') == null) return;
 
     final notification = message.notification;
     if (notification == null) return;
@@ -109,6 +112,8 @@ class LocalNotificationService {
     String channelId = 'messages',
   }) async {
     if (!_initialized) await init();
+    final prefs = await SharedPreferences.getInstance();
+    if (prefs.getInt('current_user_id') == null) return;
 
     final isChat = channelId == 'messages';
     if (Platform.isIOS && isChat) {

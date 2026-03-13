@@ -75,19 +75,8 @@ class _LoginFormState extends State<LoginForm> {
 
     if (!mounted) return;
 
-    setState(() => _isLoading = false);
-
-    if (result.success) {
-      try {
-        final cryptoService = CryptoService(apiService: ApiService());
-        final initResult = await cryptoService.initializeKeys();
-        debugPrint('[Auth] E2E init result: $initResult');
-      } catch (e) {
-        debugPrint('[Auth] E2E key init error: $e');
-      }
-      if (!mounted) return;
-      Navigator.of(context).pushReplacementNamed(AppRouter.home);
-    } else {
+    if (!result.success) {
+      setState(() => _isLoading = false);
       final errorMessage = result.error ?? '';
       if (errorMessage.contains('attesa di approvazione') || errorMessage.contains('pending approval')) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -108,6 +97,19 @@ class _LoginFormState extends State<LoginForm> {
       } else {
         setState(() => _errorMessage = errorMessage);
       }
+    } else {
+      // result.success: keep loading, init E2E keys, then navigate
+      try {
+        final cryptoService = CryptoService(apiService: ApiService());
+        final initResult = await cryptoService.initializeKeys();
+        debugPrint('[Auth] E2E init result: $initResult');
+      } catch (e) {
+        debugPrint('[Auth] E2E key init error: $e');
+      }
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      if (!mounted) return;
+      Navigator.of(context).pushReplacementNamed(AppRouter.home);
     }
   }
 
@@ -176,6 +178,8 @@ class _LoginFormState extends State<LoginForm> {
             prefixIcon: Icons.mail_outline_rounded,
             controller: _emailController,
             keyboardType: TextInputType.emailAddress,
+            autocorrect: false,
+            enableSuggestions: false,
             validator: _validateEmail,
             focusNode: _emailFocusNode,
             textInputAction: TextInputAction.next,
@@ -190,6 +194,8 @@ class _LoginFormState extends State<LoginForm> {
             prefixIcon: Icons.lock_outline_rounded,
             obscureText: _obscurePassword,
             controller: _passwordController,
+            autocorrect: false,
+            enableSuggestions: false,
             validator: _validatePassword,
             focusNode: _passwordFocusNode,
             textInputAction: TextInputAction.done,
@@ -375,6 +381,8 @@ class _LoginFormState extends State<LoginForm> {
                 prefixIcon: Icons.mail_outline_rounded,
                 controller: emailResetController,
                 keyboardType: TextInputType.emailAddress,
+                autocorrect: false,
+                enableSuggestions: false,
               ),
 
               const SizedBox(height: 24),

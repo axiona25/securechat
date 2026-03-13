@@ -7,7 +7,9 @@ urlpatterns = [
     # Encrypted key backup (client-encrypted blob only)
     path('backup/', views.E2EKeyBackupView.as_view(), name='e2e-backup'),
     # Key management
+    path('keys/reset-otp/', views.ResetOtpView.as_view(), name='reset-otp'),
     path('keys/upload/', views.UploadKeyBundleView.as_view(), name='upload-keys'),
+    path('keys/me/', views.MyKeyBundleMetaView.as_view(), name='my-key-bundle-meta'),
     path('keys/<int:user_id>/', views.GetKeyBundleView.as_view(), name='get-keys'),
     path('keys/replenish/', views.ReplenishPreKeysView.as_view(), name='replenish-keys'),
     path('keys/rotate-signed/', views.RotateSignedPreKeyView.as_view(), name='rotate-signed-prekey'),

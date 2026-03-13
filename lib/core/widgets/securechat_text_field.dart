@@ -14,6 +14,8 @@ class SecureChatTextField extends StatelessWidget {
   final FocusNode? focusNode;
   final TextInputAction? textInputAction;
   final VoidCallback? onEditingComplete;
+  final bool autocorrect;
+  final bool enableSuggestions;
 
   const SecureChatTextField({
     super.key,
@@ -29,6 +31,8 @@ class SecureChatTextField extends StatelessWidget {
     this.focusNode,
     this.textInputAction,
     this.onEditingComplete,
+    this.autocorrect = true,
+    this.enableSuggestions = true,
   });
 
   @override
@@ -49,6 +53,8 @@ class SecureChatTextField extends StatelessWidget {
         controller: controller,
         obscureText: obscureText,
         keyboardType: keyboardType,
+        autocorrect: autocorrect,
+        enableSuggestions: enableSuggestions,
         validator: validator,
         onChanged: onChanged,
         focusNode: focusNode,
