@@ -1,8 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import '../../core/constants/app_constants.dart';
 import '../../core/theme/app_colors.dart';
@@ -29,7 +27,6 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   Map<String, dynamic>? _profile;
-  bool _notificationsEnabled = true;
   bool _loading = true;
   /// Cache buster per forzare refresh avatar dopo upload (evita immagine in cache).
   int? _avatarCacheBuster;
@@ -38,19 +35,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   AppLocalizations get l10n => AppLocalizations.of(context)!;
   static const Color _navy = Color(0xFF1A2B4A);
 
-  static const String _prefNotificationsEnabled = 'notifications_enabled';
-
   @override
   void initState() {
     super.initState();
-    _loadNotificationsPreference();
     _loadProfile();
-  }
-
-  Future<void> _loadNotificationsPreference() async {
-    final prefs = await SharedPreferences.getInstance();
-    final enabled = prefs.getBool(_prefNotificationsEnabled) ?? true;
-    if (mounted) setState(() => _notificationsEnabled = enabled);
   }
 
   Future<void> _loadProfile() async {
@@ -60,9 +48,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         setState(() {
           _profile = response is Map<String, dynamic> ? response : null;
           _loading = false;
-          if (_profile != null && _profile!.containsKey('notifications_enabled')) {
-            _notificationsEnabled = _profile!['notifications_enabled'] == true;
-          }
         });
       } else {
         setState(() => _loading = false);
@@ -81,38 +66,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   String get _email => _profile?['email']?.toString() ?? '';
-
-  Future<void> _onNotificationsToggleChanged(bool value) async {
-    setState(() => _notificationsEnabled = value);
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_prefNotificationsEnabled, value);
-    try {
-      await ApiService().patch(
-        '/auth/profile/notification-settings/',
-        body: {'notifications_enabled': value},
-      );
-    } catch (e) {
-      debugPrint('Notification settings PATCH error: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Impostazioni non salvate: $e'), backgroundColor: Colors.red),
-        );
-      }
-      return;
-    }
-    try {
-      if (value) {
-        final token = await FirebaseMessaging.instance.getToken();
-        if (token != null) {
-          await ApiService().post('/auth/fcm-token/', body: {'token': token});
-        }
-      } else {
-        await FirebaseMessaging.instance.deleteToken();
-      }
-    } catch (e) {
-      debugPrint('FCM token update error: $e');
-    }
-  }
 
   String get _currentLanguageName {
     final code = localeProvider.locale.languageCode;
@@ -528,14 +481,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         iconColor: const Color(0xFF4CAF50),
                         title: l10n.t('privacy'),
                         onTap: () => _showComingSoon(l10n.t('privacy')),
-                      ),
-                      _buildDivider(),
-                      _buildToggleItem(
-                        icon: Icons.notifications_outlined,
-                        iconColor: _teal,
-                        title: l10n.t('notifications'),
-                        value: _notificationsEnabled,
-                        onChanged: _onNotificationsToggleChanged,
                       ),
                       _buildDivider(),
                       _buildMenuItem(

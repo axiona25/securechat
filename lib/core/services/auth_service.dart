@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
@@ -36,6 +37,29 @@ class AuthService {
   final ApiService _api = ApiService();
 
   bool get isLoggedIn => _api.isAuthenticated;
+
+  /// Dopo aver verificato che l'utente è autenticato, aggiorna sempre il token FCM.
+  /// Chiamare all'avvio quando isLoggedIn è true (es. da splash).
+  Future<void> refreshFcmTokenIfLoggedIn() async {
+    if (!_api.isAuthenticated) return;
+    try {
+      final messaging = FirebaseMessaging.instance;
+      String? token;
+      if (Platform.isIOS) {
+        final apns = await messaging.getAPNSToken();
+        if (apns != null && apns.isNotEmpty) {
+          token = await messaging.getToken();
+        }
+      } else {
+        token = await messaging.getToken();
+      }
+      if (token != null) {
+        await _api.post('/auth/fcm-token/', body: {'token': token});
+      }
+    } catch (e) {
+      debugPrint('[Auth] FCM token refresh error: $e');
+    }
+  }
 
   Future<AuthResult> login({
     required String email,
