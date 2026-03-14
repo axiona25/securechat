@@ -338,6 +338,39 @@ class CryptoService {
     await prefs.remove(_prefNeedsManualRecovery);
   }
 
+  /// Ensures E2E keys exist locally and on server. Call after each login.
+  /// 1) If local keys missing (getIdentityPublicKey null) → hardResetE2E, return 'regenerated'.
+  /// 2) If server has no bundle (_verifyKeysOnServer false) → hardResetE2E, return 'regenerated'.
+  /// 3) If both present → return 'ok'. On error, logs and returns 'error' (does not block login).
+  Future<String> ensureE2EReady() async {
+    try {
+      // 1. Check if keys are present in local Keychain
+      final identityPub = await getIdentityPublicKey();
+      if (identityPub == null) {
+        await hardResetE2E();
+        debugPrint('[E2E] Chiavi rigenerate automaticamente');
+        return 'regenerated';
+      }
+      // 2. Check if server has this user's keys
+      final serverHasKeys = await _verifyKeysOnServer();
+      if (serverHasKeys == false) {
+        await hardResetE2E();
+        debugPrint('[E2E] Chiavi rigenerate automaticamente');
+        return 'regenerated';
+      }
+      if (serverHasKeys == null) {
+        debugPrint('[E2E] Verifica chiavi server non disponibile (transient), considero OK');
+        return 'ok';
+      }
+      // 4. Keys present both locally and on server
+      debugPrint('[E2E] Chiavi OK');
+      return 'ok';
+    } catch (e) {
+      debugPrint('[E2E] ensureE2EReady failed: $e');
+      return 'error';
+    }
+  }
+
   /// Diagnostic audit: log Keychain read state and config so we can see why localKeysFound is false after reinstall.
   Future<void> _keychainAuditLog() async {
     const accountName = 'com.axphone.app.e2e';

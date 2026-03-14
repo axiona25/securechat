@@ -1,7 +1,5 @@
 import 'dart:convert';
-import 'dart:io';
 
-import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -9,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../constants/app_constants.dart';
 import 'api_service.dart';
 import 'crypto_service.dart';
+import 'securechat_notify_service.dart';
 import 'session_manager.dart';
 
 const String _keyCurrentUserId = 'current_user_id';
@@ -38,26 +37,13 @@ class AuthService {
 
   bool get isLoggedIn => _api.isAuthenticated;
 
-  /// Dopo aver verificato che l'utente è autenticato, aggiorna sempre il token FCM.
-  /// Chiamare all'avvio quando isLoggedIn è true (es. da splash).
-  Future<void> refreshFcmTokenIfLoggedIn() async {
-    if (!_api.isAuthenticated) return;
+  Future<void> _remoteLog(String message) async {
     try {
-      final messaging = FirebaseMessaging.instance;
-      String? token;
-      if (Platform.isIOS) {
-        final apns = await messaging.getAPNSToken();
-        if (apns != null && apns.isNotEmpty) {
-          token = await messaging.getToken();
-        }
-      } else {
-        token = await messaging.getToken();
-      }
-      if (token != null) {
-        await _api.post('/auth/fcm-token/', body: {'token': token});
-      }
-    } catch (e) {
-      debugPrint('[Auth] FCM token refresh error: $e');
+      await _api.post('/encryption/debug/log/', body: {'message': message}, requiresAuth: true);
+    } catch (_) {
+      try {
+        await _api.post('/encryption/debug/log/', body: {'message': message}, requiresAuth: false);
+      } catch (_) {}
     }
   }
 
@@ -83,6 +69,20 @@ class AuthService {
           final id = userId is int ? userId : int.tryParse(userId.toString()) ?? 0;
           await prefs.setInt(_keyCurrentUserId, id);
           debugPrint('[AuthUser] source=login, currentUserId=$id');
+          try {
+            final crypto = CryptoService(apiService: _api);
+            final e2eStatus = await crypto.ensureE2EReady();
+            print('[Auth] E2E status: $e2eStatus');
+          } catch (e) {
+            print('[Auth] E2E check failed: $e');
+          }
+          try {
+            final userId2 = id;
+            await SecureChatNotifyService().init(userId: userId2);
+            print('[Auth] NotifyService inizializzato per user $id');
+          } catch (e) {
+            print('[Auth] NotifyService init failed: $e');
+          }
         }
         try {
           await SessionManager.autoResetIfNewInstall(_api);
@@ -110,13 +110,6 @@ class AuthService {
         } catch (e) {
           print('[Auth] forceReuploadOnNextInit failed: $e');
         }
-        // Registra token FCM per notifiche push (dopo login abbiamo access token)
-        try {
-          final fcmToken = await FirebaseMessaging.instance.getToken();
-          if (fcmToken != null) {
-            await _api.post('/auth/fcm-token/', body: {'token': fcmToken});
-          }
-        } catch (_) {}
 
         return AuthResult(
           success: true,
@@ -210,15 +203,8 @@ class AuthService {
     }
   }
 
-  /// Logout: rimuovi token FCM/VoIP dal backend e dal device, clear E2E sessions, notifica backend, cancella token e prefs.
+  /// Logout: rimuovi token VoIP dal backend, clear E2E sessions, notifica backend, cancella token e prefs.
   Future<void> logout() async {
-    // Prima di clearTokens(): invalida FCM sul device e rimuovi token dal backend (richiede ancora auth).
-    try {
-      await FirebaseMessaging.instance.deleteToken();
-    } catch (_) {}
-    try {
-      await _api.delete('/auth/fcm-token/');
-    } catch (_) {}
     try {
       await _api.delete('/auth/voip-token/');
     } catch (_) {}

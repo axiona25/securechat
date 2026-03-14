@@ -13,6 +13,10 @@ class AppConstants {
   /// WebSocket URL for call signaling (WebRTC).
   static const String wsCallsUrl = 'wss://axphone.it/ws/calls/';
 
+  // Notify server (proprietario)
+  static const String notifyBaseUrl = 'https://axphone.it/notify';
+  static const String notifyServiceKey = 'd566d7caafae5a75537a08ed1318f854f971c3e20723e05cae8d73055e541b6c';
+
   // Assets
   static const String imgSfondo = 'assets/images/sfondo.png';
   static const String imgIcona = 'assets/images/icona.png';

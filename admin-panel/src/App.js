@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area } from "recharts";
 
 const API_BASE = "https://axphone.it/api";
@@ -450,39 +450,45 @@ function UsersPage() {
   const [infoModal, setInfoModal] = useState(null);
   const menuRef = useRef(null);
 
-  useEffect(() => {
-    async function loadUsers() {
-      try {
-        const res = await apiFetch("/admin/users/");
-        const data = await res.json();
-        const usersList = Array.isArray(data) ? data : data.results || [];
-        const mapped = usersList.map(u => ({
-          id: u.id,
-          firstName: u.first_name || u.username,
-          lastName: u.last_name || "",
-          email: u.email,
-          group: u.groups && u.groups.length > 0 ? u.groups.map(g => g.name).join(", ") : "Nessun gruppo",
-          createdAt: u.date_joined || "2026-01-01",
-          device: "-",
-          status: u.approval_status || (u.is_active === false ? "blocked" : "active"),
-          avatar: u.avatar,
-          isOnline: u.is_online,
-          groups: u.groups || [],
-        }));
-        setUsers(mapped);
-      } catch (e) {
-        console.error("Error loading users:", e);
-      }
-      // Carica gruppi disponibili
-      try {
-        const grpRes = await apiFetch("/admin/groups/");
-        const grpData = await grpRes.json();
-        setAvailableGroups(Array.isArray(grpData) ? grpData : []);
-      } catch (e) { console.error(e); }
-      setLoading(false);
+  const loadUsers = useCallback(async (skipLoading = false) => {
+    console.log("📋 loadUsers chiamata");
+    if (!skipLoading) setLoading(true);
+    let mapped = [];
+    try {
+      const res = await apiFetch("/admin/users/");
+      const data = await res.json();
+      console.log("📋 Utenti ricevuti dal server:", data);
+      const usersList = Array.isArray(data) ? data : data.results || [];
+      mapped = usersList.map(u => ({
+        id: u.id,
+        firstName: u.first_name || u.username,
+        lastName: u.last_name || "",
+        email: u.email,
+        group: u.groups && u.groups.length > 0 ? u.groups.map(g => g.name).join(", ") : "Nessun gruppo",
+        createdAt: u.date_joined || "2026-01-01",
+        device: "-",
+        status: u.approval_status || (u.is_active === false ? "blocked" : "active"),
+        avatar: u.avatar,
+        isOnline: u.is_online,
+        groups: u.groups || [],
+      }));
+      console.log("📋 setUsers chiamato con:", mapped);
+      setUsers(mapped);
+    } catch (e) {
+      console.error("Error loading users:", e);
     }
-    loadUsers();
+    try {
+      const grpRes = await apiFetch("/admin/groups/");
+      const grpData = await grpRes.json();
+      setAvailableGroups(Array.isArray(grpData) ? grpData : []);
+    } catch (e) { console.error(e); }
+    if (!skipLoading) setLoading(false);
+    return mapped;
   }, []);
+
+  useEffect(() => {
+    loadUsers();
+  }, [loadUsers]);
 
   useEffect(() => {
     const handler = (e) => {
@@ -587,6 +593,7 @@ function UsersPage() {
   const handleSaveEdit = async () => {
     try {
       if (editingUser.id === "new") {
+        console.log("🔵 Inizio creazione utente", editForm);
         const res = await apiFetch("/admin/users/create/", {
           method: "POST",
           body: JSON.stringify({
@@ -598,32 +605,32 @@ function UsersPage() {
         });
         const data = await res.json();
         if (res.ok) {
-          // Sincronizza gruppi
-          if (selectedGroupIds.length > 0) {
-            await apiFetch(`/admin/users/${data.id}/sync-groups/`, {
-              method: "POST",
-              body: JSON.stringify({ group_ids: selectedGroupIds }),
-            });
-          }
+          console.log("✅ Utente creato, risposta:", data);
+          setEditingUser(null);
+          setEditForm({});
+          setSelectedGroupIds([]);
           setInfoModal({
-            title: "Utente Creato con Successo",
+            title: "✅ Utente Creato con Successo",
             lines: [
               { label: "Email", value: data.email, copyable: true },
               { label: "Password Temporanea", value: data.temp_password, copyable: true },
               { label: "Stato Email", value: data.email_sent ? "✅ Email inviata" : "⚠️ Email non inviata" },
             ],
           });
-          // Ricarica utenti
-          const usersRes = await apiFetch("/admin/users/");
-          const usersData = await usersRes.json();
-          const usersList = Array.isArray(usersData) ? usersData : [];
-          setUsers(usersList.map(u => ({
-            id: u.id, firstName: u.first_name || u.username, lastName: u.last_name || "",
-            email: u.email, group: u.groups?.length > 0 ? u.groups.map(g => g.name).join(", ") : "Nessun gruppo",
-            createdAt: u.date_joined || "2026-01-01", device: "-",
-            status: u.approval_status || "active", avatar: u.avatar, isOnline: u.is_online, groups: u.groups || [],
-          })));
+          if (selectedGroupIds.length > 0) {
+            try {
+              await apiFetch(`/admin/users/${data.id}/sync-groups/`, {
+                method: "POST",
+                body: JSON.stringify({ group_ids: selectedGroupIds }),
+              });
+            } catch (e) {
+              console.error("Sync gruppi fallito:", e);
+            }
+          }
+          await loadUsers(true);
+          return;
         } else {
+          console.log("❌ Errore creazione:", res.status, data);
           setInfoModal({ title: "Errore", lines: [{ label: "Dettaglio", value: data.error || "Errore nella creazione" }] });
           return;
         }
@@ -643,27 +650,10 @@ function UsersPage() {
           method: "POST",
           body: JSON.stringify({ group_ids: selectedGroupIds }),
         });
-        // Ricarica utenti
-        const usersRes = await apiFetch("/admin/users/");
-        const usersData = await usersRes.json();
-        const usersList = Array.isArray(usersData) ? usersData : [];
-        setUsers(usersList.map(u => ({
-          id: u.id, firstName: u.first_name || u.username, lastName: u.last_name || "",
-          email: u.email, group: u.groups?.length > 0 ? u.groups.map(g => g.name).join(", ") : "Nessun gruppo",
-          createdAt: u.date_joined || "2026-01-01", device: "-",
-          status: u.approval_status || "active", avatar: u.avatar, isOnline: u.is_online, groups: u.groups || [],
-        })));
-        // Aggiorna selectedUser
+        const list = await loadUsers(true);
         if (selectedUser) {
-          const fresh = usersList.find(u => u.id === selectedUser.id);
-          if (fresh) {
-            setSelectedUser({
-              id: fresh.id, firstName: fresh.first_name || fresh.username, lastName: fresh.last_name || "",
-              email: fresh.email, group: fresh.groups?.length > 0 ? fresh.groups.map(g => g.name).join(", ") : "Nessun gruppo",
-              createdAt: fresh.date_joined || "2026-01-01", device: "-",
-              status: fresh.approval_status || "active", avatar: fresh.avatar, isOnline: fresh.is_online, groups: fresh.groups || [],
-            });
-          }
+          const fresh = list.find(u => u.id === selectedUser.id);
+          if (fresh) setSelectedUser(fresh);
         }
       }
       setEditingUser(null);
@@ -814,8 +804,8 @@ function UsersPage() {
         </div>
       )}
 
-      {editingUser && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }} onClick={() => setEditingUser(null)}>
+      {editingUser !== null && editingUser !== undefined ? (
+        <div key={`edit-modal-${editingUser.id}`} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }} onClick={() => setEditingUser(null)}>
           <div style={{ background: T.card, borderRadius: 20, padding: 0, width: 520, maxHeight: "85vh", overflow: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.15)" }} onClick={e => e.stopPropagation()}>
             <div style={{ padding: "24px 28px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <div style={{ fontSize: 18, fontWeight: 800, color: T.text }}>{editingUser.id === "new" ? "Nuovo Utente" : "Modifica Utente"}</div>
@@ -879,7 +869,7 @@ function UsersPage() {
             </div>
           </div>
         </div>
-      )}
+      ) : null}
 
       {confirmAction && (
         <ConfirmModal

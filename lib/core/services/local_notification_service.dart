@@ -1,7 +1,6 @@
 import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Suono messaggi chat: solo da ChatSoundService (notification.wav). Su iOS il suono di sistema
@@ -62,45 +61,11 @@ class LocalNotificationService {
     debugPrint('[LocalNotif] Initialized');
   }
 
-  /// Show a notification from an FCM RemoteMessage (foreground)
-  Future<void> showFromFCM(RemoteMessage message) async {
-    if (!_initialized) await init();
-    final prefs = await SharedPreferences.getInstance();
-    if (prefs.getInt('current_user_id') == null) return;
-
-    final notification = message.notification;
-    if (notification == null) return;
-
-    final type = message.data['type'] ?? 'default';
-    final channelId = _channelForType(type);
-    final isChat = channelId == 'messages';
-    if (Platform.isIOS && isChat) {
-      debugPrint('[LocalNotif] chat notification shown with sound disabled');
-    } else if (Platform.isIOS && !isChat) {
-      debugPrint('[LocalNotif] non-chat notification sound unchanged');
-    }
-
-    await _plugin.show(
-      id: notification.hashCode,
-      title: notification.title ?? 'SecureChat',
-      body: notification.body ?? '',
-      notificationDetails: NotificationDetails(
-        android: AndroidNotificationDetails(
-          channelId,
-          channelId == 'messages' ? 'Messaggi' : (channelId == 'calls' ? 'Chiamate' : 'Notifiche'),
-          importance: Importance.high,
-          priority: Priority.high,
-          playSound: true,
-          icon: '@mipmap/ic_launcher',
-        ),
-        iOS: DarwinNotificationDetails(
-          presentAlert: true,
-          presentBadge: true,
-          presentSound: !isChat,
-        ),
-      ),
-      payload: message.data['source_id'],
-    );
+  /// Show a notification from push payload (foreground).
+  Future<void> showFromPush(Map<String, dynamic> data) async {
+    final title = data['title'] as String? ?? 'Nuovo messaggio';
+    final body = data['body'] as String? ?? '';
+    await show(title: title, body: body, payload: data.toString());
   }
 
   /// Show a custom notification (not from FCM). Usato per messaggi chat da home_screen.

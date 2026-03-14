@@ -191,7 +191,7 @@ class _SplashScreenState extends State<SplashScreen>
     if (!mounted) return;
     if (AuthService().isLoggedIn) {
       debugPrint('[Splash] startup begin');
-      AuthService().refreshFcmTokenIfLoggedIn();
+      if (!mounted) return;
       try {
         final cryptoService = CryptoService(apiService: ApiService());
         final result = await cryptoService.initializeKeys();

@@ -127,6 +127,7 @@ class SessionManager {
 
     debugPrint('[E2E-Send] forcing fresh X3DH bootstrap for peer $otherUserId');
     final newSession = await _performX3DHAndInitSession(otherUserId);
+    await clearRehandshakeFlag(otherUserId);
     await _remoteLog('[GetOrCreate] newSession created for peer=$otherUserId '
         'remoteDhPub=${base64Encode(newSession.remoteDhPublicKey ?? Uint8List(0))} '
         'remoteIdDhPub=${base64Encode(newSession.remoteIdentityDhPublicKey ?? Uint8List(0))}');
@@ -138,7 +139,7 @@ class SessionManager {
     }
     await _saveSession(otherUserId, newSession);
     debugPrint('[SessionAudit] action=overwrite senderId=$otherUserId reason=new_session_created_after_remote_bundle_change');
-    final newFp = _DoubleRatchetSession.fingerprint(newSession.remoteIdentityDhPublicKey, newSession.remoteDhPublicKey);
+    final newFp = _DoubleRatchetSession.fingerprint(newSession.remoteIdentityDhPublicKey, newSession.remoteSignedPreKeyPublic ?? newSession.remoteDhPublicKey);
     debugPrint('[E2E-Send] new session saved with fingerprint=$newFp');
     debugPrint('[E2E-Send] fresh bootstrap completed for peer $otherUserId');
     debugPrint('[E2E-Flow] peer session recovered after remote bundle change for peer $otherUserId');
@@ -146,8 +147,10 @@ class SessionManager {
   }
 
   /// If session has stored remote fingerprint, fetch current bundle and compare. If bundle changed, drop session and return null.
+  /// Uses remoteSignedPreKeyPublic (stable) for prekey comparison, not remoteDhPublicKey (updated at each ratchet step).
   Future<_DoubleRatchetSession?> _ensureSessionMatchesRemoteBundle(int otherUserId, _DoubleRatchetSession session) async {
-    if (session.remoteIdentityDhPublicKey == null || session.remoteDhPublicKey == null) {
+    final storedPrekey = session.remoteSignedPreKeyPublic ?? session.remoteDhPublicKey;
+    if (session.remoteIdentityDhPublicKey == null || storedPrekey == null) {
       return session;
     }
     try {
@@ -159,13 +162,13 @@ class SessionManager {
         (bundleResponse['signed_prekey'] ?? bundleResponse['signed_prekey_public']) as String,
       ));
       final peerFp = _DoubleRatchetSession.fingerprint(currentIdentityDh, currentSignedPrekey);
-      final storedFp = _DoubleRatchetSession.fingerprint(session.remoteIdentityDhPublicKey, session.remoteDhPublicKey);
+      final storedFp = _DoubleRatchetSession.fingerprint(session.remoteIdentityDhPublicKey, storedPrekey);
       debugPrint('[E2E-Send] peer bundle fingerprint=$peerFp');
       debugPrint('[E2E-Send] stored session fingerprint=$storedFp');
       final identityMatch = session.remoteIdentityDhPublicKey!.length == currentIdentityDh.length &&
           _bytesEqualStatic(session.remoteIdentityDhPublicKey!, currentIdentityDh);
-      final prekeyMatch = session.remoteDhPublicKey!.length == currentSignedPrekey.length &&
-          _bytesEqualStatic(session.remoteDhPublicKey!, currentSignedPrekey);
+      final prekeyMatch = storedPrekey.length == currentSignedPrekey.length &&
+          _bytesEqualStatic(storedPrekey, currentSignedPrekey);
       if (identityMatch && prekeyMatch) {
         return session;
       }
@@ -397,8 +400,19 @@ class SessionManager {
             throw Exception('Sender bundle changed — session invalidated, retry failed: $e');
           }
         } else {
-          await _remoteLog('[DecryptRX] senderBundleChanged userId=$senderUserId — non-initial, session dropped');
-          throw Exception('Sender bundle changed — waiting for new initial message from $senderUserId');
+          // Bundle cambiato su messaggio non-initial:
+          // 1. Drop sessione locale (così il mittente farà nuovo X3DH al prossimo invio)
+          // 2. Cancella il flag failed-decrypt per questo messaggio così verrà ritentato dopo re-handshake
+          await _remoteLog('[DecryptRX] senderBundleChanged userId=$senderUserId — non-initial, dropping session and forcing re-handshake');
+          _sessions.remove(senderUserId);
+          await _secureStorage.delete(key: '$_sessionPrefix$senderUserId');
+          await _secureStorage.delete(key: '$_sessionPrevPrefix$senderUserId');
+          if (messageId != null) {
+            _failedDecryptCache.remove(messageId);
+            final prefs = await SharedPreferences.getInstance();
+            await prefs.remove('$_failedPrefix$messageId');
+          }
+          throw Exception('Sender bundle changed — session cleared, waiting for re-handshake');
         }
       }
     } else {
@@ -592,6 +606,7 @@ class SessionManager {
         sharedSecret: sharedSecret,
         dhPrivateKey: mySignedPreKeyPrivate,
         dhPublicKey: mySignedPreKeyPublic,
+        remoteSignedPreKeyPublic: Uint8List.fromList(senderDhPublic),
       );
       session.doDhRatchetStep(senderDhPublic);
       await _saveSession(senderUserId, session);
@@ -610,6 +625,12 @@ class SessionManager {
     if (_sessions.containsKey(otherUserId)) return true;
     final stored = await _secureStorage.read(key: '$_sessionPrefix$otherUserId');
     return stored != null;
+  }
+
+  /// Clears the cached E2E session for one user (e.g. when creating a new private chat).
+  /// Removes from in-memory cache and Keychain so the next message will trigger a fresh X3DH handshake.
+  Future<void> clearSessionForUser(int userId) async {
+    await deleteSession(userId, reason: 'new_private_chat');
   }
 
   /// Remove the E2E session for one user (e.g. after chat re-open from hidden).
@@ -833,6 +854,8 @@ class _DoubleRatchetSession {
   Uint8List? identityDhPublicKey;
   /// Peer's identity DH public (from bundle when we are sender). Used to detect remote bundle change.
   Uint8List? remoteIdentityDhPublicKey;
+  /// Peer's signed prekey from bundle; set only in initSender/initReceiver, never updated by ratchet. Used for bundle-change check.
+  Uint8List? remoteSignedPreKeyPublic;
   int? _otpKeyId;
   bool isInitialMessage = true;
   final Map<String, Uint8List> _skippedMessageKeys = {};
@@ -848,6 +871,7 @@ class _DoubleRatchetSession {
     this.ephemeralPublicKey,
     this.identityDhPublicKey,
     this.remoteIdentityDhPublicKey,
+    this.remoteSignedPreKeyPublic,
     int? otpKeyId,
   }) : _otpKeyId = otpKeyId;
 
@@ -882,6 +906,7 @@ class _DoubleRatchetSession {
       sendingChainKey: derived['chainKey']!,
       remoteDhPublicKey: remotePublicKey,
       remoteIdentityDhPublicKey: remoteIdentityDhPublicKey,
+      remoteSignedPreKeyPublic: remotePublicKey,
       ephemeralPublicKey: ephemeralPublicKey,
       identityDhPublicKey: identityDhPublicKey,
       otpKeyId: otpKeyId,
@@ -892,11 +917,13 @@ class _DoubleRatchetSession {
     required Uint8List sharedSecret,
     required Uint8List dhPrivateKey,
     required Uint8List dhPublicKey,
+    Uint8List? remoteSignedPreKeyPublic,
   }) {
     return _DoubleRatchetSession._(
       rootKey: sharedSecret,
       dhPrivateKey: dhPrivateKey,
       dhPublicKey: dhPublicKey,
+      remoteSignedPreKeyPublic: remoteSignedPreKeyPublic,
     );
   }
 
@@ -1111,6 +1138,7 @@ class _DoubleRatchetSession {
         'dhPublicKey': base64Encode(dhPublicKey),
         'remoteDhPublicKey': remoteDhPublicKey != null ? base64Encode(remoteDhPublicKey!) : null,
         'remoteIdentityDhPublicKey': remoteIdentityDhPublicKey != null ? base64Encode(remoteIdentityDhPublicKey!) : null,
+        'remoteSignedPreKeyPublic': remoteSignedPreKeyPublic != null ? base64Encode(remoteSignedPreKeyPublic!) : null,
         'ephemeralPublicKey': ephemeralPublicKey != null ? base64Encode(ephemeralPublicKey!) : null,
         'identityDhPublicKey': identityDhPublicKey != null ? base64Encode(identityDhPublicKey!) : null,
         'isInitialMessage': isInitialMessage,
@@ -1132,6 +1160,9 @@ class _DoubleRatchetSession {
           : null,
       remoteIdentityDhPublicKey: json['remoteIdentityDhPublicKey'] != null
           ? Uint8List.fromList(base64Decode(json['remoteIdentityDhPublicKey'] as String))
+          : null,
+      remoteSignedPreKeyPublic: json['remoteSignedPreKeyPublic'] != null
+          ? Uint8List.fromList(base64Decode(json['remoteSignedPreKeyPublic'] as String))
           : null,
       ephemeralPublicKey: json['ephemeralPublicKey'] != null
           ? Uint8List.fromList(base64Decode(json['ephemeralPublicKey'] as String))

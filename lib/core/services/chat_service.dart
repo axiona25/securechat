@@ -3,6 +3,7 @@ import 'dart:io';
 import '../models/conversation_model.dart';
 import '../models/user_model.dart';
 import 'api_service.dart';
+import 'session_manager.dart';
 
 class ChatService {
   static final ChatService _instance = ChatService._internal();
@@ -87,7 +88,9 @@ class ChatService {
   }
 
   /// Create a private conversation with one other user. Returns conversation payload or null.
-  Future<Map<String, dynamic>?> createPrivateConversation(int otherUserId) async {
+  /// If [isNew] is true, clears the cached E2E session so the next message uses a fresh X3DH handshake.
+  /// If false (e.g. re-opening an existing conversation), the session is preserved.
+  Future<Map<String, dynamic>?> createPrivateConversation(int otherUserId, {bool isNew = false}) async {
     try {
       final data = await _api.post(
         '/chat/conversations/',
@@ -96,6 +99,9 @@ class ChatService {
           'conv_type': 'private',
         },
       );
+      if (isNew) {
+        await SessionManager().clearSessionForUser(otherUserId);
+      }
       return data as Map<String, dynamic>;
     } on ApiException {
       rethrow;

@@ -1061,7 +1061,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
 
     if (isPrivate) {
       try {
-        final response = await _chatService.createPrivateConversation(otherUserId!);
+        final response = await _chatService.createPrivateConversation(otherUserId!, isNew: false);
         if (response != null && response['session_reset'] == true) {
           await SessionManager().deleteSession(otherUserId, reason: 'session_reset_before_open_chat_reactivated_hidden');
           debugPrint('[E2E] Session reset before opening chat (re-activated hidden) for user $otherUserId');
@@ -2304,7 +2304,7 @@ class _SingleChatSheetContentState extends State<_SingleChatSheetContent> {
     if (id == null) return;
     setState(() => _creating = true);
     try {
-      final conv = await widget.chatService.createPrivateConversation(id);
+      final conv = await widget.chatService.createPrivateConversation(id, isNew: true);
       if (!mounted) return;
       if (conv != null) {
         widget.onConversationCreated(conv, user);

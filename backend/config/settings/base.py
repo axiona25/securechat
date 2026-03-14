@@ -255,21 +255,13 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 TRANSLATION_CACHE_TTL = 60 * 60 * 24  # Redis cache TTL: 24 hours
 TRANSLATION_MAX_TEXT_LENGTH = 5000  # Max chars per request
 
-# Firebase Cloud Messaging
-_firebase_env = env('FIREBASE_CREDENTIALS_PATH', default='')
-FIREBASE_CREDENTIALS_PATH = Path(_firebase_env) if _firebase_env else (BASE_DIR / 'config' / 'firebase-service-account.json')
-try:
-    import firebase_admin
-    from firebase_admin import credentials
-    if FIREBASE_CREDENTIALS_PATH.exists():
-        if not firebase_admin._apps:
-            cred = credentials.Certificate(str(FIREBASE_CREDENTIALS_PATH))
-            firebase_admin.initialize_app(cred)
-        FIREBASE_ENABLED = True
-    else:
-        FIREBASE_ENABLED = False
-except Exception:
-    FIREBASE_ENABLED = False
+# ── Notify Server Proprietario (sostituisce Firebase) ──
+NOTIFY_BASE_URL = env('NOTIFY_BASE_URL', default='http://notify-server:8002')
+NOTIFY_SERVICE_KEY = env('NOTIFY_SERVICE_KEY', default='')
+NOTIFY_ENABLED = bool(NOTIFY_BASE_URL)
+
+# Firebase DISABILITATO — rimosso in favore del server notify proprietario
+FIREBASE_ENABLED = False
 
 # CORS — for React Admin and Flutter Web
 CORS_ALLOW_CREDENTIALS = True

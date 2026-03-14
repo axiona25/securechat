@@ -3168,9 +3168,23 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   }
 
   /// Spunte stato messaggio (solo per messaggi inviati da me): ✓ inviato, ✓✓ consegnato, ✓✓ blu letto.
+  /// Mostra orologino se in invio, icona rossa riprova se errore.
   /// Backend: statuses[].user è un intero (user ID), non un oggetto {id: ...}.
   Widget _buildMessageStatus(Map<String, dynamic> msg, bool isMe) {
     if (!isMe) return const SizedBox.shrink();
+
+    if (msg['is_sending'] == true) {
+      return Icon(Icons.schedule, size: 14, color: Colors.white70);
+    }
+    if (msg['status'] == 'error') {
+      return GestureDetector(
+        onTap: () => _retryFailedMessage(msg),
+        child: Tooltip(
+          message: 'Riprova',
+          child: Icon(Icons.error, size: 14, color: Colors.red),
+        ),
+      );
+    }
 
     final statuses = msg['statuses'] as List? ?? [];
     final currentUserId = _effectiveCurrentUserId;
@@ -3190,6 +3204,17 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     if (isRead) return Icon(Icons.done_all, size: 14, color: Colors.white); // 2 spunte = letto
     if (isDelivered) return Icon(Icons.done_all, size: 14, color: Colors.white70); // 2 spunte = consegnato
     return Icon(Icons.done, size: 14, color: Colors.white70); // 1 spunta = inviato
+  }
+
+  /// Riprova invio messaggio fallito: rimuove dalla lista e mette il testo nel campo per ritoccare Invia.
+  void _retryFailedMessage(Map<String, dynamic> message) {
+    final id = message['id']?.toString();
+    final content = message['content']?.toString() ?? '';
+    if (id == null) return;
+    setState(() {
+      _messages.removeWhere((m) => m['id']?.toString() == id);
+    });
+    _textController.text = content;
   }
 
   Widget _buildMessageItem(BuildContext context, Map<String, dynamic> message, int index) {
@@ -3970,22 +3995,48 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     );
     _textController.clear();
     setState(() {});
+
+    // 1. OPTIMISTIC UPDATE SUBITO (prima della cifratura, così il messaggio appare istantaneamente)
+    String? tempId;
+    final replyToId = _replyToMessage?['id']?.toString();
+    final replyToForUi = _replyToMessage;
+    final currentUserId = _effectiveCurrentUserId;
+    tempId = 'temp_${DateTime.now().millisecondsSinceEpoch}';
+    final tempMessage = <String, dynamic>{
+      'id': tempId,
+      'content': savedText,
+      'message_type': 'text',
+      'sender_id': currentUserId,
+      'sender': {'id': currentUserId},
+      'created_at': DateTime.now().toIso8601String(),
+      'status': 'sending',
+      'is_sending': true,
+      'reply_to': replyToForUi,
+    };
+    setState(() {
+      _messages.insert(0, tempMessage);
+      _replyToMessage = null;
+      _editingMessageId = null;
+    });
+    _scrollToBottom();
+
     try {
       debugPrint('=== SENDING MESSAGE to $_conversationId: $savedText ===');
+      // 2. Costruisci body
       final body = <String, dynamic>{
         'message_type': 'text',
       };
-      if (_replyToMessage != null) {
-        body['reply_to_id'] = _replyToMessage!['id']?.toString() ?? '';
+      if (replyToId != null && replyToId.isNotEmpty) {
+        body['reply_to_id'] = replyToId;
       }
 
+      // 3. Cifra messaggio (await)
       final otherUser = _getOtherUserId();
       if (otherUser != null) {
         try {
           final combinedPayload = await _sessionManager.encryptMessage(otherUser, savedText);
           final encryptedB64 = base64Encode(combinedPayload);
           body['content_encrypted'] = encryptedB64;
-          // Aggiungi anche recipients_encrypted per chat private (fan-out come gruppi)
           body['recipients_encrypted'] = {
             otherUser.toString(): encryptedB64,
           };
@@ -3995,6 +4046,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           await _sessionManager.remoteLog(
             '[EncryptFail] error=${e.toString()} stack=${StackTrace.current.toString().substring(0, 200)}',
           );
+          setState(() => _messages.removeWhere((m) => m['id'] == tempId));
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
@@ -4004,10 +4056,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
               ),
             );
           }
+          _textController.text = savedText;
           return;
         }
       } else if (_conversation != null && _conversation!.isGroup) {
-        // E2E fan-out: cifra per ogni partecipante del gruppo
         final recipientsEncrypted = <String, String>{};
         bool encryptionFailed = false;
 
@@ -4027,6 +4079,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         }
 
         if (encryptionFailed || recipientsEncrypted.isEmpty) {
+          setState(() => _messages.removeWhere((m) => m['id'] == tempId));
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
@@ -4036,16 +4089,17 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
               ),
             );
           }
+          _textController.text = savedText;
           return;
         }
 
         body['recipients_encrypted'] = recipientsEncrypted;
-        // Invia anche content_encrypted con il primo payload per compatibilità
         body['content_encrypted'] = recipientsEncrypted.values.first;
       } else {
         body['content'] = savedText;
       }
 
+      // 4. POST al server
       final response = await ApiService().post(
         '/chat/conversations/$_conversationId/messages/',
         body: body,
@@ -4057,14 +4111,16 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           await _sessionManager.cacheSentMessage(messageId, savedText);
           response['content'] = savedText;
         }
+        // Sostituisce il messaggio temporaneo con quello reale del server
         setState(() {
-          _messages.insert(0, Map<String, dynamic>.from(response));
-          _replyToMessage = null;
-          _editingMessageId = null;
+          final tempIdx = _messages.indexWhere((m) => m['id'] == tempId);
+          if (tempIdx >= 0) {
+            _messages[tempIdx] = Map<String, dynamic>.from(response);
+          } else {
+            _messages.insert(0, Map<String, dynamic>.from(response));
+          }
         });
-        _scrollToBottom();
         ChatSoundService().playOutgoing(messageId: messageId);
-        // Update home preview cache so the Home screen shows the sent message text
         _saveHomePreview(_messages);
       }
     } catch (e) {
@@ -4080,6 +4136,19 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           );
         }
         return;
+      }
+      // Rimuove messaggio temporaneo in caso di errore e mostra in rosso
+      setState(() {
+        _messages.removeWhere((m) => m['id'] == tempId);
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Invio fallito. Riprova.'),
+            backgroundColor: Colors.red,
+            duration: Duration(seconds: 3),
+          ),
+        );
       }
       _textController.text = savedText;
       setState(() {});
