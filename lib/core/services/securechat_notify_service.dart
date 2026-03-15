@@ -11,6 +11,7 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 import '../constants/app_constants.dart';
 import '../../features/chat/screens/chat_detail_screen.dart';
 import 'local_notification_service.dart';
+import 'session_manager.dart';
 
 class SecureChatNotifyService {
   static final SecureChatNotifyService _instance =
@@ -193,6 +194,9 @@ class SecureChatNotifyService {
         case 'typing_stop':
           onTyping?.call(data['user_id']?.toString() ?? '', false);
           break;
+        case 'keys_changed':
+          _handleKeysChanged(data);
+          break;
       }
     } catch (e) {
       debugPrint('[NotifyService] Errore parsing WS: $e');
@@ -278,6 +282,17 @@ class SecureChatNotifyService {
       'body': body,
       'conversation_id': conversationId,
     });
+  }
+
+  void _handleKeysChanged(Map<String, dynamic> data) {
+    final userId = data['user_id'];
+    final keyVersion = data['key_version'];
+    if (userId == null || keyVersion == null) return;
+    final userIdInt = userId is int ? userId : int.tryParse(userId.toString());
+    final keyVersionInt = keyVersion is int ? keyVersion : int.tryParse(keyVersion.toString());
+    if (userIdInt == null || keyVersionInt == null) return;
+    debugPrint('[NotifyService] keys_changed: user=$userIdInt keyVersion=$keyVersionInt — reset sessione');
+    SessionManager().handleKeysChanged(userIdInt, keyVersionInt);
   }
 
   Future<void> sendTypingStart({required String recipientId}) async {

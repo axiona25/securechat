@@ -50,6 +50,7 @@ class SessionManager {
   final CryptoService _cryptoService;
 
   final Map<int, _DoubleRatchetSession> _sessions = {};
+  final Map<int, int> _knownKeyVersions = {};
 
   /// Call early at app startup to validate session storage; never throws.
   Future<void> warmupSessionStorage() async {
@@ -155,6 +156,19 @@ class SessionManager {
     }
     try {
       final bundleResponse = await _apiService.get('/encryption/keys/$otherUserId/');
+
+      // Controlla key_version prima del confronto binario (più veloce)
+      final remoteKeyVersion = bundleResponse['key_version'] as int?;
+      if (remoteKeyVersion != null) {
+        final knownVersion = _knownKeyVersions[otherUserId];
+        if (knownVersion != null && knownVersion == remoteKeyVersion) {
+          // Versione nota e invariata — sessione valida senza confronto binario
+          return session;
+        }
+        // Aggiorna versione nota
+        _knownKeyVersions[otherUserId] = remoteKeyVersion;
+      }
+
       final currentIdentityDh = Uint8List.fromList(base64Decode(
         (bundleResponse['identity_dh_key'] ?? bundleResponse['identity_dh_key_public']) as String,
       ));
@@ -497,6 +511,28 @@ class SessionManager {
           value: 'true',
         );
       } catch (_) {}
+      // Auto-recovery: controlla se le chiavi del mittente sono cambiate
+      try {
+        final versionResponse = await _apiService.get(
+          '/encryption/keys/$senderUserId/version/',
+        );
+        final remoteKeyVersion = versionResponse['key_version'] as int?;
+        final knownVersion = _knownKeyVersions[senderUserId];
+        if (remoteKeyVersion != null && remoteKeyVersion != knownVersion) {
+          debugPrint('[E2E] Auto-recovery: key_version cambiata per user $senderUserId '
+              '(known=$knownVersion remote=$remoteKeyVersion) — reset sessione');
+          _knownKeyVersions[senderUserId] = remoteKeyVersion;
+          await deleteSession(senderUserId, reason: 'auto_recovery_key_version_changed');
+          await _secureStorage.write(
+            key: 'scp_needs_rehandshake_$senderUserId',
+            value: 'true',
+          );
+          debugPrint('[E2E] Auto-recovery completato: nuova sessione verrà creata '
+              'al prossimo messaggio iniziale da user $senderUserId');
+        }
+      } catch (versionCheckError) {
+        debugPrint('[E2E] Auto-recovery version check fallito: $versionCheckError');
+      }
       rethrow;
     }
   }
@@ -631,6 +667,19 @@ class SessionManager {
   /// Removes from in-memory cache and Keychain so the next message will trigger a fresh X3DH handshake.
   Future<void> clearSessionForUser(int userId) async {
     await deleteSession(userId, reason: 'new_private_chat');
+  }
+
+  /// Chiamato quando il notify server segnala che un utente ha cambiato le chiavi.
+  /// Resetta la sessione con quell'utente in modo silenzioso.
+  Future<void> handleKeysChanged(int userId, int newKeyVersion) async {
+    final known = _knownKeyVersions[userId];
+    if (known != null && known == newKeyVersion) {
+      debugPrint('[E2E] keys_changed ignorato: version=$newKeyVersion già nota per user $userId');
+      return;
+    }
+    debugPrint('[E2E] keys_changed: user=$userId newVersion=$newKeyVersion — reset sessione');
+    _knownKeyVersions[userId] = newKeyVersion;
+    await deleteSession(userId, reason: 'keys_changed_event');
   }
 
   /// Remove the E2E session for one user (e.g. after chat re-open from hidden).
