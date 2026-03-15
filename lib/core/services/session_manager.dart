@@ -139,6 +139,8 @@ class SessionManager {
       debugPrint('[SessionAudit] action=backup_current senderId=$otherUserId reason=before_overwrite_after_remote_bundle_change');
     }
     await _saveSession(otherUserId, newSession);
+    newSession.remoteKeyVersion = _knownKeyVersions[otherUserId];
+    await _saveSession(otherUserId, newSession);
     debugPrint('[SessionAudit] action=overwrite senderId=$otherUserId reason=new_session_created_after_remote_bundle_change');
     final newFp = _DoubleRatchetSession.fingerprint(newSession.remoteIdentityDhPublicKey, newSession.remoteSignedPreKeyPublic ?? newSession.remoteDhPublicKey);
     debugPrint('[E2E-Send] new session saved with fingerprint=$newFp');
@@ -161,11 +163,12 @@ class SessionManager {
       final remoteKeyVersion = bundleResponse['key_version'] as int?;
       if (remoteKeyVersion != null) {
         final knownVersion = _knownKeyVersions[otherUserId];
-        if (knownVersion != null && knownVersion == remoteKeyVersion) {
-          // Versione nota e invariata — sessione valida senza confronto binario
+        // Cortocircuita SOLO se la versione è nota E la sessione ha già le chiavi aggiornate (doppio controllo)
+        if (knownVersion != null &&
+            knownVersion == remoteKeyVersion &&
+            session.remoteKeyVersion == remoteKeyVersion) {
           return session;
         }
-        // Aggiorna versione nota
         _knownKeyVersions[otherUserId] = remoteKeyVersion;
       }
 
@@ -905,6 +908,8 @@ class _DoubleRatchetSession {
   Uint8List? remoteIdentityDhPublicKey;
   /// Peer's signed prekey from bundle; set only in initSender/initReceiver, never updated by ratchet. Used for bundle-change check.
   Uint8List? remoteSignedPreKeyPublic;
+  /// Remote key_version when session was created/validated; used for short-circuit in _ensureSessionMatchesRemoteBundle.
+  int? remoteKeyVersion;
   int? _otpKeyId;
   bool isInitialMessage = true;
   final Map<String, Uint8List> _skippedMessageKeys = {};
@@ -1191,6 +1196,7 @@ class _DoubleRatchetSession {
         'ephemeralPublicKey': ephemeralPublicKey != null ? base64Encode(ephemeralPublicKey!) : null,
         'identityDhPublicKey': identityDhPublicKey != null ? base64Encode(identityDhPublicKey!) : null,
         'isInitialMessage': isInitialMessage,
+        'remoteKeyVersion': remoteKeyVersion,
       };
 
   factory _DoubleRatchetSession.fromJson(Map<String, dynamic> json) {
@@ -1223,6 +1229,7 @@ class _DoubleRatchetSession {
     session.sendingMessageNumber = json['sendingMessageNumber'] as int? ?? 0;
     session.receivingMessageNumber = json['receivingMessageNumber'] as int? ?? 0;
     session.isInitialMessage = json['isInitialMessage'] as bool? ?? false;
+    session.remoteKeyVersion = json['remoteKeyVersion'] as int?;
     return session;
   }
 }

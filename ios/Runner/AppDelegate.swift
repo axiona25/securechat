@@ -16,6 +16,7 @@ import UserNotifications
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
     application.registerForRemoteNotifications()
+    UNUserNotificationCenter.current().delegate = self
     let voipRegistry = PKPushRegistry(queue: .main)
     voipRegistry.delegate = self
     voipRegistry.desiredPushTypes = [.voIP]
@@ -133,6 +134,34 @@ import UserNotifications
       self?.voipChannel?.invokeMethod("incomingCall", arguments: args)
     }
     completion()
+  }
+
+  // Mostra notifica anche in foreground
+  override func userNotificationCenter(
+    _ center: UNUserNotificationCenter,
+    willPresent notification: UNNotification,
+    withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+  ) {
+    if #available(iOS 14.0, *) {
+      completionHandler([.banner, .badge, .sound])
+    } else {
+      completionHandler([.alert, .badge, .sound])
+    }
+  }
+
+  // Gestisce tap sulla notifica
+  override func userNotificationCenter(
+    _ center: UNUserNotificationCenter,
+    didReceive response: UNNotificationResponse,
+    withCompletionHandler completionHandler: @escaping () -> Void
+  ) {
+    let userInfo = response.notification.request.content.userInfo
+    if let conversationId = userInfo["conversation_id"] as? String {
+      DispatchQueue.main.async { [weak self] in
+        self?.apnsChannel?.invokeMethod("notificationTapped", arguments: conversationId)
+      }
+    }
+    completionHandler()
   }
 
   func playSystemRingtone() {
