@@ -72,6 +72,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
   final GlobalKey<CallsHistoryScreenState> _callsHistoryKey = GlobalKey<CallsHistoryScreenState>();
   bool _e2eNeedsManualRecovery = false;
   bool _hasShownRecoveryDialog = false;
+  bool _isNavigating = false;
 
   AppLocalizations get l10n => AppLocalizations.of(context)!;
 
@@ -1055,34 +1056,42 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
   }
 
   Future<void> _onConversationTap(ConversationModel conversation) async {
-    final other = conversation.otherParticipant(_currentUser?.id);
-    final otherUserId = other?.userId;
-    final isPrivate = !conversation.isGroup && otherUserId != null;
-
-    if (isPrivate) {
-      try {
-        final response = await _chatService.createPrivateConversation(otherUserId!, isNew: false);
-        if (response != null && response['session_reset'] == true) {
-          await SessionManager().deleteSession(otherUserId, reason: 'session_reset_before_open_chat_reactivated_hidden');
-          debugPrint('[E2E] Session reset before opening chat (re-activated hidden) for user $otherUserId');
-        }
-      } catch (_) {
-        // Se l'API fallisce (es. offline), apri comunque la chat
-      }
-      if (!mounted) return;
-    }
-
-    Navigator.of(context).pushNamed(
-      AppRouter.chatDetail,
-      arguments: {
-        'conversationId': conversation.id,
-        'onMarkedAsRead': () {
-          if (mounted) _loadDataSilent();
+    if (_isNavigating) return;
+    _isNavigating = true;
+    try {
+      // Naviga SUBITO senza aspettare nulla
+      Navigator.of(context).pushNamed(
+        AppRouter.chatDetail,
+        arguments: {
+          'conversationId': conversation.id,
+          'conversation': conversation,
+          'onMarkedAsRead': () {
+            if (mounted) _loadDataSilent();
+          },
         },
-      },
-    ).then((_) {
-      if (mounted) _loadData();
-    });
+      ).then((_) {
+        _isNavigating = false;
+        if (mounted) _loadData();
+      });
+
+      // Esegui createPrivateConversation IN BACKGROUND dopo la navigazione
+      final other = conversation.otherParticipant(_currentUser?.id);
+      final otherUserId = other?.userId;
+      final isPrivate = !conversation.isGroup && otherUserId != null;
+      if (isPrivate) {
+        _chatService.createPrivateConversation(otherUserId!, isNew: false)
+            .then((response) async {
+              if (response != null && response['session_reset'] == true) {
+                await SessionManager().deleteSession(otherUserId!,
+                    reason: 'session_reset_before_open_chat_reactivated_hidden');
+                debugPrint('[E2E] Session reset before opening chat (re-activated hidden) for user $otherUserId');
+              }
+            })
+            .catchError((_) {});
+      }
+    } catch (_) {
+      _isNavigating = false;
+    }
   }
 
   void _deleteConversation(ConversationModel conv) {

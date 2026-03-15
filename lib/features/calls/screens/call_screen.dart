@@ -44,6 +44,8 @@ class _CallScreenState extends State<CallScreen> {
   final RTCVideoRenderer _remoteRenderer = RTCVideoRenderer();
   bool _renderersInitialized = false;
   bool _hasPopped = false;
+  MediaStream? _remoteStream;
+  MediaStream? _localStream;
 
   static const Color _teal = Color(0xFF2ABFBF);
   static const Color _endCallRed = Color(0xFFFF3B30);
@@ -75,13 +77,22 @@ class _CallScreenState extends State<CallScreen> {
     try {
       await _localRenderer.initialize();
       await _remoteRenderer.initialize();
-      if (mounted) setState(() => _renderersInitialized = true);
+      if (mounted) {
+        setState(() => _renderersInitialized = true);
+        // Assegna renderer se stream già disponibili
+        if (_remoteStream != null) {
+          _remoteRenderer.srcObject = _remoteStream;
+        }
+        if (_localStream != null && widget.callType == 'video') {
+          _localRenderer.srcObject = _localStream;
+        }
+      }
     } catch (e) {
       debugPrint('[CallScreen] renderer init error: $e');
     }
   }
 
-  void _onStateUpdate(CallState s) {
+  Future<void> _onStateUpdate(CallState s) async {
     if (!mounted) return;
     if (s.status == CallStatus.ringing && !widget.isIncoming) {
       CallSoundService().playRingback();
@@ -91,17 +102,24 @@ class _CallScreenState extends State<CallScreen> {
       WakelockPlus.enable();
       _startDurationTimer();
     }
-    if (s.remoteStream != null && _renderersInitialized) {
-      if (_remoteRenderer.srcObject != s.remoteStream) {
-        _remoteRenderer.srcObject = s.remoteStream;
+    debugPrint('[CallScreen] _onStateUpdate: status=${s.status} remoteStream=${s.remoteStream?.id} _remoteStream=${_remoteStream?.id} _renderersInitialized=$_renderersInitialized');
+    if (s.remoteStream != null) {
+      _remoteStream = s.remoteStream;
+      debugPrint('[CallScreen] _remoteStream aggiornato: ${_remoteStream?.id}');
+      if (_renderersInitialized) {
+        _remoteRenderer.srcObject = null; // reset prima per forzare rebind su iOS
+        await Future.delayed(const Duration(milliseconds: 100));
+        _remoteRenderer.srcObject = _remoteStream;
+        debugPrint('[CallScreen] srcObject assegnato: ${_remoteStream?.id}');
       } else {
-        // Forza refresh per nuovi track aggiunti allo stesso stream
-        _remoteRenderer.srcObject = null;
-        _remoteRenderer.srcObject = s.remoteStream;
+        debugPrint('[CallScreen] renderer NON ancora inizializzato!');
       }
     }
-    if (s.localStream != null && _renderersInitialized && widget.callType == 'video') {
-      _localRenderer.srcObject = s.localStream;
+    if (s.localStream != null) {
+      _localStream = s.localStream;
+      if (_renderersInitialized && widget.callType == 'video') {
+        _localRenderer.srcObject = _localStream;
+      }
     }
     if (s.status == CallStatus.ended) {
       debugPrint('[CallScreen] Call ended received, closing screen');
@@ -331,21 +349,24 @@ class _CallScreenState extends State<CallScreen> {
   }
 
   Widget _buildVideoLayout() {
-    final hasRemoteVideo = _renderersInitialized && _callService.state.remoteStream != null;
+    final hasRemoteVideo = _renderersInitialized && _remoteStream != null;
+    debugPrint('[CallScreen] _buildVideoLayout: hasRemoteVideo=$hasRemoteVideo _renderersInitialized=$_renderersInitialized _remoteStream=${_remoteStream?.id}');
 
     return Stack(
       fit: StackFit.expand,
       children: [
         if (hasRemoteVideo)
-          RTCVideoView(
-            _remoteRenderer,
-            objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+          SizedBox.expand(
+            child: RTCVideoView(
+              _remoteRenderer,
+              objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+            ),
           )
         else
-          _buildWaitingLayout(audioOnly: false),
-        if (_renderersInitialized &&
-            widget.callType == 'video' &&
-            _callService.state.localStream != null)
+          Positioned.fill(
+            child: _buildWaitingLayout(audioOnly: false),
+          ),
+        if (_renderersInitialized && widget.callType == 'video' && _localStream != null)
           Positioned(
             top: MediaQuery.of(context).padding.top + 16,
             right: 16,

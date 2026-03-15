@@ -71,7 +71,7 @@ dependencies:
   chewie: ^1.13.0
   open_filex: ^4.7.0
   pdfx: ^2.9.2
-  flutter_webrtc: ^0.12.4
+  flutter_webrtc: ^0.12.12+hotfix.1
   wakelock_plus: ^1.2.8
   just_audio: ^0.9.40
   package_info_plus: ^8.0.0

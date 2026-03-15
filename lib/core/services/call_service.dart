@@ -203,6 +203,7 @@ class CallService {
   void _emit(CallState s) {
     _state = s;
     if (!_stateController.isClosed) _stateController.add(s);
+    debugPrint('[CallService] emit remoteStream=${_state.remoteStream?.id}');
   }
 
   void _onMessage(dynamic raw) {
@@ -436,7 +437,7 @@ class CallService {
     } catch (_) {}
   }
 
-  /// Configures AVAudioSession on iOS (playAndRecord + voiceChat) before WebRTC.
+  /// Configures AVAudioSession on iOS (playAndRecord + videoChat) before WebRTC.
   /// Required for audio to pass on iOS; no-op or ignored on other platforms.
   Future<void> _configureAudioSession() async {
     _remoteLog('[CallService] _configureAudioSession start');
@@ -487,15 +488,13 @@ class CallService {
         });
       };
       _peerConnection!.onAddStream = (MediaStream stream) {
-        _setRemoteStream(stream);
+        _remoteStream = stream;
         _callStartTime ??= DateTime.now();
         _remoteLog('[CallService] onAddStream connected');
         _emit(_state.copyWith(remoteStream: _remoteStream, status: CallStatus.connected));
       };
       _peerConnection!.onTrack = (RTCTrackEvent event) {
-        final stream = event.streams.isNotEmpty
-            ? event.streams.first
-            : null;
+        final stream = event.streams.isNotEmpty ? event.streams.first : null;
         final kind = event.track?.kind ?? 'unknown';
         final streamId = stream?.id ?? 'no-stream';
         _remoteLog('[CallService] onTrack kind=$kind streamId=$streamId');
@@ -606,6 +605,8 @@ class CallService {
   Future<void> initiateCall(String conversationId, String callType) async {
     debugPrint('[CallService] initiateCall: conversationId=$conversationId, callType=$callType');
     if (_state.status != CallStatus.idle) return;
+    _remoteStream = null;
+    _speakerDefaultApplied = false;
     await ensureConnected();
     if (_channel == null || !_isConnected) {
       _emit(_state.copyWith(status: CallStatus.ended));
@@ -628,6 +629,8 @@ class CallService {
 
   void acceptCall(String callId) {
     if (_callId != callId) return;
+    _remoteStream = null;
+    _speakerDefaultApplied = false;
     _send({'action': 'accept_call', 'call_id': callId});
   }
 

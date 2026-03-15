@@ -52,7 +52,7 @@ class ChatDetailScreen extends StatefulWidget {
   static String? currentOpenConversationId;
 
   /// Cache decifrati per allegati E2E (attachmentId -> File). Sopravvive al dispose della pagina.
-  static const int _decryptedFileCacheMaxSize = 100;
+  static const int _decryptedFileCacheMaxSize = 500;
   static final Map<String, File> _staticDecryptedFileCache = {};
   /// Cache bytes in memoria per immagini E2E (attachmentId -> Uint8List). Evita lettura da disco su rebuild.
   static final Map<String, Uint8List> _staticBytesCache = {};
@@ -132,7 +132,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   late final SessionManager _sessionManager;
   final Set<String> _decryptedMessageIds = {};
   final Set<String> _failedDecryptIds = {};
-  bool _loading = true;
+  bool _loading = false;
   bool _isLoadingMessages = false;
   bool _sending = false;
   bool _isUploading = false;
@@ -153,8 +153,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   final Map<String, String?> _videoThumbnailCache = {};
   /// Cache dei file decifrati per allegati E2E (attachmentId -> File).
   final Map<String, File> _decryptedFileCache = {};
-  /// Cache dei Future di decrypt (un solo tentativo per allegato; evita retry e spam in log).
-  final Map<String, Future<File?>> _decryptFutureCache = {};
+  /// Cache dei Future di decrypt (un solo tentativo per allegato; evita retry e spam in log). Static: sopravvive al dispose.
+  static final Map<String, Future<File?>> _decryptFutureCache = {};
   /// Chiave file E2E inlined nel messaggio (attachmentId -> file_key_b64).
   final Map<String, String> _attachmentKeyCache = {};
   /// Caption/nome file originale per allegati E2E (attachmentId -> fileName con estensione).
@@ -172,6 +172,15 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
 
   /// Mostra il pulsante "torna all'ultimo messaggio" quando lo scroll è oltre 200px dal fondo (lista reverse).
   bool _showScrollToBottom = false;
+  /// True mentre l'utente sta scrollando; evita che _scrollToBottom() animateTo() combatta con il gesto.
+  bool _userIsScrolling = false;
+  /// Ultimo momento di inizio/fine scroll; usato per debounce del polling (evita _loadMessagesSilent durante/Subito dopo scroll).
+  DateTime? _lastScrollTime;
+  /// Messaggi arrivati via WebSocket mentre l'utente scrollava; inseriti in _messages al ScrollEnd.
+  final List<Map<String, dynamic>> _pendingMessages = [];
+  /// Semaforo per limitare decifrature allegati simultanee (evita blocchi UI durante scroll).
+  int _activeDecryptions = 0;
+  static const int _maxConcurrentDecryptions = 2;
   static const double _scrollToBottomThreshold = 200;
   static const double _scrollToBottomButtonBottom = 140;
 
@@ -211,6 +220,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       final args = ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?;
       _conversationId = args?['conversationId']?.toString();
       _otherUserFromArgs = args?['otherUser'] as Map<String, dynamic>?;
+      final passedConversation = args?['conversation'] as ConversationModel?;
+      if (passedConversation != null && _conversation == null) {
+        _conversation = passedConversation;
+      }
       final onMarked = args?['onMarkedAsRead'];
       _onMarkedAsRead = onMarked is VoidCallback ? onMarked : null;
       if (_conversationId != null) {
@@ -404,6 +417,21 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     final failedList = prefs.getStringList('failed_decrypt_ids_$_conversationId') ?? [];
     _failedDecryptIds.clear();
     _failedDecryptIds.addAll(failedList);
+    // Carica cache messaggi subito per mostrare UI istantaneamente
+    final cachedMessagesJson = prefs.getString('scp_messages_$_conversationId');
+    if (cachedMessagesJson != null && _messages.isEmpty) {
+      try {
+        final cached = (jsonDecode(cachedMessagesJson) as List)
+            .map((e) => Map<String, dynamic>.from(e as Map))
+            .toList();
+        if (mounted && cached.isNotEmpty) {
+          setState(() {
+            _messages = cached;
+            _loading = false;
+          });
+        }
+      } catch (_) {}
+    }
     final convFuture = _chatService.getConversation(_conversationId!);
     final userFuture = _chatService.getCurrentUser();
     final uidFuture = AuthService.getCurrentUserId();
@@ -714,19 +742,21 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                   }
                   return;
                 }
-                if (true) {
-                  setState(() {
-                    _messages.insert(0, msgData);
-                  });
-                  // Suono solo DOPO che il messaggio è in _messages e la UI aggiornata; per allegati cifrati dopo decrypt.
-                  _fireIncomingSoundAfterReady(msgData);
-                  _webSocket?.add(jsonEncode({
-                    'action': 'read_receipt',
-                    'message_ids': [msgId],
-                    'conversation_id': _conversationId,
-                  }));
-                  _saveHomePreview(_messages);
+                if (_userIsScrolling) {
+                  _pendingMessages.add(msgData);
+                  return;
                 }
+                setState(() {
+                  _messages.insert(0, msgData);
+                });
+                // Suono solo DOPO che il messaggio è in _messages e la UI aggiornata; per allegati cifrati dopo decrypt.
+                _fireIncomingSoundAfterReady(msgData);
+                _webSocket?.add(jsonEncode({
+                  'action': 'read_receipt',
+                  'message_ids': [msgId],
+                  'conversation_id': _conversationId,
+                }));
+                _saveHomePreview(_messages);
               }
             }
           } catch (_) {}
@@ -1025,6 +1055,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     if (_playingAudioIdNotifier.value != null) return;
     if (_isRecordingAudio) return;
     if (!mounted || _conversationId == null || _conversationId!.isEmpty) return;
+    if (_lastScrollTime != null &&
+        DateTime.now().difference(_lastScrollTime!) < const Duration(seconds: 2)) {
+      return;
+    }
     try {
       final response = await ApiService().get(
         '/chat/conversations/$_conversationId/messages/',
@@ -1228,19 +1262,28 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         final newIncomingMsg = hadNewMessage ? newMessages.first : null;
         newMessages = newMessages.reversed.toList();
         final prevCount = _messages.length;
+        if (_userIsScrolling) return;
         setState(() {
-          // Aggiorna messaggi nuovi, statuses, e content (es. dopo decifratura E2E gruppi)
-          final existingIds = {for (final m in _messages) m['id']?.toString(): m};
-          _messages = newMessages.map((newMsg) {
-            final id = newMsg['id']?.toString();
-            final existing = existingIds[id];
-            if (existing == null) return newMsg; // messaggio nuovo
-            existing['statuses'] = newMsg['statuses'];
-            existing['is_deleted'] = newMsg['is_deleted'];
-            existing['is_edited'] = newMsg['is_edited'];
-            if (newMsg['content'] != null) existing['content'] = newMsg['content'];
-            return existing;
-          }).toList();
+          // Solo messaggi veramente nuovi in cima; aggiorna gli esistenti solo se cambiati (evita rebuild completo e flickering)
+          final existingIds = _messages.map((m) => m['id']?.toString()).toSet();
+          final trulyNewMessages = newMessages
+              .where((m) => !existingIds.contains(m['id']?.toString()))
+              .toList();
+
+          if (trulyNewMessages.isNotEmpty) {
+            _messages = [...trulyNewMessages, ..._messages];
+          }
+          for (final updated in newMessages) {
+            final id = updated['id']?.toString();
+            final idx = _messages.indexWhere((m) => m['id']?.toString() == id);
+            if (idx >= 0) {
+              final existing = _messages[idx];
+              if (existing['content'] != updated['content'] ||
+                  jsonEncode(existing['statuses']) != jsonEncode(updated['statuses'] ?? [])) {
+                _messages[idx] = Map<String, dynamic>.from(updated);
+              }
+            }
+          }
         });
         if (newIncomingMsg != null) {
           final sender = newIncomingMsg['sender'];
@@ -1254,7 +1297,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           }
         }
         _preloadAttachmentCaptionsFromPrefs();
-        if (newMessages.length > prevCount) {
+        if (newMessages.length > prevCount && !_showScrollToBottom && !_userIsScrolling) {
           _scrollToBottom();
         }
         _markAsRead();
@@ -1498,7 +1541,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     if (_conversationId == null || _conversationId!.isEmpty) return;
     if (_isLoadingMessages) return; // Prevent concurrent loads
     _isLoadingMessages = true;
-    if (!silent) {
+    if (!silent && _messages.isEmpty) {
       setState(() => _loading = true);
     }
     try {
@@ -1693,10 +1736,18 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             if (!silent) _loading = false;
           });
           _preloadAttachmentCaptionsFromPrefs();
-          if (newMessages.length > prevCount) {
+          if (newMessages.length > prevCount && (!_showScrollToBottom || prevCount == 0)) {
             _scrollToBottom();
           }
           _saveHomePreview(newMessages);
+          // Salva cache messaggi (solo primi 30 per non appesantire)
+          try {
+            final toCache = newMessages.take(30).toList();
+            await prefsForCache.setString(
+              'scp_messages_$_conversationId',
+              jsonEncode(toCache),
+            );
+          } catch (_) {}
         }
       }
       if (!silent) {
@@ -1713,8 +1764,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   }
 
   void _scrollToBottom() {
+    if (_userIsScrolling) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scrollController.hasClients) {
+      if (_userIsScrolling || !_scrollController.hasClients) return;
         // Con reverse: true, i messaggi nuovi sono in basso → minScrollExtent
         final pos = _scrollController.position;
         _scrollController.animateTo(
@@ -1722,7 +1774,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           duration: const Duration(milliseconds: 200),
           curve: Curves.easeOut,
         );
-      }
     });
   }
 
@@ -2234,11 +2285,19 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   }
 
   Future<File> _saveTempFile(Uint8List bytes, String fileName, {String? attachmentId}) async {
-    final dir = await getTemporaryDirectory();
+    // Usa documentsDirectory invece di temp: i file persistono tra sessioni
+    final dir = await getApplicationDocumentsDirectory();
+    final cacheDir = Directory('${dir.path}/securechat_attachments');
+    if (!cacheDir.existsSync()) await cacheDir.create(recursive: true);
     final safeName = fileName.replaceAll(RegExp(r'[^\w\.\-]'), '_');
     final uniqueId = attachmentId ?? DateTime.now().millisecondsSinceEpoch.toString();
-    final file = File('${dir.path}/securechat_${uniqueId}_$safeName');
+    final file = File('${cacheDir.path}/securechat_${uniqueId}_$safeName');
     await file.writeAsBytes(bytes);
+    // Salva indice attachmentId → path su disco
+    if (attachmentId != null) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('scp_att_path_$attachmentId', file.path);
+    }
     return file;
   }
 
@@ -2254,6 +2313,20 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   ) async {
     final attachmentId = att['id']?.toString();
     if (attachmentId == null || attachmentId.isEmpty) return null;
+    // Controlla indice path su disco
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final cachedPath = prefs.getString('scp_att_path_$attachmentId');
+      if (cachedPath != null) {
+        final cachedFile = File(cachedPath);
+        if (cachedFile.existsSync()) {
+          ChatDetailScreen._staticDecryptedFileCache[attachmentId] = cachedFile;
+          return cachedFile;
+        } else {
+          await prefs.remove('scp_att_path_$attachmentId');
+        }
+      }
+    } catch (_) {}
     final staticCached = ChatDetailScreen._staticDecryptedFileCache[attachmentId];
     if (staticCached != null && staticCached.existsSync()) return staticCached;
     if (_decryptedFileCache.containsKey(attachmentId)) {
@@ -2304,9 +2377,14 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       }
       final tempFile = await _saveTempFile(plainBytes, fileName, attachmentId: attachmentId);
       if (mounted) {
+        final mimeType = att['mime_type']?.toString() ?? '';
+        final isVideo = mimeType.startsWith('video/') ||
+            message['message_type']?.toString() == 'video';
         _decryptedFileCache[attachmentId] = tempFile;
         ChatDetailScreen._staticDecryptedFileCache[attachmentId] = tempFile;
-        ChatDetailScreen._staticBytesCache[attachmentId] = plainBytes;
+        if (!isVideo) {
+          ChatDetailScreen._staticBytesCache[attachmentId] = plainBytes;
+        }
         while (ChatDetailScreen._staticDecryptedFileCache.length > ChatDetailScreen._decryptedFileCacheMaxSize) {
           final key = ChatDetailScreen._staticDecryptedFileCache.keys.first;
           ChatDetailScreen._staticDecryptedFileCache.remove(key);
@@ -2819,10 +2897,18 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         );
       }
       return FutureBuilder<File?>(
-        future: _decryptFutureCache.putIfAbsent(attId, () {
+        future: _decryptFutureCache.putIfAbsent(attId, () async {
           final cached = ChatDetailScreen._staticDecryptedFileCache[attId];
-          if (cached != null && cached.existsSync()) return Future<File?>.value(cached);
-          return _decryptAttachmentToFile(att, message);
+          if (cached != null && cached.existsSync()) return cached;
+          while (_activeDecryptions >= _maxConcurrentDecryptions) {
+            await Future.delayed(const Duration(milliseconds: 100));
+          }
+          _activeDecryptions++;
+          try {
+            return await _decryptAttachmentToFile(att, message);
+          } finally {
+            _activeDecryptions--;
+          }
         }),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
@@ -3356,23 +3442,27 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             ),
         ],
       );
-      return Dismissible(
-        key: Key(message['id']?.toString() ?? index.toString()),
-        direction: DismissDirection.startToEnd,
-        confirmDismiss: (direction) async {
-          _setReplyMessage(message);
-          return false;
-        },
-        background: Container(
-          alignment: Alignment.centerLeft,
-          padding: const EdgeInsets.only(left: 20),
-          child: const Icon(Icons.reply_rounded, color: Color(0xFF2ABFBF), size: 28),
+      return RepaintBoundary(
+        child: Dismissible(
+          key: Key(message['id']?.toString() ?? index.toString()),
+          direction: DismissDirection.startToEnd,
+          confirmDismiss: (direction) async {
+            _setReplyMessage(message);
+            return false;
+          },
+          background: Container(
+            alignment: Alignment.centerLeft,
+            padding: const EdgeInsets.only(left: 20),
+            child: const Icon(Icons.reply_rounded, color: Color(0xFF2ABFBF), size: 28),
+          ),
+          child: content,
         ),
-        child: content,
       );
     }
 
-    return _buildMessageBubble(context, message, index);
+    return RepaintBoundary(
+      child: _buildMessageBubble(context, message, index),
+    );
   }
 
   Widget _buildMessageContent(Map<String, dynamic> message, bool isMe) {
@@ -3936,6 +4026,11 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   @override
   void dispose() {
     ChatDetailScreen.currentOpenConversationId = null;
+    // Pulisci future cache per file non più su disco
+    _decryptFutureCache.removeWhere((key, _) {
+      final cached = ChatDetailScreen._staticDecryptedFileCache[key];
+      return cached == null || !cached.existsSync();
+    });
     _typingTimer?.cancel();
     _typingDotsTimer?.cancel();
     _typingDotsPhase.dispose();
@@ -4160,7 +4255,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     }
   }
 
-  void _showAttachmentBottomSheet() {
+  Future<void> _showAttachmentBottomSheet() async {
+    FocusScope.of(context).unfocus();
+    await Future.delayed(const Duration(milliseconds: 300));
+    if (!mounted) return;
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: Colors.transparent,
@@ -5165,14 +5263,35 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                           ],
                         ),
                       )
-                    : ListView.builder(
-                        reverse: true,
-                        controller: _scrollController,
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                        itemCount: _messages.length,
-                        itemBuilder: (context, index) {
-                          return _buildMessageItem(context, _messages[index], index);
+                    : NotificationListener<ScrollNotification>(
+                        onNotification: (ScrollNotification notification) {
+                          if (notification is ScrollStartNotification) {
+                            _userIsScrolling = true;
+                            _lastScrollTime = DateTime.now();
+                          } else if (notification is ScrollEndNotification) {
+                            _userIsScrolling = false;
+                            _lastScrollTime = DateTime.now();
+                            if (_pendingMessages.isNotEmpty) {
+                              setState(() {
+                                _messages = [..._pendingMessages.reversed.toList(), ..._messages];
+                                _pendingMessages.clear();
+                              });
+                            }
+                          }
+                          return false;
                         },
+                        child: ListView.builder(
+                          reverse: true,
+                          controller: _scrollController,
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          cacheExtent: 3000,
+                          addAutomaticKeepAlives: true,
+                          addRepaintBoundaries: true,
+                          itemCount: _messages.length,
+                          itemBuilder: (context, index) {
+                            return _buildMessageItem(context, _messages[index], index);
+                          },
+                        ),
                       ),
           ),
           if (_isUploading)
