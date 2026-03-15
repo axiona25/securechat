@@ -28,7 +28,6 @@ import 'widgets/home_header.dart';
 import 'widgets/chat_search_bar.dart';
 import 'widgets/chat_tab_bar.dart';
 import 'widgets/chat_list_view.dart';
-import 'widgets/notification_toast.dart';
 import 'package:flutter_app_badger/flutter_app_badger.dart';
 import '../settings/settings_screen.dart';
 import '../auth/widgets/change_password_modal.dart';
@@ -333,8 +332,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
             final decoded = jsonDecode(raw) as Map<String, dynamic>?;
             final savedTs = decoded?['ts']?.toString();
             final content = decoded?['content']?.toString();
-            if (savedTs == lastMsgTs && content != null && content.isNotEmpty) {
-              lm.content = content;
+            final cleanContent = (content ?? '').replaceAll('🔒 ', '').replaceAll('🔒', '');
+            if (savedTs == lastMsgTs && cleanContent.isNotEmpty) {
+              lm.content = cleanContent;
             } else {
               lm.content = '🔒 Messaggio cifrato';
             }
@@ -431,12 +431,18 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
                 senderId: senderId,
                 currentUserId: currentUserId,
               );
-              _showNotificationToast(
-                senderName,
-                _buildNotificationPreview(lastMsg),
-                icon,
+              // Mostra notifica di sistema invece del toast interno
+              final preview = lastMessage?.messageType == 'image' ? '📷 Immagine'
+                  : lastMessage?.messageType == 'video' ? '🎥 Video'
+                  : lastMessage?.messageType == 'audio' ? '🎵 Audio'
+                  : lastMessage?.messageType == 'file' ? '📎 Documento'
+                  : lastMessage?.messageType == 'location' ? '📍 Posizione'
+                  : lastMessage?.content ?? '';
+              await LocalNotificationService.instance.show(
+                title: senderName,
+                body: preview.isNotEmpty ? preview : 'Nuovo messaggio',
+                payload: newConv.id,
               );
-              // Nessuna local notification da polling: evita doppio con FCM; banner in background da FCM
             }
           }
         }
@@ -463,8 +469,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
               final decoded = jsonDecode(raw) as Map<String, dynamic>?;
               final savedTs = decoded?['ts']?.toString();
               final content = decoded?['content']?.toString();
-              if (savedTs == lastMsgTs && content != null && content.isNotEmpty) {
-                lm.content = content;
+              final cleanContent = (content ?? '').replaceAll('🔒 ', '').replaceAll('🔒', '');
+              if (savedTs == lastMsgTs && cleanContent.isNotEmpty) {
+                lm.content = cleanContent;
           } else {
               lm.content = '🔒 Messaggio cifrato';
             }
@@ -733,28 +740,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
     }
   }
 
-  void _showNotificationToast(String senderName, Widget contentWidget, IconData icon) {
-    if (!mounted) return;
-
-    late OverlayEntry overlayEntry;
-
-    overlayEntry = OverlayEntry(
-      builder: (context) => NotificationToast(
-        senderName: senderName,
-        contentWidget: contentWidget,
-        icon: icon,
-        onDismiss: () => overlayEntry.remove(),
-        onTap: () => overlayEntry.remove(),
-      ),
-    );
-
-    Overlay.of(context).insert(overlayEntry);
-
-    Future.delayed(const Duration(seconds: 4), () {
-      if (overlayEntry.mounted) overlayEntry.remove();
-    });
-  }
-
   Widget _getFilePreviewIcon(String fileName) {
     final ext = fileName.split('.').last.toLowerCase();
     String? assetPath;
@@ -810,7 +795,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
     if (lastMessage == null) return l10n.t('no_message');
     final content = (lastMessage['content']?.toString() ?? '').trim();
     final isEncrypted = lastMessage['content_encrypted'] == true || lastMessage['has_encrypted_attachment'] == true;
-    if (content.isEmpty && isEncrypted) return '🔒 Messaggio cifrato';
+    if (content.isEmpty && isEncrypted) return 'Messaggio cifrato';
     if (lastMessage['has_encrypted_attachment'] == true) {
       return ChatDetailScreen.encryptedAttachmentPreviewText(
         lastMessage['message_type']?.toString(),
@@ -873,12 +858,23 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
     }
     final content = lastMessage['content']?.toString() ?? '';
     final isEncrypted = lastMessage['content_encrypted'] == true || lastMessage['has_encrypted_attachment'] == true;
+    final trimmedContent = content.trim();
     if (content.trim().isEmpty && isEncrypted) {
       return const Row(
         children: [
           Icon(Icons.lock_rounded, size: 16, color: Color(0xFF9E9E9E)),
           SizedBox(width: 4),
-          Text('🔒 Messaggio cifrato', style: TextStyle(color: Color(0xFF9E9E9E), fontSize: 13)),
+          Text('Messaggio cifrato', style: TextStyle(color: Color(0xFF9E9E9E), fontSize: 13)),
+        ],
+      );
+    }
+    // Placeholder cifrato con/senza emoji: mostra sempre icona grigia come "Immagine cifrata"
+    if ((trimmedContent == '🔒 Messaggio cifrato' || trimmedContent == 'Messaggio cifrato') && isEncrypted) {
+      return const Row(
+        children: [
+          Icon(Icons.lock_rounded, size: 16, color: Color(0xFF9E9E9E)),
+          SizedBox(width: 4),
+          Text('Messaggio cifrato', style: TextStyle(color: Color(0xFF9E9E9E), fontSize: 13)),
         ],
       );
     }

@@ -60,7 +60,18 @@ import UserNotifications
           result(token)
         } else {
           UIApplication.shared.registerForRemoteNotifications()
-          result(nil)
+          // Attendi fino a 3 secondi che il token arrivi
+          var waited = 0
+          Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] timer in
+            waited += 1
+            if let token = self?.pendingApnsToken {
+              timer.invalidate()
+              DispatchQueue.main.async { result(token) }
+            } else if waited >= 6 {
+              timer.invalidate()
+              DispatchQueue.main.async { result(nil) }
+            }
+          }
         }
       default:
         result(FlutterMethodNotImplemented)

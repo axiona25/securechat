@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:web_socket_channel/io.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import '../constants/app_constants.dart';
+import '../../features/chat/screens/chat_detail_screen.dart';
 import 'local_notification_service.dart';
 
 class SecureChatNotifyService {
@@ -261,6 +262,12 @@ class SecureChatNotifyService {
 
   void _handleMessageNotification(Map<String, dynamic> data) {
     onMessage?.call(data);
+    // Non mostrare notifica se la chat specifica è già aperta
+    final conversationId = data['conversation_id']?.toString() ?? '';
+    if (conversationId.isNotEmpty &&
+        ChatDetailScreen.currentOpenConversationId == conversationId) {
+      return;
+    }
     final title = data['title'] as String? ??
         data['sender_name'] as String? ??
         'Nuovo messaggio';
@@ -269,8 +276,7 @@ class SecureChatNotifyService {
     LocalNotificationService.instance.showFromPush({
       'title': title,
       'body': body,
-      'conversation_id':
-          data['conversation_id']?.toString() ?? '',
+      'conversation_id': conversationId,
     });
   }
 

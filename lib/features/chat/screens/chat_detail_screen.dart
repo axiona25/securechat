@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
+import 'package:dio/dio.dart' as dio;
 import 'package:http_parser/http_parser.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:open_filex/open_filex.dart';
@@ -136,6 +137,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   bool _isLoadingMessages = false;
   bool _sending = false;
   bool _isUploading = false;
+  double _uploadProgress = 0.0;
+  dio.CancelToken? _uploadCancelToken;
   bool _isMuted = false;
   bool _isPlayingMedia = false;
   Timer? _pollingTimer;
@@ -2515,6 +2518,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   }
 
   Widget _buildVideoPreview(String messageId, String? videoUrl, String? thumbUrl, bool isMe, {File? localFile}) {
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    final videoWidth = screenWidth - (isMe ? 72 : 24);
     // Se chewie è attivo, mostra il player con controlli custom
     if (_chewieControllers.containsKey(messageId)) {
       final videoController = _videoControllers[messageId]!;
@@ -2522,7 +2527,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           ? videoController.value.aspectRatio
           : 16 / 9;
       return ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 240, maxHeight: 300),
+        constraints: BoxConstraints(maxWidth: videoWidth, maxHeight: 300),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(16),
           child: AspectRatio(
@@ -2646,7 +2651,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         }
       },
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 240, maxHeight: 300),
+        constraints: BoxConstraints(maxWidth: videoWidth, maxHeight: 300),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(16),
           child: Container(
@@ -3330,11 +3335,16 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           !hasEncryptedAttachment &&
           (attName.isEmpty || caption != attName);
 
-      final maxWidth = MediaQuery.of(context).size.width * 0.72;
+      final screenWidth = MediaQuery.of(context).size.width;
+      final isImageOrVideo = (messageType == 'image' || messageType == 'video'
+          || messageType == 'audio' || messageType == 'voice' || messageType == 'file');
+      final maxWidth = isImageOrVideo
+          ? screenWidth - (isMe ? 60 + 12 : 12 + 12)
+          : screenWidth * 0.72;
       final attachmentColumn = Padding(
         padding: EdgeInsets.only(
           left: isMe ? 60 : ((_conversation?.isGroup ?? false) ? 0 : 12),
-          right: isMe ? 12 : 60,
+          right: isMe ? 12 : (isImageOrVideo ? 12 : 60),
           top: 4,
           bottom: 4,
         ),
@@ -3475,45 +3485,47 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       final att = attachments[0] as Map<String, dynamic>;
       final imageUrl = _buildDirectMediaUrl(att['file']?.toString() ?? att['thumbnail']?.toString());
       if (imageUrl.isNotEmpty) {
+        final screenWidth = MediaQuery.sizeOf(context).width;
+        final imageWidth = screenWidth - (isMe ? 60 + 12 + 8 : 12 + 12 + 8);
         return GestureDetector(
           onTap: () => _showFullImage(imageUrl),
           child: ClipRRect(
             borderRadius: BorderRadius.circular(10),
-            child: Image.network(
-              imageUrl,
-              width: 220,
-              height: 220,
-              fit: BoxFit.cover,
-              loadingBuilder: (context, child, progress) {
-                if (progress == null) return child;
-                return Container(
-                  width: 220,
-                  height: 160,
-                  color: isMe ? Colors.white10 : const Color(0xFFF0F0F0),
-                  child: const Center(
-                    child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF2ABFBF)),
-                  ),
-                );
-              },
-              errorBuilder: (context, error, stack) {
-                debugPrint('Errore caricamento immagine: $error - URL: $imageUrl');
-                return Container(
-                  width: 220,
-                  height: 100,
-                  color: isMe ? Colors.white10 : const Color(0xFFF0F0F0),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.broken_image, color: isMe ? Colors.white70 : Colors.grey, size: 32),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Immagine non disponibile',
-                        style: TextStyle(fontSize: 11, color: isMe ? Colors.white70 : Colors.grey),
+            child: SizedBox(
+              width: imageWidth,
+              child: AspectRatio(
+                aspectRatio: 4 / 3,
+                child: Image.network(
+                  imageUrl,
+                  fit: BoxFit.cover,
+                  loadingBuilder: (context, child, progress) {
+                    if (progress == null) return child;
+                    return Container(
+                      color: isMe ? Colors.white10 : const Color(0xFFF0F0F0),
+                      child: const Center(
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF2ABFBF)),
                       ),
-                    ],
-                  ),
-                );
-              },
+                    );
+                  },
+                  errorBuilder: (context, error, stack) {
+                    debugPrint('Errore caricamento immagine: $error - URL: $imageUrl');
+                    return Container(
+                      color: isMe ? Colors.white10 : const Color(0xFFF0F0F0),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.broken_image, color: isMe ? Colors.white70 : Colors.grey, size: 32),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Immagine non disponibile',
+                            style: TextStyle(fontSize: 11, color: isMe ? Colors.white70 : Colors.grey),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              ),
             ),
           ),
         );
@@ -3834,7 +3846,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       child: Container(
         margin: EdgeInsets.only(
           left: isMe ? 60 : ((_conversation?.isGroup ?? false) ? 0 : 12),
-          right: isMe ? 12 : 60,
+          right: isMe ? 12 : ((messageType == 'image' || messageType == 'video') ? 12 : 60),
           top: 4,
           bottom: 4,
         ),
@@ -4257,63 +4269,68 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
 
   Future<void> _showAttachmentBottomSheet() async {
     FocusScope.of(context).unfocus();
-    await Future.delayed(const Duration(milliseconds: 300));
+    await Future.delayed(const Duration(milliseconds: 150));
     if (!mounted) return;
     showModalBottomSheet<void>(
       context: context,
       backgroundColor: Colors.transparent,
-      builder: (context) => Container(
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-        ),
-        child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.only(top: 8, bottom: 16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFE0E0E0),
-                    borderRadius: BorderRadius.circular(2),
+      isScrollControlled: true,
+      builder: (context) {
+        final bottomPadding = MediaQuery.viewInsetsOf(context).bottom;
+        return Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          padding: EdgeInsets.only(bottom: bottomPadding),
+          child: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.only(top: 8, bottom: 16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE0E0E0),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
                   ),
-                ),
-                const SizedBox(height: 16),
-                const Text('Allega', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Color(0xFF1A2B4A))),
-                const SizedBox(height: 20),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 24),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      _attachGridItem(icon: Icons.camera_alt_rounded, color: const Color(0xFF2ABFBF), label: 'Fotocamera', onTap: () { Navigator.pop(context); _pickImage(ImageSource.camera); }),
-                      _attachGridItem(icon: Icons.photo_library_rounded, color: const Color(0xFF4CAF50), label: 'Galleria', onTap: () { Navigator.pop(context); _pickImage(ImageSource.gallery); }),
-                      _attachGridItem(icon: Icons.videocam_rounded, color: const Color(0xFFE91E63), label: 'Video', onTap: () { Navigator.pop(context); _pickVideo(); }),
-                      _attachGridItem(icon: Icons.insert_drive_file_rounded, color: const Color(0xFFFF9800), label: 'Documento', onTap: () { Navigator.pop(context); _pickFile(); }),
-                    ],
+                  const SizedBox(height: 16),
+                  const Text('Allega', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Color(0xFF1A2B4A))),
+                  const SizedBox(height: 20),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 24),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                      children: [
+                        _attachGridItem(icon: Icons.camera_alt_rounded, color: const Color(0xFF2ABFBF), label: 'Fotocamera', onTap: () { Navigator.pop(context); _pickImage(ImageSource.camera); }),
+                        _attachGridItem(icon: Icons.photo_library_rounded, color: const Color(0xFF4CAF50), label: 'Galleria', onTap: () { Navigator.pop(context); _pickImage(ImageSource.gallery); }),
+                        _attachGridItem(icon: Icons.videocam_rounded, color: const Color(0xFFE91E63), label: 'Video', onTap: () { Navigator.pop(context); _pickVideo(); }),
+                        _attachGridItem(icon: Icons.insert_drive_file_rounded, color: const Color(0xFFFF9800), label: 'Documento', onTap: () { Navigator.pop(context); _pickFile(); }),
+                      ],
+                    ),
                   ),
-                ),
-                const SizedBox(height: 20),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 24),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      _attachGridItem(icon: Icons.mic_rounded, color: const Color(0xFF9C27B0), label: 'Audio', onTap: () { Navigator.pop(context); _showAudioRecorder(); }),
-                      _attachGridItem(icon: Icons.location_on_rounded, color: const Color(0xFFF44336), label: 'Posizione', onTap: () { Navigator.pop(context); _sendLocation(); }),
-                      _attachGridItem(icon: Icons.person_rounded, color: const Color(0xFF3A6AB0), label: 'Contatto', onTap: () { Navigator.pop(context); _shareContact(); }),
-                      const SizedBox(width: 56),
-                    ],
+                  const SizedBox(height: 20),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 24),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                      children: [
+                        _attachGridItem(icon: Icons.mic_rounded, color: const Color(0xFF9C27B0), label: 'Audio', onTap: () { Navigator.pop(context); _showAudioRecorder(); }),
+                        _attachGridItem(icon: Icons.location_on_rounded, color: const Color(0xFFF44336), label: 'Posizione', onTap: () { Navigator.pop(context); _sendLocation(); }),
+                        _attachGridItem(icon: Icons.person_rounded, color: const Color(0xFF3A6AB0), label: 'Contatto', onTap: () { Navigator.pop(context); _shareContact(); }),
+                        const SizedBox(width: 56),
+                      ],
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 
@@ -4665,7 +4682,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         maxDuration: const Duration(minutes: 5),
       );
       if (xfile != null && mounted) {
-        await _uploadAndSendFile(File(xfile.path), 'video');
+        final videoFile = File(xfile.path);
+        await _uploadAndSendFile(videoFile, 'video');
       }
     } catch (e) {
       debugPrint('Errore selezione video: $e');
@@ -4763,29 +4781,40 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     required String conversationId,
     required String fileName,
     required int plainFileSize,
+    dio.CancelToken? cancelToken,
+    void Function(double)? onProgress,
   }) async {
     await AuthService().refreshAccessTokenIfNeeded();
     final token = ApiService().accessToken;
     if (token == null) throw Exception('Non autenticato');
-    final uri = Uri.parse('${AppConstants.baseUrl}/chat/media/upload/');
-    final request = http.MultipartRequest('POST', uri);
-    request.headers['Authorization'] = 'Bearer $token';
-    request.files.add(http.MultipartFile.fromBytes(
-      'encrypted_file',
-      encryptedBytes,
-      filename: 'encrypted_$fileName',
-    ));
-    request.fields['conversation_id'] = conversationId;
-    request.fields['encrypted_file_key'] = encryptedFileKeyB64;
-    request.fields['encrypted_metadata'] = encryptedMetadataB64;
-    request.fields['file_hash'] = fileHash;
-    request.fields['encrypted_file_size'] = plainFileSize.toString();
-    final streamedResponse = await request.send();
-    final responseBody = await streamedResponse.stream.bytesToString();
-    if (streamedResponse.statusCode != 201) {
-      throw Exception('Upload failed: ${streamedResponse.statusCode} — $responseBody');
+    final uri = '${AppConstants.baseUrl}/chat/media/upload/';
+    final formData = dio.FormData.fromMap({
+      'conversation_id': conversationId,
+      'encrypted_file_key': encryptedFileKeyB64,
+      'encrypted_metadata': encryptedMetadataB64,
+      'file_hash': fileHash,
+      'encrypted_file_size': plainFileSize.toString(),
+      'encrypted_file': dio.MultipartFile.fromBytes(
+        encryptedBytes,
+        filename: 'encrypted_$fileName',
+      ),
+    });
+    final dioClient = dio.Dio();
+    dioClient.options.headers['Authorization'] = 'Bearer $token';
+    final response = await dioClient.post(
+      uri,
+      data: formData,
+      cancelToken: cancelToken,
+      onSendProgress: (sent, total) {
+        if (total > 0 && onProgress != null) {
+          onProgress(sent / total);
+        }
+      },
+    );
+    if (response.statusCode != 201) {
+      throw Exception('Upload failed: ${response.statusCode}');
     }
-    final data = jsonDecode(responseBody) as Map<String, dynamic>;
+    final data = response.data as Map<String, dynamic>;
     return data['attachment_id'] as String;
   }
 
@@ -4799,6 +4828,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       return;
     }
     setState(() => _isUploading = true);
+    _uploadCancelToken = dio.CancelToken();
+    _uploadProgress = 0.0;
     try {
       await AuthService().refreshAccessTokenIfNeeded();
       final fileBytes = await file.readAsBytes();
@@ -4868,6 +4899,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         conversationId: _conversationId!,
         fileName: fileName,
         plainFileSize: fileBytes.length,
+        cancelToken: _uploadCancelToken,
+        onProgress: (progress) {
+          if (mounted) setState(() => _uploadProgress = progress);
+        },
       );
       _attachmentKeyCache[attachmentId] = fileKeyB64;
       _attachmentCaptionCache[attachmentId] = fileName;
@@ -4918,6 +4953,17 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         setState(() => _replyToMessage = null);
         await _forceReloadMessages();
       }
+    } on dio.DioException catch (e) {
+      if (dio.CancelToken.isCancel(e)) {
+        debugPrint('[Upload] Annullato dall utente');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Upload annullato'), backgroundColor: Colors.orange),
+          );
+        }
+        return;
+      }
+      rethrow;
     } catch (e) {
       // MAI inviare in plaintext/legacy — blocca invio allegato
       debugPrint('[E2E] Upload cifrato fallito: $e');
@@ -4933,6 +4979,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       }
     } finally {
       if (mounted) setState(() => _isUploading = false);
+      _uploadCancelToken = null;
+      _uploadProgress = 0.0;
     }
   }
 
@@ -5296,20 +5344,73 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           ),
           if (_isUploading)
             Container(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              child: const Row(
-                mainAxisAlignment: MainAxisAlignment.center,
+              margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.06),
+                    blurRadius: 6,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: Color(0xFF2ABFBF),
+                  Row(
+                    children: [
+                      const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Color(0xFF2ABFBF),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'Invio in corso... ${(_uploadProgress * 100).toInt()}%',
+                          style: const TextStyle(
+                            color: Color(0xFF1A2B4A),
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                      GestureDetector(
+                        onTap: () => _uploadCancelToken?.cancel(),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFFEEEE),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const Text(
+                            'Annulla',
+                            style: TextStyle(
+                              color: Color(0xFFE53935),
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(4),
+                    child: LinearProgressIndicator(
+                      value: _uploadProgress,
+                      backgroundColor: const Color(0xFFE0E0E0),
+                      valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF2ABFBF)),
+                      minHeight: 4,
                     ),
                   ),
-                  SizedBox(width: 8),
-                  Text('Invio in corso...', style: TextStyle(color: Color(0xFF9E9E9E), fontSize: 13)),
                 ],
               ),
             ),

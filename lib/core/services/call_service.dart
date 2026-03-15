@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
@@ -524,6 +525,34 @@ class CallService {
     }
   }
 
+  Future<Map<String, dynamic>> _getVideoConstraints() async {
+    try {
+      final result = await Connectivity().checkConnectivity();
+      final isWifi = result.contains(ConnectivityResult.wifi);
+      if (isWifi) {
+        return {
+          'facingMode': 'user',
+          'width': {'ideal': 1280},
+          'height': {'ideal': 720},
+          'frameRate': {'ideal': 30},
+        };
+      } else {
+        return {
+          'facingMode': 'user',
+          'width': {'ideal': 640},
+          'height': {'ideal': 480},
+          'frameRate': {'ideal': 24},
+        };
+      }
+    } catch (e) {
+      return {
+        'facingMode': 'user',
+        'width': 640,
+        'height': 480,
+      };
+    }
+  }
+
   Future<void> _getUserMedia() async {
     if (_state.localStream != null) return;
     final audio = true;
@@ -533,13 +562,7 @@ class CallService {
       // ignore: deprecated_member_use — navigator.mediaDevices from factory not used to keep API simple
       final stream = await MediaDevices.getUserMedia({
         'audio': audio,
-        'video': video
-            ? {
-                'facingMode': 'user',
-                'width': 640,
-                'height': 480,
-              }
-            : false,
+        'video': video ? await _getVideoConstraints() : false,
       });
       final tracksCount = stream.getTracks().length;
       _remoteLog('[CallService] _getUserMedia success tracks=$tracksCount');
@@ -674,7 +697,9 @@ class CallService {
 
   /// Vivavoce di default solo per le videochiamate.
   void _setSpeakerOnByDefault() {
-    _setSpeaker(true); // FORCE SPEAKER ON per debug
+    final wantSpeaker = _callType == 'video';
+    _setSpeaker(wantSpeaker);
+    debugPrint('[CallService] Speaker default: $wantSpeaker (callType=$_callType)');
   }
 
   void toggleSpeaker() {
