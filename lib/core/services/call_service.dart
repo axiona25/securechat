@@ -203,7 +203,6 @@ class CallService {
   void _emit(CallState s) {
     _state = s;
     if (!_stateController.isClosed) _stateController.add(s);
-    debugPrint('[CallService] emit remoteStream=${_state.remoteStream?.id}');
   }
 
   void _onMessage(dynamic raw) {
@@ -301,6 +300,7 @@ class CallService {
         ice.map((e) => e is Map ? Map<String, dynamic>.from(e) : <String, dynamic>{}),
       );
     }
+    _remoteLog('[CallService] iceServers: $_iceServers');
     _callId = callId;
     _callType = callType;
     _emit(_state.copyWith(
@@ -320,6 +320,7 @@ class CallService {
         ice.map((e) => e is Map ? Map<String, dynamic>.from(e) : <String, dynamic>{}),
       );
     }
+    _remoteLog('[CallService] iceServers: $_iceServers');
     int? acceptedById;
     if (acceptedBy != null) {
       acceptedById = acceptedBy is int ? acceptedBy : int.tryParse(acceptedBy.toString());
@@ -437,7 +438,7 @@ class CallService {
     } catch (_) {}
   }
 
-  /// Configures AVAudioSession on iOS (playAndRecord + videoChat) before WebRTC.
+  /// Configures AVAudioSession on iOS (playAndRecord + voiceChat) before WebRTC.
   /// Required for audio to pass on iOS; no-op or ignored on other platforms.
   Future<void> _configureAudioSession() async {
     _remoteLog('[CallService] _configureAudioSession start');
@@ -466,6 +467,7 @@ class CallService {
         {'urls': 'stun:stun1.l.google.com:19302'},
       ],
     };
+    _remoteLog('[CallService] peerConnection config: $config');
     final constraints = <String, dynamic>{
       'mandatory': {},
       'optional': [
@@ -488,13 +490,15 @@ class CallService {
         });
       };
       _peerConnection!.onAddStream = (MediaStream stream) {
-        _remoteStream = stream;
+        _setRemoteStream(stream);
         _callStartTime ??= DateTime.now();
         _remoteLog('[CallService] onAddStream connected');
         _emit(_state.copyWith(remoteStream: _remoteStream, status: CallStatus.connected));
       };
       _peerConnection!.onTrack = (RTCTrackEvent event) {
-        final stream = event.streams.isNotEmpty ? event.streams.first : null;
+        final stream = event.streams.isNotEmpty
+            ? event.streams.first
+            : null;
         final kind = event.track?.kind ?? 'unknown';
         final streamId = stream?.id ?? 'no-stream';
         _remoteLog('[CallService] onTrack kind=$kind streamId=$streamId');
@@ -605,8 +609,6 @@ class CallService {
   Future<void> initiateCall(String conversationId, String callType) async {
     debugPrint('[CallService] initiateCall: conversationId=$conversationId, callType=$callType');
     if (_state.status != CallStatus.idle) return;
-    _remoteStream = null;
-    _speakerDefaultApplied = false;
     await ensureConnected();
     if (_channel == null || !_isConnected) {
       _emit(_state.copyWith(status: CallStatus.ended));
@@ -629,8 +631,6 @@ class CallService {
 
   void acceptCall(String callId) {
     if (_callId != callId) return;
-    _remoteStream = null;
-    _speakerDefaultApplied = false;
     _send({'action': 'accept_call', 'call_id': callId});
   }
 
@@ -674,9 +674,7 @@ class CallService {
 
   /// Vivavoce di default solo per le videochiamate.
   void _setSpeakerOnByDefault() {
-    final wantSpeaker = _callType == 'video';
-    _setSpeaker(wantSpeaker);
-    if (kDebugMode) debugPrint('[CallService] Speaker default: $wantSpeaker (callType=$_callType)');
+    _setSpeaker(true); // FORCE SPEAKER ON per debug
   }
 
   void toggleSpeaker() {
