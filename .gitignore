@@ -4,12 +4,24 @@
 env
 !.env.example
 
+# Chiavi e credenziali sensibili
+*.p8
+*.p12
+*.pem
+firebase-service-account.json
+google-services.json
+GoogleService-Info.plist
+secrets/
+**/secrets/
+
 # Firebase / Google credentials (never commit service account keys)
 backend/firebase-credentials.json
 backend/firebase/*.json
 firebase/*.json
-!backend/firebase/GoogleService-Info.plist
-!backend/firebase/google-services.json
+
+# File generati e build
+admin-panel-build/
+patch_apns.py
 
 # Connectors / API keys (sensitive)
 Connettori.txt
