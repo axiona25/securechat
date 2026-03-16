@@ -12,6 +12,12 @@ urlpatterns = [
     path('groups/', views.AdminGroupsListView.as_view(), name='admin-groups'),
     path('groups/<int:group_id>/', views.AdminGroupDetailView.as_view(), name='admin-group-detail'),
     path('groups/<int:group_id>/assign/', views.AdminGroupAssignUsersView.as_view(), name='admin-group-assign'),
+    path('devices/', views.AdminDevicesListView.as_view(), name='admin-devices'),
+    path('devices/<int:device_id>/', views.AdminDeviceDetailView.as_view(), name='admin-device-detail'),
+    path('turn-logs/', views.AdminTurnLogsView.as_view(), name='admin-turn-logs'),
+    path('settings/', views.AdminSettingsView.as_view(), name='admin-settings'),
+    path('backup/', views.AdminBackupView.as_view(), name='admin-backup'),
+    path('test-email/', views.AdminTestEmailView.as_view(), name='admin-test-email'),
     # E2E check endpoints (conversations, calls, key-bundles)
     path('conversations/', e2e_views.AdminPanelConversationsView.as_view(), name='admin-panel-conversations'),
     path('conversations/<uuid:conversation_id>/messages/', e2e_views.AdminPanelConversationMessagesView.as_view(), name='admin-panel-conversation-messages'),

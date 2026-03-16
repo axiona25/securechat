@@ -53,3 +53,4 @@ sentry-sdk[django,celery]>=1.40
 gunicorn==23.0.0
 uvicorn[standard]==0.34.0
 websockets==14.1
+pymysql
