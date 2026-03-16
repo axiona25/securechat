@@ -1214,12 +1214,16 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           await _persistFailedDecryptIds();
           continue;
         }
+        final createdAtSilent = msg['created_at']?.toString();
+        final isHistoricalSilent = createdAtSilent != null && DateTime.tryParse(createdAtSilent) != null &&
+            DateTime.now().difference(DateTime.parse(createdAtSilent)).inMinutes > 1;
         try {
           final combined = base64Decode(encryptedB64);
           final decrypted = await _sessionManager.decryptMessage(
             senderIdInt,
             Uint8List.fromList(combined),
             messageId: messageId,
+            isHistorical: isHistoricalSilent,
           );
           final attachmentPayload = SessionManager.parseAttachmentPayload(decrypted);
           if (attachmentPayload != null) {
@@ -1481,12 +1485,16 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           await _persistFailedDecryptIds();
           continue;
         }
+        final createdAtForce = msg['created_at']?.toString();
+        final isHistoricalForce = createdAtForce != null && DateTime.tryParse(createdAtForce) != null &&
+            DateTime.now().difference(DateTime.parse(createdAtForce)).inMinutes > 1;
         try {
           final combined = base64Decode(encryptedB64);
           final decrypted = await _sessionManager.decryptMessage(
             senderIdInt,
             Uint8List.fromList(combined),
             messageId: messageId,
+            isHistorical: isHistoricalForce,
           );
           final attachmentPayload = SessionManager.parseAttachmentPayload(decrypted);
           if (attachmentPayload != null) {
@@ -1686,6 +1694,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             senderIdInt,
             Uint8List.fromList(combined),
             messageId: messageId,
+            isHistorical: isHistorical,
           );
           debugPrint('[ChatDecrypt] messageId=$messageId senderId=$senderIdInt isHistorical=$isHistorical hasEncryptedPayload=true sessionLookup=success decryptResult=success plaintextSource=decrypt');
           final attachmentPayload = SessionManager.parseAttachmentPayload(decrypted);

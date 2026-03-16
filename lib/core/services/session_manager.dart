@@ -237,6 +237,7 @@ class SessionManager {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('$_failedPrefix$messageId', true);
+      await prefs.setInt('e2e_failed_ts_$messageId', DateTime.now().millisecondsSinceEpoch);
     } catch (_) {}
   }
 
@@ -254,14 +255,27 @@ class SessionManager {
   }
 
   /// Clear all persisted failed-decrypt marks (e.g. after login when sessions are cleared).
-  Future<void> clearAllFailedDecryptMarks() async {
+  /// If [keepHistorical] is true (default), only clears marks from the last 60 minutes.
+  Future<void> clearAllFailedDecryptMarks({bool keepHistorical = true}) async {
     final prefs = await SharedPreferences.getInstance();
-    final keys = prefs.getKeys().where((k) => k.startsWith(_failedPrefix)).toList();
+    final keys = prefs.getKeys().where((k) => k.startsWith(_failedPrefix) && !k.startsWith('e2e_failed_ts_')).toList();
+    int removed = 0;
     for (final k in keys) {
+      final messageId = k.substring(_failedPrefix.length);
+      if (keepHistorical) {
+        final tsKey = 'e2e_failed_ts_$messageId';
+        final ts = prefs.getInt(tsKey) ?? 0;
+        final age = DateTime.now().millisecondsSinceEpoch - ts;
+        if (age > 60 * 60 * 1000) {
+          continue;
+        }
+      }
+      await prefs.remove('e2e_failed_ts_$messageId');
       await prefs.remove(k);
+      _failedDecryptCache.remove(messageId);
+      removed++;
     }
-    _failedDecryptCache.clear();
-    print('[SessionManager] Cleared ${keys.length} failed decrypt marks');
+    print('[SessionManager] Cleared $removed failed decrypt marks (keepHistorical=$keepHistorical)');
   }
 
   /// Check if a message is in our cache (memory or disk).
@@ -368,6 +382,7 @@ class SessionManager {
     int senderUserId,
     Uint8List combinedPayload, {
     String? messageId,
+    bool isHistorical = false,
   }) async {
     print('[CryptoDebug] decryptMessage from userId=$senderUserId');
     if (combinedPayload.length < 3) {
@@ -509,10 +524,12 @@ class SessionManager {
       // Auto-clear broken session so next message triggers new X3DH
       try {
         await deleteSession(senderUserId, reason: 'decrypt_fail_auto_heal');
-        await _secureStorage.write(
-          key: 'scp_needs_rehandshake_$senderUserId',
-          value: 'true',
-        );
+        if (!isHistorical) {
+          await _secureStorage.write(
+            key: 'scp_needs_rehandshake_$senderUserId',
+            value: 'true',
+          );
+        }
       } catch (_) {}
       // Auto-recovery: controlla se le chiavi del mittente sono cambiate
       try {
@@ -526,10 +543,12 @@ class SessionManager {
               '(known=$knownVersion remote=$remoteKeyVersion) — reset sessione');
           _knownKeyVersions[senderUserId] = remoteKeyVersion;
           await deleteSession(senderUserId, reason: 'auto_recovery_key_version_changed');
-          await _secureStorage.write(
-            key: 'scp_needs_rehandshake_$senderUserId',
-            value: 'true',
-          );
+          if (!isHistorical) {
+            await _secureStorage.write(
+              key: 'scp_needs_rehandshake_$senderUserId',
+              value: 'true',
+            );
+          }
           debugPrint('[E2E] Auto-recovery completato: nuova sessione verrà creata '
               'al prossimo messaggio iniziale da user $senderUserId');
         }
