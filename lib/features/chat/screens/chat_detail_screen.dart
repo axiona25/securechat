@@ -3959,27 +3959,15 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                     ),
                   ],
                   _buildMessageContent(message, isMe),
-                ],
-              ),
-            ),
-            // 2. Reactions row — subito sotto il box
-            if (hasReactions) _buildReactionsRow(message, isMe),
-            // 3. Timestamp/ora — bordo destro del bubble per inviati, sinistro per ricevuti
-            Padding(
-              padding: const EdgeInsets.only(top: 4),
-              child: Row(
-                mainAxisSize: MainAxisSize.max,
-                mainAxisAlignment: isMe ? MainAxisAlignment.end : MainAxisAlignment.start,
-                children: [
-                  if (isMe) const Expanded(child: SizedBox.shrink()),
                   Row(
-                    mainAxisSize: MainAxisSize.min,
+                    mainAxisSize: MainAxisSize.max,
+                    mainAxisAlignment: MainAxisAlignment.end,
                     children: [
                       Text(
                         timeStr,
-                        style: const TextStyle(
-                          color: _statusGray,
-                          fontSize: 12,
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: isMe ? Colors.white : const Color(0xFF9E9E9E),
                         ),
                       ),
                       if (isMe) ...[
@@ -3988,10 +3976,11 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                       ],
                     ],
                   ),
-                  if (!isMe) const Expanded(child: SizedBox.shrink()),
                 ],
               ),
             ),
+            // 2. Reactions row — subito sotto il box
+            if (hasReactions) _buildReactionsRow(message, isMe),
           ],
         ),
         ),

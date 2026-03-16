@@ -200,23 +200,30 @@ class ChatListItem extends StatelessWidget {
               children: [
                 const Icon(Icons.delete_outline, size: 22),
                 const SizedBox(height: 4),
-                Text(AppLocalizations.of(context)?.t('delete') ?? 'Elimina', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                Text(
+                  AppLocalizations.of(context)?.t('delete') ?? 'Elimina',
+                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
               ],
             ),
           ),
         ],
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          content,
-          Divider(
-            height: 1,
-            thickness: 0.8,
-            color: Colors.grey.shade200,
-            indent: 80,
-          ),
-        ],
+      child: ClipRect(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            content,
+            Divider(
+              height: 1,
+              thickness: 0.8,
+              color: Colors.grey.shade200,
+              indent: 80,
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -274,44 +281,6 @@ class ChatListItem extends StatelessWidget {
     final groupName = conversation.displayNameFor(currentUserId);
     final participantCount = conversation.participants.length;
 
-    // Se c'è un avatar dedicato del gruppo, mostralo con bordo segmentato
-    if (conversation.groupAvatarUrl != null && conversation.groupAvatarUrl!.isNotEmpty && conversation.groupAvatarUrl != 'null') {
-      final participantCount = conversation.participants.length;
-      return CustomPaint(
-        painter: _SegmentedBorderPainter(
-          segmentCount: participantCount,
-          strokeWidth: 2.0,
-        ),
-        child: Container(
-          width: 56,
-          height: 56,
-          padding: const EdgeInsets.all(3),
-          child: ClipOval(
-            child: Image.network(
-              conversation.groupAvatarUrl!,
-              fit: BoxFit.cover,
-              width: 50,
-              height: 50,
-              gaplessPlayback: true,
-              errorBuilder: (_, __, ___) => Container(
-                color: const Color(0xFFB0E0D4),
-                child: Center(
-                  child: Text(
-                    conversation.displayNameFor(currentUserId).length >= 2
-                        ? conversation.displayNameFor(currentUserId).substring(0, 2).toUpperCase()
-                        : conversation.displayNameFor(currentUserId).toUpperCase(),
-                    style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-      );
-    }
-
-    // Altrimenti mostra gli avatar dei partecipanti con bordo segmentato
-    final groupAvatar = conversation.groupAvatars.isNotEmpty ? conversation.groupAvatars.first : null;
     final parts = groupName.trim().split(RegExp(r'\s+'));
     String initials;
     if (parts.length >= 2) {
@@ -333,39 +302,29 @@ class ChatListItem extends StatelessWidget {
         padding: const EdgeInsets.all(3),
         child: ClipOval(
           child: Container(
-            decoration: BoxDecoration(
+            decoration: const BoxDecoration(
               shape: BoxShape.circle,
-              gradient: groupAvatar == null
-                  ? const LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [
-                        Color(0xFFB0E0D4),
-                        Color(0xFF8DD4C6),
-                        Color(0xFF6EC8B8),
-                      ],
-                    )
-                  : null,
-              image: groupAvatar != null
-                  ? DecorationImage(
-                      image: NetworkImage(groupAvatar),
-                      fit: BoxFit.cover,
-                    )
-                  : null,
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  Color(0xFFB0E0D4),
+                  Color(0xFF8DD4C6),
+                  Color(0xFF6EC8B8),
+                ],
+              ),
             ),
-            child: groupAvatar == null
-                ? Center(
-                    child: Text(
-                      initials,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 0.5,
-                      ),
-                    ),
-                  )
-                : null,
+            child: Center(
+              child: Text(
+                initials,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.5,
+                ),
+              ),
+            ),
           ),
         ),
       ),

@@ -142,10 +142,6 @@ class ConversationModel {
 
   List<String?> get groupAvatars {
     if (isGroup) {
-      // Se c'è un avatar dedicato del gruppo, usalo come primo
-      if (groupAvatarUrl != null && groupAvatarUrl!.isNotEmpty && groupAvatarUrl != 'null') {
-        return [groupAvatarUrl];
-      }
       return participants.take(3).map((p) => p.avatar).toList();
     }
     return [];
