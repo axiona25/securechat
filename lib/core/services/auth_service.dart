@@ -62,6 +62,9 @@ class AuthService {
 
       if (access != null && refresh != null) {
         _api.setTokens(access: access, refresh: refresh);
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('access_token', access);
+        await prefs.setString('refresh_token', refresh);
         final user = data['user'] as Map<String, dynamic>?;
         final userId = user?['id'];
         if (userId != null) {
@@ -96,14 +99,6 @@ class AuthService {
         } catch (e) {
           print('[Auth] clearAllSessions failed: $e');
         }
-        try {
-          final crypto = CryptoService(apiService: _api);
-          await crypto.forceReuploadOnNextInit();
-          print('[Auth] E2E reupload flag set');
-        } catch (e) {
-          print('[Auth] forceReuploadOnNextInit failed: $e');
-        }
-
         return AuthResult(
           success: true,
           accessToken: access,

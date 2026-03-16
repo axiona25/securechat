@@ -7,6 +7,7 @@ import '../../core/routes/app_router.dart';
 import '../../core/services/api_service.dart';
 import '../../core/services/auth_service.dart';
 import '../../core/services/crypto_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'widgets/animated_feature_icon.dart';
 import 'widgets/dashed_line_painter.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -189,6 +190,12 @@ class _SplashScreenState extends State<SplashScreen>
     // 8. Navigate after total ~3500ms (o a home se già autenticato)
     await Future.delayed(const Duration(milliseconds: 1000));
     if (!mounted) return;
+    final prefs = await SharedPreferences.getInstance();
+    final access = prefs.getString('access_token');
+    final refresh = prefs.getString('refresh_token');
+    if (access != null && refresh != null) {
+      ApiService().setTokens(access: access, refresh: refresh);
+    }
     if (AuthService().isLoggedIn) {
       debugPrint('[Splash] startup begin');
       if (!mounted) return;

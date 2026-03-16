@@ -20,6 +20,7 @@ import '../../core/services/chat_sound_service.dart';
 import '../../core/services/call_service.dart';
 import '../../core/services/avatar_cache_service.dart';
 import '../../core/services/local_notification_service.dart';
+import '../../core/services/securechat_notify_service.dart';
 import '../../core/routes/app_router.dart';
 import '../../core/widgets/bottom_nav_bar.dart';
 import '../../core/widgets/user_avatar_widget.dart';
@@ -85,6 +86,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
       duration: const Duration(seconds: 2),
     )..repeat(reverse: true);
     _loadData();
+    SecureChatNotifyService.setNotificationTappedCallback((conversationId) {
+      if (mounted) _loadData();
+    });
     _loadMissedCallsCount();
     _connectHomeWebSocket();
     CallService().ensureConnected();
@@ -160,10 +164,32 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       CallService().ensureConnected();
+      if (mounted) _loadData();
       _pollingTimer?.cancel();
       _pollingTimer = Timer.periodic(const Duration(seconds: 3), (_) {
         if (mounted) _loadDataSilent();
       });
+      final userId = _currentUser?.id;
+      final token = ApiService().accessToken;
+      if (token != null && userId != null) {
+        http.post(
+          Uri.parse('${AppConstants.notifyBaseUrl}/badge-sync'),
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $token',
+          },
+          body: jsonEncode({
+            'user_id': userId,
+            'total_unread': 0,
+            'chat_unread': 0,
+            'source': 'app_foreground',
+          }),
+        ).then((response) {
+          debugPrint('[BadgeSync] status=${response.statusCode} body=${response.body}');
+        }).catchError((e) {
+          debugPrint('[BadgeSync] ERROR: $e');
+        });
+      }
     }
     if (state == AppLifecycleState.paused) {
       _pollingTimer?.cancel();
@@ -445,11 +471,16 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
                   : lastMessage?.messageType == 'file' ? '📎 Documento'
                   : lastMessage?.messageType == 'location' ? '📍 Posizione'
                   : lastMessage?.content ?? '';
-              await LocalNotificationService.instance.show(
-                title: senderName,
-                body: preview.isNotEmpty ? preview : 'Nuovo messaggio',
-                payload: newConv.id,
-              );
+              // Mostra il banner solo se l'app è in background; in foreground solo il suono
+              final isForeground = WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
+              final isOnChatTab = _currentNavIndex == 0;
+              if (!isForeground || !isOnChatTab) {
+                await LocalNotificationService.instance.show(
+                  title: senderName,
+                  body: preview.isNotEmpty ? preview : 'Nuovo messaggio',
+                  payload: newConv.id,
+                );
+              }
             }
           }
         }

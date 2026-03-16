@@ -25,4 +25,7 @@ urlpatterns = [
 
     # Badge count
     path('badge/', views.BadgeCountView.as_view(), name='badge-count'),
+
+    # Unread count (service-key auth, for notify server)
+    path('unread-count/<int:user_id>/', views.UnreadCountView.as_view(), name='unread-count'),
 ]

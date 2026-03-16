@@ -2,9 +2,12 @@ from rest_framework import generics, status, permissions
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.pagination import CursorPagination
+from rest_framework.permissions import AllowAny
 from django.shortcuts import get_object_or_404
+from django.conf import settings
 from django.utils import timezone
 
+from chat.models import MessageStatus
 from .models import DeviceToken, NotificationPreference, MuteRule, Notification
 from .serializers import (
     DeviceTokenSerializer, DeviceTokenDeleteSerializer,
@@ -211,6 +214,31 @@ class NotificationClearAllView(APIView):
             recipient=request.user, is_read=True
         ).delete()
         return Response({'detail': f'{deleted} notifications cleared.'})
+
+
+# ────────────────────────── Unread count (service-key auth) ──────────────────────────
+
+class UnreadCountView(APIView):
+    """
+    GET /api/notifications/unread-count/<user_id>/
+    Returns unread message count for the given user.
+    Auth: X-Notify-Service-Key header must match settings.NOTIFY_SERVICE_KEY.
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request, user_id):
+        key = request.headers.get('X-Notify-Service-Key', '')
+        expected = getattr(settings, 'NOTIFY_SERVICE_KEY', '') or ''
+        if expected and key != expected:
+            return Response(
+                {'detail': 'Invalid or missing X-Notify-Service-Key.'},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+        count = MessageStatus.objects.filter(
+            user_id=user_id,
+            status__in=['sent', 'delivered'],
+        ).exclude(message__sender_id=user_id).count()
+        return Response({'unread_count': count})
 
 
 # ────────────────────────── Badge Count ──────────────────────────

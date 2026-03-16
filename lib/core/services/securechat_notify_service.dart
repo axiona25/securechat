@@ -41,6 +41,11 @@ class SecureChatNotifyService {
   void Function(Map<String, dynamic>)? onCallEvent;
   void Function(String userId, bool isTyping)? onTyping;
 
+  static void Function(String conversationId)? onNotificationTapped;
+  static void setNotificationTappedCallback(void Function(String)? cb) {
+    onNotificationTapped = cb;
+  }
+
   Future<void> init({required int userId}) async {
     _userId = userId;
     _isInitialized = true;
@@ -49,6 +54,14 @@ class SecureChatNotifyService {
     await _requestApnsPermissionsAndToken();
     await _registerDevice();
     _connectWebSocket();
+    _apnsChannel.setMethodCallHandler((call) async {
+      if (call.method == 'notificationTapped') {
+        final conversationId = call.arguments as String?;
+        if (conversationId != null) {
+          onNotificationTapped?.call(conversationId);
+        }
+      }
+    });
   }
 
   Future<void> dispose() async {
