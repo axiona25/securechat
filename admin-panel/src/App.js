@@ -48,11 +48,7 @@ const messageData = [
   { name: "Dom", messages: 150, encrypted: 142 },
 ];
 
-const callData = [
-  { name: "Audio", value: 65, color: T.teal },
-  { name: "Video", value: 25, color: T.purple },
-  { name: "Gruppo", value: 10, color: T.orange },
-];
+
 
 const SvgIcon = ({ children, size = 20 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">{children}</svg>
@@ -122,7 +118,7 @@ function ChartCard({ title, children, delay = 0 }) {
   const [vis, setVis] = useState(false);
   useEffect(() => { const t = setTimeout(() => setVis(true), delay); return () => clearTimeout(t); }, [delay]);
   return (
-    <div style={{ background: T.card, borderRadius: T.radius, padding: 24, boxShadow: T.shadow, border: `1px solid ${T.border}`, opacity: vis ? 1 : 0, transform: vis ? "translateY(0)" : "translateY(20px)", transition: "all 0.5s cubic-bezier(0.4,0,0.2,1)" }}>
+    <div style={{ background: T.card, borderRadius: T.radius, padding: 24, boxShadow: T.shadow, border: `1px solid ${T.border}`, opacity: vis ? 1 : 0, transform: vis ? "translateY(0)" : "translateY(20px)", transition: "all 0.5s cubic-bezier(0.4,0,0.2,1)", position: "relative" }}>
       <div style={{ fontSize: 16, fontWeight: 700, color: T.text, marginBottom: 20 }}>{title}</div>
       {children}
     </div>
@@ -307,6 +303,17 @@ function DashboardPage() {
           calls: data.total_calls || 0,
           messages: data.total_messages || 0,
           onlineUsers: data.online_users || 0,
+          alertsTotal: data.alerts?.total || 0,
+          alertsCritical: data.alerts?.critical || 0,
+          alertsWarning: data.alerts?.warning || 0,
+          devicesTotal: data.devices?.total || 0,
+          devicesPct: `iOS ${data.devices?.ios_pct || 0}% · Android ${data.devices?.android_pct || 0}%`,
+          notifStatus: data.notifications?.status || 'Attivo',
+          notifSubtitle: `FCM ${data.notifications?.fcm || 'operativo'} · ${data.notifications?.delivery_pct || 99.8}% delivery`,
+          encStatus: data.encryption?.status || 'E2E',
+          encSubtitle: `${data.encryption?.protocol || 'Signal Protocol'} · ${data.encryption?.algorithm || 'AES-256'}`,
+          msgTypes: data.message_types || {},
+          storage: data.storage || {},
         });
       } catch (e) {
         console.error("Error loading dashboard stats:", e);
@@ -347,27 +354,48 @@ function DashboardPage() {
             <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: T.textMuted }}><div style={{ width: 10, height: 10, borderRadius: "50%", background: T.purple }} /> Cifrati E2E</div>
           </div>
         </ChartCard>
-        <ChartCard title="Chiamate per Tipo" delay={600}>
-          <div style={{ height: 280, display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie data={callData} cx="50%" cy="50%" innerRadius={70} outerRadius={110} paddingAngle={4} dataKey="value" stroke="none">
-                  {callData.map((entry, i) => <Cell key={i} fill={entry.color} />)}
-                </Pie>
-                <Tooltip formatter={(v) => [`${v}%`, ""]} contentStyle={{ background: T.navy, border: "none", borderRadius: 10, color: "#fff", fontSize: 13 }} itemStyle={{ color: "#fff" }} />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
-          <div style={{ display: "flex", gap: 16, justifyContent: "center", marginTop: 4 }}>
-            {callData.map((d, i) => <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}><div style={{ width: 10, height: 10, borderRadius: "50%", background: d.color }} /><span style={{ color: T.textMuted, fontWeight: 500 }}>{d.name}</span><span style={{ color: T.text, fontWeight: 700 }}>{d.value}%</span></div>)}
-          </div>
+        <ChartCard title="Tipi di Messaggi" delay={600}>
+          {(() => {
+            const disk = stats.storage || {};
+            const usedPct = disk.used_pct || 0;
+            const badgeColor = usedPct > 80 ? T.red : usedPct > 60 ? T.orange : T.green;
+          return <div style={{ position: "absolute", top: 16, right: 16, background: badgeColor + "15", border: `1px solid ${badgeColor}40`, borderRadius: 20, padding: "4px 12px", fontSize: 11, fontWeight: 700, color: badgeColor, display: "flex", gap: 6, alignItems: "center" }}>
+            <div style={{ width: 6, height: 6, borderRadius: "50%", background: badgeColor }} />
+            {disk.used_gb || 0}GB / {disk.total_gb || 0}GB · {disk.free_gb || 0}GB liberi
+          </div>;
+          })()}
+          <div style={{ height: 8 }} />
+          {(() => {
+            const mt = stats.msgTypes || {};
+            const colors = [T.teal, T.blue, T.purple, T.orange, T.green, "#FF6B6B", "#FFD93D", "#6BCB77"];
+            const labels = { text: "Testo", image: "Immagini", video: "Video", file: "Allegati", audio: "Audio", voice: "Vocali", location: "Posizioni", contact: "Contatti" };
+            const msgData = Object.entries(labels).map(([k, name], i) => ({ name, value: mt[k] || 0, color: colors[i] })).filter(d => d.value > 0);
+            const total = msgData.reduce((s, d) => s + d.value, 0);
+            return (
+              <>
+                <div style={{ display: "flex", justifyContent: "center" }}>
+                  <ResponsiveContainer width="100%" height={240}>
+                    <PieChart>
+                      <Pie data={msgData} cx="50%" cy="50%" innerRadius={70} outerRadius={110} paddingAngle={4} dataKey="value" stroke="none">
+                        {msgData.map((entry, i) => <Cell key={i} fill={entry.color} />)}
+                      </Pie>
+                      <Tooltip formatter={(v) => [`${v} (${total > 0 ? Math.round(v*100/total) : 0}%)`, ""]} contentStyle={{ background: T.navy, border: "none", borderRadius: 10, color: "#fff", fontSize: 13 }} itemStyle={{ color: "#fff" }} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+                <div style={{ display: "flex", gap: 12, justifyContent: "center", marginTop: 4, flexWrap: "wrap" }}>
+                  {msgData.map((d, i) => <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12 }}><div style={{ width: 10, height: 10, borderRadius: "50%", background: d.color }} /><span style={{ color: T.textMuted, fontWeight: 500 }}>{d.name}</span><span style={{ color: T.text, fontWeight: 700 }}>{d.value}</span></div>)}
+                </div>
+              </>
+            );
+          })()}
         </ChartCard>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 20 }}>
-        <InfoCard title="Alert" value={3} subtitle="2 critici · 1 warning" icon={<SvgIcon size={22}><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></SvgIcon>} color={T.red} status="warn" delay={700} />
-        <InfoCard title="Dispositivi Connessi" value={847} subtitle="iOS 62% · Android 38%" icon={<SvgIcon size={22}><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></SvgIcon>} color={T.blue} status="ok" delay={800} />
-        <InfoCard title="Stato Notifiche" value="Attivo" subtitle="FCM operativo · 99.8% delivery" icon={<IconBell />} color={T.green} status="ok" delay={900} />
-        <InfoCard title="Stato Cifratura" value="E2E" subtitle="Signal Protocol · AES-256" icon={<SvgIcon size={22}><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></SvgIcon>} color={T.teal} status="ok" delay={1000} />
+        <InfoCard title="Alert" value={stats.alertsTotal} subtitle={`${stats.alertsCritical} critici · ${stats.alertsWarning} warning`} icon={<SvgIcon size={22}><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></SvgIcon>} color={T.red} status={stats.alertsCritical > 0 ? "warn" : "ok"} delay={700} />
+        <InfoCard title="Dispositivi Connessi" value={stats.devicesTotal} subtitle={stats.devicesPct} icon={<SvgIcon size={22}><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></SvgIcon>} color={T.blue} status="ok" delay={800} />
+        <InfoCard title="Stato Notifiche" value={stats.notifStatus} subtitle={stats.notifSubtitle} icon={<IconBell />} color={T.green} status="ok" delay={900} />
+        <InfoCard title="Stato Cifratura" value={stats.encStatus} subtitle={stats.encSubtitle} icon={<SvgIcon size={22}><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></SvgIcon>} color={T.teal} status="ok" delay={1000} />
       </div>
     </div>
   );
