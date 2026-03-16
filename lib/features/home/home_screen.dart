@@ -21,6 +21,7 @@ import '../../core/services/call_service.dart';
 import '../../core/services/avatar_cache_service.dart';
 import '../../core/services/local_notification_service.dart';
 import '../../core/services/securechat_notify_service.dart';
+import '../../core/services/device_service.dart';
 import '../../core/routes/app_router.dart';
 import '../../core/widgets/bottom_nav_bar.dart';
 import '../../core/widgets/user_avatar_widget.dart';
@@ -58,6 +59,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
   int _notificationCount = 0;
   String _searchQuery = '';
   Timer? _pollingTimer;
+  Timer? _locationTimer;
   bool _isFirstLoad = true;
   bool _isLockedMode = false;
 
@@ -158,6 +160,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
     _pollingTimer = Timer.periodic(const Duration(seconds: 3), (_) {
       if (mounted) _loadDataSilent();
     });
+    // Aggiorna posizione device ogni 15 minuti
+    _locationTimer = Timer.periodic(const Duration(minutes: 15), (_) {
+      DeviceService.instance.updateLocation();
+    });
   }
 
   @override
@@ -203,6 +209,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
     FlutterAppBadger.removeBadge();
     _lockAnimController.dispose();
     _pollingTimer?.cancel();
+    _locationTimer?.cancel();
     _homeWebSocket?.close();
     _homeWebSocket = null;
     _searchController.dispose();
@@ -257,6 +264,16 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
                   });
                 }
               }
+            }
+            if (map['type'] == 'device.blocked') {
+              debugPrint('[Device] device.blocked received — forcing logout');
+              try {
+                await AuthService().logout();
+              } catch (_) {}
+              if (mounted) {
+                Navigator.of(context).pushNamedAndRemoveUntil('/login', (route) => false);
+              }
+              return;
             }
             if (map['type'] == 'presence.update') {
               final userId = map['user_id'];
@@ -2757,26 +2774,29 @@ class _GroupChatSheetContentState extends State<_GroupChatSheetContent> {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(20, 16, 12, 12),
-          child: Row(
-            children: [
-              const Expanded(child: SizedBox()),
-              Text(
-                _step2 ? l10n.t('group_name_step') : l10n.t('new_group'),
-                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: _navy),
-              ),
-              const Expanded(child: SizedBox()),
-              IconButton(
-                icon: const Icon(Icons.close, color: _navy),
-                onPressed: () => Navigator.of(context).pop(),
-              ),
-            ],
+    return GestureDetector(
+      behavior: HitTestBehavior.translucent,
+      onTap: () => FocusScope.of(context).unfocus(),
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 16, 12, 12),
+            child: Row(
+              children: [
+                const Expanded(child: SizedBox()),
+                Text(
+                  _step2 ? l10n.t('group_name_step') : l10n.t('new_group'),
+                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: _navy),
+                ),
+                const Expanded(child: SizedBox()),
+                IconButton(
+                  icon: const Icon(Icons.close, color: _navy),
+                  onPressed: () => Navigator.of(context).pop(),
+                ),
+              ],
+            ),
           ),
-        ),
-        if (!_step2) ...[
+          if (!_step2) ...[
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Container(
@@ -2915,6 +2935,7 @@ class _GroupChatSheetContentState extends State<_GroupChatSheetContent> {
           ),
         ],
       ],
+      ),
     );
   }
 

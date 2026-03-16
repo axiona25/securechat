@@ -80,6 +80,7 @@ dependencies:
   flutter_callkit_incoming: ^2.0.0
   web_socket_channel: ^2.4.0
   connectivity_plus: ^6.0.3
+  device_info_plus: ^12.3.0
 
 dev_dependencies:
   flutter_test:

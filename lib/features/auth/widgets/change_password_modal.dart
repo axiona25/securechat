@@ -98,7 +98,7 @@ class _ChangePasswordModalState extends State<ChangePasswordModal> {
   @override
   Widget build(BuildContext context) {
     return PopScope(
-      canPop: false,
+      canPop: !_loading,
       child: Dialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         child: Padding(

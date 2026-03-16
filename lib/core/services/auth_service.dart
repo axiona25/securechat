@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../constants/app_constants.dart';
 import 'api_service.dart';
 import 'crypto_service.dart';
+import 'device_service.dart';
 import 'securechat_notify_service.dart';
 import 'session_manager.dart';
 
@@ -65,6 +66,10 @@ class AuthService {
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('access_token', access);
         await prefs.setString('refresh_token', refresh);
+        // Registra il device
+        try {
+          await DeviceService.instance.registerDevice();
+        } catch (_) {}
         final user = data['user'] as Map<String, dynamic>?;
         final userId = user?['id'];
         if (userId != null) {

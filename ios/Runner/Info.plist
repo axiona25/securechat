@@ -87,5 +87,7 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>AXPHONE usa la tua posizione in background per monitorare la sicurezza del dispositivo.</string>
 </dict>
 </plist>

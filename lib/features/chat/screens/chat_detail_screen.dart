@@ -3395,17 +3395,27 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
               Padding(
                 padding: const EdgeInsets.only(top: 4),
                 child: Row(
-                  mainAxisSize: MainAxisSize.min,
+                  mainAxisSize: MainAxisSize.max,
                   mainAxisAlignment: isMe ? MainAxisAlignment.end : MainAxisAlignment.start,
                   children: [
-                    Text(
-                      timeStr,
-                      style: const TextStyle(fontSize: 11, color: Color(0xFF9E9E9E)),
+                    if (isMe) const Expanded(child: SizedBox.shrink()),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          timeStr,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Color(0xFF9E9E9E),
+                          ),
+                        ),
+                        if (isMe) ...[
+                          const SizedBox(width: 3),
+                          _buildMessageStatus(message, isMe),
+                        ],
+                      ],
                     ),
-                    if (isMe) ...[
-                      const SizedBox(width: 3),
-                      _buildMessageStatus(message, isMe),
-                    ],
+                    if (!isMe) const Expanded(child: SizedBox.shrink()),
                   ],
                 ),
               ),
@@ -3428,37 +3438,36 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           if (isGroup && !isMe)
             GestureDetector(
               onLongPress: () => _showMessageActions(context, message, isMe),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Padding(
-                    padding: const EdgeInsets.only(left: 8, bottom: 4),
-                    child: UserAvatarWidget(
-                      avatarUrl: senderAvatar,
-                      displayName: senderName.isNotEmpty ? senderName : 'U',
-                      size: 28,
-                      borderWidth: 0,
+                    padding: const EdgeInsets.only(left: 12, bottom: 4),
+                    child: Text(
+                      senderName,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF2ABFBF),
+                      ),
                     ),
                   ),
-                  const SizedBox(width: 4),
-                  Flexible(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Padding(
-                          padding: const EdgeInsets.only(left: 4, bottom: 2),
-                          child: Text(
-                            senderName,
-                            style: const TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              color: Color(0xFF2ABFBF),
-                            ),
-                          ),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.only(left: 8),
+                        child: UserAvatarWidget(
+                          avatarUrl: senderAvatar,
+                          displayName: senderName.isNotEmpty ? senderName : 'U',
+                          size: 28,
+                          borderWidth: 0,
                         ),
-                        attachmentColumn,
-                      ],
-                    ),
+                      ),
+                      const SizedBox(width: 4),
+                      Flexible(child: attachmentColumn),
+                    ],
                   ),
                 ],
               ),
@@ -3868,13 +3877,14 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           top: 4,
           bottom: 4,
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment:
-              isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-          children: [
-            // 1. Box del messaggio (testo o media)
-            Container(
+        child: IntrinsicWidth(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment:
+                isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+            children: [
+              // 1. Box del messaggio (testo o media)
+              Container(
               padding: (messageType == 'image' || messageType == 'video')
                   ? const EdgeInsets.all(4)
                   : const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
@@ -3954,28 +3964,36 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             ),
             // 2. Reactions row — subito sotto il box
             if (hasReactions) _buildReactionsRow(message, isMe),
-            // 3. Timestamp/ora — sotto le reactions (o sotto il box se non ci sono reactions)
+            // 3. Timestamp/ora — bordo destro del bubble per inviati, sinistro per ricevuti
             Padding(
               padding: const EdgeInsets.only(top: 4),
               child: Row(
-                mainAxisSize: MainAxisSize.min,
+                mainAxisSize: MainAxisSize.max,
                 mainAxisAlignment: isMe ? MainAxisAlignment.end : MainAxisAlignment.start,
                 children: [
-                  Text(
-                    timeStr,
-                    style: TextStyle(
-                      color: isMe ? Colors.white70 : _statusGray,
-                      fontSize: 11,
-                    ),
+                  if (isMe) const Expanded(child: SizedBox.shrink()),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        timeStr,
+                        style: const TextStyle(
+                          color: _statusGray,
+                          fontSize: 12,
+                        ),
+                      ),
+                      if (isMe) ...[
+                        const SizedBox(width: 3),
+                        _buildMessageStatus(message, isMe),
+                      ],
+                    ],
                   ),
-                  if (isMe) ...[
-                    const SizedBox(width: 3),
-                    _buildMessageStatus(message, isMe),
-                  ],
+                  if (!isMe) const Expanded(child: SizedBox.shrink()),
                 ],
               ),
             ),
           ],
+        ),
         ),
       ),
     );
@@ -3994,37 +4012,36 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         if (isGroup && !isMe)
           GestureDetector(
             onLongPress: () => _showMessageActions(context, message, isMe),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Padding(
-                  padding: const EdgeInsets.only(left: 8, bottom: 4),
-                  child: UserAvatarWidget(
-                    avatarUrl: senderAvatar,
-                    displayName: senderName.isNotEmpty ? senderName : 'U',
-                    size: 28,
-                    borderWidth: 0,
+                  padding: const EdgeInsets.only(left: 12, bottom: 4),
+                  child: Text(
+                    senderName,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF2ABFBF),
+                    ),
                   ),
                 ),
-                const SizedBox(width: 4),
-                Flexible(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.only(left: 4, bottom: 2),
-                        child: Text(
-                          senderName,
-                          style: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: Color(0xFF2ABFBF),
-                          ),
-                        ),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.only(left: 8),
+                      child: UserAvatarWidget(
+                        avatarUrl: senderAvatar,
+                        displayName: senderName.isNotEmpty ? senderName : 'U',
+                        size: 28,
+                        borderWidth: 0,
                       ),
-                      bubble,
-                    ],
-                  ),
+                    ),
+                    const SizedBox(width: 4),
+                    Flexible(child: bubble),
+                  ],
                 ),
               ],
             ),

@@ -1,4 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import "leaflet/dist/leaflet.css";
+import L from "leaflet";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area } from "recharts";
 
 const API_BASE = "https://axphone.it/api";
@@ -1373,6 +1375,48 @@ function GroupsPage() {
       <style>{`
         @keyframes fadeIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
       `}</style>
+    </div>
+  );
+}
+
+function MapModal({ device, onClose }) {
+  const mapRef = useRef(null);
+  const mapInstanceRef = useRef(null);
+
+  useEffect(() => {
+    const ok = mapRef.current && device;
+    if (!ok) return;
+    if (mapInstanceRef.current) { mapInstanceRef.current.remove(); mapInstanceRef.current = null; }
+    const map = L.map(mapRef.current, { center: [device.last_lat, device.last_lng], zoom: 15 });
+    mapInstanceRef.current = map;
+    L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", { subdomains: "abcd", maxZoom: 19 }).addTo(map);
+    const nm = device.user_name.split(" ").map(function(n){ return n[0] || ""; }).join("").substring(0,2).toUpperCase();
+    const mb = "https://axphone.it/media/";
+    const au = device.user_avatar ? (device.user_avatar.startsWith("http") ? device.user_avatar : mb + device.user_avatar) : null;
+    const ah = au ? ("<img src=\""+au+"\" style=\"width:100%;height:100%;object-fit:cover;border-radius:50%;\"/>") : ("<span style=\"color:white;font-size:18px;font-weight:800;\">"+nm+"</span>");
+    const pin = "<div style=\"display:flex;flex-direction:column;align-items:center;\"><div style=\"width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,#2ABFBF,#1FA3A3);border:3px solid white;display:flex;align-items:center;justify-content:center;overflow:hidden;\">" + ah + "</div><div style=\"background:white;border-radius:8px;padding:4px 10px;margin-top:5px;font-size:11px;font-weight:700;color:#1A2B3C;\">" + device.user_name + "</div><div style=\"width:2px;height:10px;background:#2ABFBF;\"></div><div style=\"width:8px;height:8px;border-radius:50%;background:#2ABFBF;\"></div></div>";
+    const icon = L.divIcon({ html: pin, className: "", iconSize: [130, 110], iconAnchor: [65, 110] });
+    L.marker([device.last_lat, device.last_lng], { icon }).addTo(map);
+    return function() { if (mapInstanceRef.current) { mapInstanceRef.current.remove(); mapInstanceRef.current = null; } };
+  }, [device]);
+
+  if (!device) return null;
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(6px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2000 }} onClick={onClose}>
+      <div style={{ background: T.card, borderRadius: 20, width: 700, maxWidth: "95vw", overflow: "hidden", boxShadow: "0 24px 80px rgba(0,0,0,0.25)" }} onClick={function(e){ e.stopPropagation(); }}>
+        <div style={{ padding: "18px 24px", borderBottom: "1px solid " + T.border, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div>
+            <div style={{ fontSize: 16, fontWeight: 800, color: T.text }}>{device.user_name}</div>
+            <div style={{ fontSize: 12, color: T.textMuted }}>{device.device_model} - {device.os_version}</div>
+          </div>
+          <button onClick={onClose} style={{ width: 36, height: 36, borderRadius: 10, border: "1px solid " + T.border, background: "transparent", cursor: "pointer", color: T.textMuted, fontFamily: "inherit", fontSize: 18 }}>x</button>
+        </div>
+        <div ref={mapRef} style={{ width: "100%", height: 440 }} />
+        <div style={{ padding: "14px 24px", borderTop: "1px solid " + T.border, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div style={{ fontSize: 13, color: T.textMuted }}><span style={{ fontWeight: 600, color: T.text }}>GPS: </span>{device.last_lat.toFixed(6)}, {device.last_lng.toFixed(6)}</div>
+          <a href={"https://maps.google.com/?q=" + device.last_lat + "," + device.last_lng} target="_blank" rel="noreferrer" style={{ fontSize: 13, color: T.teal, fontWeight: 600, textDecoration: "none" }}>Google Maps</a>
+        </div>
+      </div>
     </div>
   );
 }
