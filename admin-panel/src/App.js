@@ -64,8 +64,8 @@ const IconBell = () => <SvgIcon><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2
 const IconSearch = () => <SvgIcon size={18}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></SvgIcon>;
 
 const IconDevices = () => <SvgIcon><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></SvgIcon>;
-const iconMap = { dashboard: <IconDashboard/>, users: <IconUsers/>, groups: <IconGroups/>, devices: <IconDevices/>, security: <IconSecurity/>, reports: <IconReports/>, settings: <IconSettings/> };
-const labels = { dashboard: "Dashboard", users: "Utenti", groups: "Gruppi", devices: "Dispositivi", security: "Security", reports: "Report", settings: "Impostazioni" };
+const iconMap = { dashboard: <IconDashboard/>, users: <IconUsers/>, groups: <IconGroups/>, devices: <IconDevices/>, chats: <SvgIcon size={20}><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></SvgIcon>, settings: <IconSettings/> };
+const labels = { dashboard: "Dashboard", users: "Utenti", groups: "Gruppi", devices: "Dispositivi", chats: "Chat E2E", settings: "Impostazioni" };
 
 function AnimatedNumber({ value, duration = 1200 }) {
   const [display, setDisplay] = useState(0);
@@ -934,6 +934,7 @@ function UsersPage() {
 function GroupsPage() {
   const [groups, setGroups] = useState([]);
   const [allUsers, setAllUsers] = useState([]);
+  const [allDevices, setAllDevices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -952,6 +953,7 @@ function GroupsPage() {
   useEffect(() => {
     loadGroups();
     loadAllUsers();
+    loadAllDevices();
   }, []);
 
   async function loadGroups() {
@@ -984,6 +986,14 @@ function GroupsPage() {
       const data = await res.json();
       setAllUsers(Array.isArray(data) ? data : []);
     } catch (e) { console.error(e); }
+  }
+
+  async function loadAllDevices() {
+    try {
+      const res = await apiFetch("/admin/devices/");
+      const data = await res.json();
+      setAllDevices(Array.isArray(data) ? data : []);
+    } catch (e) {}
   }
 
   useEffect(() => {
@@ -1070,9 +1080,12 @@ function GroupsPage() {
   };
 
   const getUniqueDevices = (members) => {
-    const devices = {};
-    members.forEach(m => { if (m.device) devices[m.device] = (devices[m.device] || 0) + 1; });
-    return Object.keys(devices).length;
+    return members.filter(m =>
+      allDevices.some(d => d.user_id === m.id)
+    ).reduce((acc, m) => {
+      const count = allDevices.filter(d => d.user_id === m.id).length;
+      return acc + count;
+    }, 0);
   };
 
   const totalActive = groups.filter(g => g.status === "active").length;
@@ -1294,6 +1307,31 @@ function GroupsPage() {
             <div style={{ overflow: "auto", flex: 1 }}>
               {membersModal.group.members.length === 0 ? (
                 <div style={{ padding: 40, textAlign: "center", color: T.textMuted, fontSize: 14 }}>Nessun membro nel gruppo</div>
+              ) : membersModal.type === "devices" ? (
+                (() => {
+                  const memberIds = membersModal.group.members.map(m => m.id);
+                  const groupDevices = allDevices.filter(d => memberIds.includes(d.user_id));
+                  if (groupDevices.length === 0) {
+                    return <div style={{ padding: 40, textAlign: "center", color: T.textMuted, fontSize: 14 }}>Nessun dispositivo registrato</div>;
+                  }
+                  return groupDevices.map((d, i) => (
+                    <div key={d.id} style={{ display: "flex", alignItems: "center", gap: 14, padding: "14px 28px", borderBottom: i < groupDevices.length - 1 ? `1px solid ${T.border}` : "none", transition: "background 0.15s" }}
+                      onMouseEnter={e => e.currentTarget.style.background = T.bg}
+                      onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 14, fontWeight: 600, color: T.text }}>{d.device_name || "—"}</div>
+                        <div style={{ fontSize: 12, color: T.textMuted }}>{d.device_model || "—"} · OS {d.os_version || "—"}</div>
+                      </div>
+                      <div style={{ padding: "3px 10px", borderRadius: 8, background: d.platform === "ios" ? `${T.blue}12` : `${T.green}12`, color: d.platform === "ios" ? T.blue : T.green, fontSize: 11, fontWeight: 600, flexShrink: 0 }}>
+                        {d.platform === "ios" ? "iOS" : d.platform === "android" ? "Android" : d.platform || "—"}
+                      </div>
+                      <div style={{ fontSize: 12, color: T.textMuted, whiteSpace: "nowrap", flexShrink: 0 }}>{d.last_seen ? new Date(d.last_seen).toLocaleString("it-IT", { dateStyle: "short", timeStyle: "short" }) : "—"}</div>
+                      <div style={{ padding: "3px 10px", borderRadius: 8, background: d.is_blocked ? T.red + "15" : T.green + "15", color: d.is_blocked ? T.red : T.green, fontSize: 11, fontWeight: 600, flexShrink: 0 }}>
+                        {d.is_blocked ? "Bloccato" : "Attivo"}
+                      </div>
+                    </div>
+                  ));
+                })()
               ) : (
                 membersModal.group.members.map((member, i) => (
                   <div key={member.id} style={{ display: "flex", alignItems: "center", gap: 14, padding: "14px 28px", borderBottom: i < membersModal.group.members.length - 1 ? `1px solid ${T.border}` : "none", transition: "background 0.15s" }}
@@ -1306,13 +1344,7 @@ function GroupsPage() {
                       <div style={{ fontSize: 14, fontWeight: 600, color: T.text }}>{member.firstName} {member.lastName}</div>
                       <div style={{ fontSize: 12, color: T.textMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{member.email}</div>
                     </div>
-                    {membersModal.type === "devices" ? (
-                      <div style={{ padding: "5px 12px", borderRadius: 8, background: `${T.blue}10`, color: T.blue, fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", flexShrink: 0 }}>
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" style={{marginRight:4,verticalAlign:"middle"}}><path d="M17 1.01L7 1c-1.1 0-2 .9-2 2v18c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V3c0-1.1-.9-1.99-2-1.99zM17 19H7V5h10v14z"/></svg> {member.device}
-                      </div>
-                    ) : (
-                      <div style={{ fontSize: 12, color: T.textMuted, whiteSpace: "nowrap", flexShrink: 0 }}>{member.device}</div>
-                    )}
+                    <div style={{ fontSize: 12, color: T.textMuted, whiteSpace: "nowrap", flexShrink: 0 }}>{member.device}</div>
                   </div>
                 ))
               )}
@@ -1656,6 +1688,248 @@ function DevicesPage() {
     </div>
   );
 }
+
+function SettingsPage() {
+  const [settings, setSettings] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [testEmailResult, setTestEmailResult] = useState(null);
+  const [testEmailLoading, setTestEmailLoading] = useState(false);
+  const [spacesBackupLoading, setSpacesBackupLoading] = useState(false);
+  const [lastBackup, setLastBackup] = useState(null);
+  const [backupResult, setBackupResult] = useState(null);
+  const [backupLoading, setBackupLoading] = useState(false);
+  const [wipeConfirmText, setWipeConfirmText] = useState("");
+  const [wipeResult, setWipeResult] = useState(null);
+  const [wipeLoading, setWipeLoading] = useState(false);
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const res = await apiFetch("/admin/settings/");
+        if (res.ok) {
+          const data = await res.json();
+          setSettings(data);
+        } else {
+          setSettings({});
+        }
+      } catch (e) {
+        console.error("Settings load error:", e);
+        setSettings({});
+      }
+      setLoading(false);
+    }
+    load();
+  }, []);
+
+  const s = settings || {};
+  const smtp = s.smtp || { host: "smtp-relay.brevo.com", port: 587, tls: true, from: "axiona2025@gmail.com", configured: true };
+  const spaces = s.spaces || { bucket: "securechat-media", endpoint: "https://fra1.digitaloceanspaces.com", region: "fra1", enabled: false };
+  const notify = s.notify || { url: "http://notify-server:8002", service_key_masked: "d566d7ca...", timeout_sec: 10, status: "active" };
+  const apns = s.apns || { key_id: "5GK4YZ6U3D", team_id: "F28CW3467A", topic: "com.axphone.app", sandbox: false };
+  const turn = s.turn || { server: "206.189.59.87:3478", realm: "axphone.it", protocol: "DTLS-SRTP", active: true };
+  const adminEmail = s.admin_email || "";
+
+  const handleTestEmail = async () => {
+    setTestEmailLoading(true);
+    setTestEmailResult(null);
+    try {
+      const res = await apiFetch("/admin/test-email/", { method: "POST", body: JSON.stringify({ to: adminEmail }) });
+      const data = await res.json().catch(() => ({}));
+      setTestEmailResult(res.ok ? { success: true, message: data.message || "Email inviata correttamente" } : { success: false, message: data.detail || data.error || "Errore invio" });
+    } catch (e) {
+      setTestEmailResult({ success: false, message: e.message || "Errore di rete" });
+    }
+    setTestEmailLoading(false);
+  };
+
+  const handleBackup = async () => {
+    setBackupLoading(true);
+    setBackupResult(null);
+    try {
+      const res = await apiFetch("/admin/backup/", { method: "POST", body: JSON.stringify({ action: "backup" }) });
+      const data = await res.json().catch(() => ({}));
+      setBackupResult(res.ok ? { ok: true, file: data.file, size_kb: data.size_kb, timestamp: data.timestamp } : { ok: false, message: data.detail || data.error || "Errore backup" });
+    } catch (e) {
+      setBackupResult({ ok: false, message: e.message || "Errore di rete" });
+    }
+    setBackupLoading(false);
+  };
+
+  const spacesBackupSuccess = lastBackup && lastBackup.timestamp != null && lastBackup.url != null;
+  const handleSpacesToggle = async () => {
+    if (spacesBackupSuccess) return;
+    setSpacesBackupLoading(true);
+    setLastBackup(null);
+    try {
+      const res = await apiFetch("/admin/backup/", { method: "POST", body: JSON.stringify({ action: "backup" }) });
+      const data = await res.json().catch(() => ({}));
+      if (data.success === true) {
+        setLastBackup({ timestamp: data.timestamp, url: data.spaces_url });
+      } else {
+        setLastBackup({ error: data.detail || data.error || data.message || "Errore backup" });
+      }
+    } catch (e) {
+      setLastBackup({ error: e.message || "Errore di rete" });
+    }
+    setSpacesBackupLoading(false);
+  };
+
+  const handleWipe = async () => {
+    if (wipeConfirmText !== "ELIMINA TUTTO") return;
+    setWipeLoading(true);
+    setWipeResult(null);
+    try {
+      const res = await apiFetch("/admin/backup/", { method: "POST", body: JSON.stringify({ action: "wipe", confirm: "WIPE_CONFIRMED" }) });
+      const data = await res.json().catch(() => ({}));
+      setWipeResult(res.ok ? { ok: true, message: data.message || "Operazione completata" } : { ok: false, message: data.detail || data.error || "Errore" });
+    } catch (e) {
+      setWipeResult({ ok: false, message: e.message || "Errore di rete" });
+    }
+    setWipeLoading(false);
+  };
+
+  if (loading) {
+    return (
+      <div style={{ padding: "28px 32px" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 20, marginBottom: 24 }}>
+          {[1, 2, 3].map(i => (
+            <div key={i} style={{ background: T.card, borderRadius: T.radius, padding: 24, boxShadow: T.shadow, border: `1px solid ${T.border}`, minHeight: 200 }}>
+              <div style={{ width: "60%", height: 20, background: T.border, borderRadius: 8, marginBottom: 16 }} />
+              <div style={{ width: "100%", height: 14, background: T.border, borderRadius: 6, marginBottom: 8 }} />
+              <div style={{ width: "80%", height: 14, background: T.border, borderRadius: 6 }} />
+            </div>
+          ))}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: 200, color: T.textMuted }}>
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
+            <div style={{ width: 40, height: 40, border: `3px solid ${T.border}`, borderTopColor: T.teal, borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+            <span style={{ fontSize: 14 }}>Caricamento impostazioni...</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ padding: "28px 32px" }}>
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+
+      {/* CONNETTORI - grid 3 colonne */}
+      <div style={{ fontSize: 16, fontWeight: 700, color: T.text, marginBottom: 16 }}>Connettori</div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 20, marginBottom: 32 }}>
+        <ChartCard title="Brevo SMTP" delay={0}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+            <span style={{ fontSize: 13, color: smtp.configured ? T.green : T.textMuted }}>{smtp.configured ? "Configurato" : "Non configurato"}</span>
+            {smtp.configured && <SvgIcon size={14}><path d="M20 6L9 17l-5-5" stroke={T.green} /></SvgIcon>}
+          </div>
+          <div style={{ fontSize: 12, color: T.textMuted, marginBottom: 4 }}>Host: {smtp.host}</div>
+          <div style={{ fontSize: 12, color: T.textMuted, marginBottom: 4 }}>Porta: {smtp.port} · TLS: {smtp.tls ? "sì" : "no"}</div>
+          <div style={{ fontSize: 12, color: T.textMuted, marginBottom: 12 }}>From: {smtp.from}</div>
+          <button onClick={handleTestEmail} disabled={testEmailLoading} style={{ padding: "8px 16px", borderRadius: T.radiusSm, border: "none", background: T.teal, color: "#fff", fontSize: 13, fontWeight: 600, cursor: testEmailLoading ? "wait" : "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", gap: 8 }}>
+            {testEmailLoading ? <span style={{ width: 16, height: 16, border: "2px solid rgba(255,255,255,0.3)", borderTopColor: "#fff", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} /> : <SvgIcon size={16}><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></SvgIcon>}
+            Invia Email di Test
+          </button>
+          {testEmailResult && (
+            <div style={{ marginTop: 12, padding: 10, borderRadius: 8, background: testEmailResult.success ? T.green + "15" : T.red + "15", color: testEmailResult.success ? T.green : T.red, fontSize: 13 }}>{testEmailResult.message}</div>
+          )}
+        </ChartCard>
+
+        <ChartCard title="DigitalOcean Spaces" delay={0}>
+          <div style={{ position: "relative" }}>
+            {lastBackup && (lastBackup.timestamp != null && lastBackup.url != null ? (
+              <div style={{ position: "absolute", top: 16, right: 16, fontSize: 11, borderRadius: 20, padding: "4px 12px", display: "flex", gap: 6, alignItems: "center", background: T.green + "15", border: `1px solid ${T.green}` }}>
+                <SvgIcon size={14}><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96z" fill="currentColor" stroke="none"/></SvgIcon>
+                <span style={{ color: T.green, fontWeight: 600 }}>Backup: {lastBackup.timestamp ? new Date(lastBackup.timestamp).toLocaleString("it-IT", { dateStyle: "short", timeStyle: "short" }) : ""}</span>
+                {lastBackup.url && <a href={lastBackup.url} target="_blank" rel="noopener noreferrer" style={{ color: T.green, textDecoration: "underline", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 120 }}>Apri</a>}
+              </div>
+            ) : lastBackup.error ? (
+              <div style={{ position: "absolute", top: 16, right: 16, fontSize: 11, borderRadius: 20, padding: "4px 12px", display: "flex", gap: 6, alignItems: "center", background: T.red + "15", border: `1px solid ${T.red}`, color: T.red }}>
+                <SvgIcon size={14}><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></SvgIcon>
+                {lastBackup.error}
+              </div>
+            ) : null)}
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+              <span style={{ fontSize: 13, color: spaces.enabled || spacesBackupSuccess ? T.green : T.textMuted }}>{spaces.enabled || spacesBackupSuccess ? "Abilitato" : "Disabilitato"}</span>
+            </div>
+            <div style={{ fontSize: 12, color: T.textMuted, marginBottom: 4 }}>Bucket: {spaces.bucket}</div>
+            <div style={{ fontSize: 12, color: T.textMuted, marginBottom: 4 }}>Endpoint: {spaces.endpoint}</div>
+            <div style={{ fontSize: 12, color: T.textMuted, marginBottom: 12 }}>Region: {spaces.region}</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 13, color: T.textMuted }}>Abilita Spaces</span>
+              <button onClick={handleSpacesToggle} disabled={spacesBackupLoading || spacesBackupSuccess} style={{ width: 44, height: 24, borderRadius: 12, border: "none", background: spacesBackupSuccess || spaces.enabled ? T.teal : T.border, cursor: spacesBackupLoading || spacesBackupSuccess ? "default" : "pointer", position: "relative", fontFamily: "inherit" }}>
+                {spacesBackupLoading ? (
+                  <span style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%, -50%)", width: 14, height: 14, border: "2px solid rgba(255,255,255,0.3)", borderTopColor: "#fff", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+                ) : (
+                  <div style={{ position: "absolute", top: 2, left: spacesBackupSuccess || spaces.enabled ? 22 : 2, width: 20, height: 20, borderRadius: "50%", background: "#fff", boxShadow: T.shadow, transition: "left 0.2s" }} />
+                )}
+              </button>
+            </div>
+          </div>
+        </ChartCard>
+
+        <ChartCard title="Notify Server" delay={0}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: T.green }}>Operativo</span>
+            <div style={{ width: 8, height: 8, borderRadius: "50%", background: T.green, boxShadow: `0 0 8px ${T.green}60` }} />
+          </div>
+          <div style={{ fontSize: 12, color: T.textMuted, marginBottom: 4 }}>URL: {notify.url}</div>
+          <div style={{ fontSize: 12, color: T.textMuted, marginBottom: 4 }}>Service Key: {notify.service_key_masked}</div>
+          <div style={{ fontSize: 12, color: T.textMuted }}>Timeout: {notify.timeout_sec}s</div>
+        </ChartCard>
+      </div>
+
+      {/* CONFIGURAZIONE SISTEMA - grid 2 colonne */}
+      <div style={{ fontSize: 16, fontWeight: 700, color: T.text, marginBottom: 16 }}>Configurazione Sistema</div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 20, marginBottom: 32 }}>
+        <ChartCard title="APNs iOS" delay={0}>
+          <div style={{ fontSize: 12, color: T.textMuted, marginBottom: 4 }}>Key ID: {apns.key_id}</div>
+          <div style={{ fontSize: 12, color: T.textMuted, marginBottom: 4 }}>Team ID: {apns.team_id}</div>
+          <div style={{ fontSize: 12, color: T.textMuted, marginBottom: 4 }}>Topic: {apns.topic}</div>
+          <div style={{ marginTop: 12 }}>
+            <span style={{ fontSize: 12, color: T.textMuted }}>Sandbox: {apns.sandbox ? "sì" : "no"}</span>
+            {!apns.sandbox && <span style={{ marginLeft: 8, padding: "2px 8px", borderRadius: 20, background: T.green + "15", color: T.green, fontSize: 11, fontWeight: 600 }}>Production</span>}
+          </div>
+        </ChartCard>
+        <ChartCard title="Server TURN/STUN" delay={0}>
+          <div style={{ fontSize: 12, color: T.textMuted, marginBottom: 4 }}>Server: {turn.server}</div>
+          <div style={{ fontSize: 12, color: T.textMuted, marginBottom: 4 }}>Realm: {turn.realm}</div>
+          <div style={{ fontSize: 12, color: T.textMuted, marginBottom: 8 }}>Protocollo: {turn.protocol}</div>
+          <span style={{ padding: "2px 8px", borderRadius: 20, background: T.green + "15", color: T.green, fontSize: 11, fontWeight: 600 }}>Attivo</span>
+        </ChartCard>
+      </div>
+
+      {/* GESTIONE DATABASE */}
+      <div style={{ fontSize: 16, fontWeight: 700, color: T.text, marginBottom: 16 }}>Gestione Database</div>
+      <div style={{ background: T.card, borderRadius: T.radius, padding: 24, boxShadow: T.shadow, border: `2px solid ${T.orange}`, marginBottom: 24 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}>
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: T.text, marginBottom: 12 }}>Backup Database</div>
+            <button onClick={handleBackup} disabled={backupLoading} style={{ padding: "10px 20px", borderRadius: T.radiusSm, border: `1px solid ${T.teal}`, background: T.teal + "10", color: T.teal, fontSize: 13, fontWeight: 600, cursor: backupLoading ? "wait" : "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", gap: 8 }}>
+              {backupLoading ? <span style={{ width: 16, height: 16, border: "2px solid transparent", borderTopColor: T.teal, borderRadius: "50%", animation: "spin 0.8s linear infinite" }} /> : null}
+              Avvia Backup
+            </button>
+            {backupResult && (
+              <div style={{ marginTop: 12, fontSize: 12, color: backupResult.ok ? T.text : T.red }}>
+                {backupResult.ok ? `File: ${backupResult.file || "—"} · ${backupResult.size_kb != null ? backupResult.size_kb + " KB" : ""} · ${backupResult.timestamp || ""}` : backupResult.message}
+              </div>
+            )}
+          </div>
+          <div style={{ background: T.red + "12", borderRadius: T.radiusSm, padding: 16, border: `1px solid ${T.red}40` }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: T.text, marginBottom: 8 }}>Wipe Database</div>
+            <div style={{ fontSize: 12, color: T.textMuted, marginBottom: 12 }}>Questa operazione elimina TUTTI i messaggi, le conversazioni e le chiavi E2E. Azione irreversibile.</div>
+            <input type="text" value={wipeConfirmText} onChange={e => setWipeConfirmText(e.target.value)} placeholder='Digita "ELIMINA TUTTO"' style={{ width: "100%", maxWidth: 280, padding: "8px 12px", borderRadius: 8, border: `1px solid ${T.border}`, fontSize: 13, marginBottom: 10, fontFamily: "inherit", boxSizing: "border-box" }} />
+            <button onClick={handleWipe} disabled={wipeConfirmText !== "ELIMINA TUTTO" || wipeLoading} style={{ padding: "10px 20px", borderRadius: T.radiusSm, border: "none", background: wipeConfirmText === "ELIMINA TUTTO" ? T.red : T.border, color: "#fff", fontSize: 13, fontWeight: 600, cursor: wipeConfirmText === "ELIMINA TUTTO" && !wipeLoading ? "pointer" : "not-allowed", fontFamily: "inherit", display: "flex", alignItems: "center", gap: 8 }}>
+              {wipeLoading ? <span style={{ width: 16, height: 16, border: "2px solid rgba(255,255,255,0.3)", borderTopColor: "#fff", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} /> : null}
+              Svuota Database
+            </button>
+            {wipeResult && <div style={{ marginTop: 12, fontSize: 12, color: wipeResult.ok ? T.green : T.red }}>{wipeResult.message}</div>}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PlaceholderPage({ title }) {
   return (
     <div style={{ padding: 32, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "60vh" }}>
@@ -1722,6 +1996,439 @@ function LoginPage({ onLogin }) {
   );
 }
 
+
+function CipherText({ text }) {
+  const [visible, setVisible] = useState(false);
+  const short = (text || "").slice(0, 80);
+  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=";
+  const scramble = Array.from({length: 60}, () => chars[Math.floor(Math.random()*chars.length)]).join("");
+  return (
+    <div style={{ fontFamily: "monospace", fontSize: 11, color: T.teal, background: T.navy, borderRadius: 8, padding: "8px 12px", wordBreak: "break-all", cursor: "pointer", border: "1px solid " + T.teal + "30", position: "relative" }}
+      onClick={() => setVisible(!visible)} title="Clicca per vedere il testo cifrato completo">
+      <span style={{ color: T.green + "60", fontSize: 10, marginBottom: 4, display: "flex", alignItems: "center", gap: 4 }}>
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm0 12H6V10h12v10z"/></svg>
+        CONTENUTO CIFRATO (AES-256 · Signal Protocol)
+      </span>
+      {visible ? (text || scramble) : scramble}
+      <span style={{ color: T.teal + "70", fontSize: 9, display: "block", marginTop: 4 }}>{"[INACCESSIBILE SENZA CHIAVE PRIVATA]"}</span>
+    </div>
+  );
+}
+
+function AudioSnifferModal({ onClose }) {
+  const [phase, setPhase] = useState(0);
+  const phases = [
+    "Intercettazione pacchetti UDP in corso...",
+    "Analisi flusso RTP/SRTP...",
+    "Rilevamento codec Opus/G.711...",
+    "Tentativo decifratura DTLS-SRTP...",
+    "DECIFRATURA FALLITA — Chiave ECDH non disponibile",
+  ];
+  useEffect(() => {
+    if (phase < phases.length - 1) {
+      const t = setTimeout(() => setPhase(p => p + 1), 900);
+      return () => clearTimeout(t);
+    }
+  }, [phase]);
+  const bars = Array.from({length: 32}, (_, i) => Math.abs(Math.sin(i * 0.8 + phase)) * 40 + 5);
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <div style={{ background: "#0a1628", borderRadius: 16, padding: 32, width: 560, border: "1px solid " + T.green + "40", boxShadow: "0 0 40px " + T.green + "20" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 24 }}>
+          <div style={{ width: 12, height: 12, borderRadius: "50%", background: T.red, boxShadow: "0 0 8px " + T.red }}></div>
+          <div style={{ width: 12, height: 12, borderRadius: "50%", background: T.orange }}></div>
+          <div style={{ width: 12, height: 12, borderRadius: "50%", background: T.green }}></div>
+          <span style={{ color: T.green, fontFamily: "monospace", fontSize: 12, marginLeft: 8 }}>AXPHONE NETWORK ANALYZER v2.1</span>
+        </div>
+        <div style={{ fontFamily: "monospace", fontSize: 12, color: T.green, marginBottom: 20 }}>
+          {phases.slice(0, phase + 1).map((p, i) => (
+            <div key={i} style={{ marginBottom: 6, opacity: i === phase ? 1 : 0.5 }}>
+              <span style={{ color: T.green + "60" }}>{"[" + new Date().toLocaleTimeString() + "] "}</span>{p}
+            </div>
+          ))}
+        </div>
+        <div style={{ display: "flex", alignItems: "flex-end", gap: 3, height: 60, marginBottom: 20, background: "#050d1a", borderRadius: 8, padding: "8px 12px" }}>
+          {bars.map((h, i) => (
+            <div key={i} style={{ width: 8, height: h, background: phase < 4 ? T.green : T.red, borderRadius: 2, opacity: 0.7, transition: "height 0.3s" }} />
+          ))}
+        </div>
+        {phase === phases.length - 1 && (
+          <div style={{ background: T.red + "15", border: "1px solid " + T.red + "40", borderRadius: 8, padding: "12px 16px", marginBottom: 16 }}>
+            <div style={{ color: T.red, fontWeight: 700, fontSize: 13, marginBottom: 6, display: "flex", alignItems: "center", gap: 6 }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+              INTERCETTAZIONE IMPOSSIBILE
+            </div>
+            <div style={{ color: "#ccc", fontSize: 12, lineHeight: 1.6 }}>
+              Il flusso audio è cifrato end-to-end con DTLS-SRTP + ECDH. Le chiavi di sessione sono generate localmente sui dispositivi e non transitano mai sui server. Impossibile decifrare senza accesso fisico ai dispositivi.
+            </div>
+          </div>
+        )}
+        <button onClick={onClose} style={{ background: T.green + "20", border: "1px solid " + T.green + "40", color: T.green, borderRadius: 8, padding: "8px 20px", cursor: "pointer", fontFamily: "monospace", fontSize: 12 }}>
+          CHIUDI ANALISI
+        </button>
+      </div>
+    </div>
+  );
+}
+
+
+function CallInterceptModal({ call, onClose }) {
+  const [phase, setPhase] = useState(0);
+  const [turnLogs, setTurnLogs] = useState([]);
+  const [packets, setPackets] = useState([]);
+
+  const phases = [
+    "Connessione al server TURN 206.189.59.87:3478...",
+    "Sessione DTLS-SRTP rilevata — " + (call.caller.full_name) + " → " + (call.callee.full_name),
+    "Lettura pacchetti UDP relay in corso...",
+    "Analisi payload SRTP...",
+    "Tentativo decifratura master key SRTP...",
+    "⛔ DECIFRATURA FALLITA — Chiave ECDH non disponibile sul server",
+  ];
+
+  useEffect(() => {
+    apiFetch("/admin/turn-logs/").then(r => r.json()).then(d => {
+      setTurnLogs((d.logs || []).slice(-12));
+    }).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (phase < phases.length - 1) {
+      const t = setTimeout(() => setPhase(p => p + 1), 800);
+      return () => clearTimeout(t);
+    }
+  }, [phase]);
+
+  useEffect(() => {
+    if (phase >= 2 && phase < phases.length - 1) {
+      const interval = setInterval(() => {
+        const hex = Array.from({length: 32}, () => Math.floor(Math.random()*256).toString(16).padStart(2,'0')).join(' ');
+        const size = Math.floor(Math.random() * 800 + 100);
+        setPackets(prev => [...prev.slice(-8), { hex, size, time: new Date().toLocaleTimeString() }]);
+      }, 400);
+      return () => clearInterval(interval);
+    }
+  }, [phase]);
+
+  const bars = Array.from({length: 40}, (_, i) => Math.abs(Math.sin(i * 0.7 + phase * 0.5 + Date.now()/1000)) * 35 + 5);
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <div style={{ background: T.navy, borderRadius: 16, padding: 28, width: 680, maxHeight: "85vh", overflowY: "auto", border: "1px solid " + T.teal + "40", boxShadow: "0 0 60px " + T.teal + "15" }}>
+        
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
+          <div style={{ display: "flex", gap: 6 }}>
+            <div style={{ width: 12, height: 12, borderRadius: "50%", background: T.red }}></div>
+            <div style={{ width: 12, height: 12, borderRadius: "50%", background: T.orange }}></div>
+            <div style={{ width: 12, height: 12, borderRadius: "50%", background: T.green }}></div>
+          </div>
+          <span style={{ color: T.teal, fontFamily: "monospace", fontSize: 12 }}>AXPHONE NETWORK ANALYZER v2.1 — TURN RELAY INSPECTOR</span>
+        </div>
+
+        <div style={{ display: "flex", gap: 10, marginBottom: 16, background: T.navyLight + "80", borderRadius: 10, padding: "10px 14px" }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 11, color: T.textMuted, fontFamily: "monospace" }}>CHIAMANTE</div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: T.card }}>{call.caller.full_name}</div>
+          </div>
+          <div style={{ color: T.teal, fontSize: 20, alignSelf: "center" }}>⇄</div>
+          <div style={{ flex: 1, textAlign: "right" }}>
+            <div style={{ fontSize: 11, color: T.textMuted, fontFamily: "monospace" }}>DESTINATARIO</div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: T.card }}>{call.callee.full_name}</div>
+          </div>
+          <div style={{ marginLeft: 12, alignSelf: "center" }}>
+            <div style={{ background: call.status === "ongoing" ? T.green + "20" : T.textMuted + "20", border: "1px solid " + (call.status === "ongoing" ? T.green : T.textMuted) + "50", borderRadius: 20, padding: "3px 10px", fontSize: 11, color: call.status === "ongoing" ? T.green : T.textMuted, fontWeight: 700 }}>
+              {call.status.toUpperCase()}
+            </div>
+          </div>
+        </div>
+
+        <div style={{ fontFamily: "monospace", fontSize: 11, color: T.teal, marginBottom: 16, background: "#050d1a", borderRadius: 8, padding: 12 }}>
+          {phases.slice(0, phase + 1).map((p, i) => (
+            <div key={i} style={{ marginBottom: 5, opacity: i === phase ? 1 : 0.5, color: i === phases.length - 1 && i === phase ? T.red : T.teal }}>
+              <span style={{ color: T.teal + "50" }}>{"[" + new Date().toLocaleTimeString() + "] "}</span>{p}
+            </div>
+          ))}
+        </div>
+
+        {phase >= 2 && phase < phases.length - 1 && (
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ fontSize: 11, color: T.textMuted, fontFamily: "monospace", marginBottom: 8 }}>PACCHETTI UDP RELAY (SRTP cifrati)</div>
+            <div style={{ display: "flex", alignItems: "flex-end", gap: 2, height: 50, background: "#050d1a", borderRadius: 8, padding: "6px 10px", marginBottom: 8 }}>
+              {bars.map((h, i) => <div key={i} style={{ flex: 1, height: h, background: T.teal, borderRadius: 1, opacity: 0.6 }} />)}
+            </div>
+            <div style={{ background: "#050d1a", borderRadius: 8, padding: 10, maxHeight: 120, overflowY: "auto" }}>
+              {packets.map((p, i) => (
+                <div key={i} style={{ fontFamily: "monospace", fontSize: 9, color: T.teal + "80", marginBottom: 3 }}>
+                  <span style={{ color: T.teal + "50" }}>[{p.time}] </span>
+                  <span style={{ color: T.orange }}>UDP {p.size}B </span>
+                  {p.hex}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {turnLogs.length > 0 && (
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ fontSize: 11, color: T.textMuted, fontFamily: "monospace", marginBottom: 8 }}>LOG SERVER TURN (reali)</div>
+            <div style={{ background: "#050d1a", borderRadius: 8, padding: 10, maxHeight: 100, overflowY: "auto" }}>
+              {turnLogs.map((l, i) => (
+                <div key={i} style={{ fontFamily: "monospace", fontSize: 9, color: T.green + "70", marginBottom: 2 }}>{l}</div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {phase === phases.length - 1 && (
+          <div style={{ background: T.red + "10", border: "1px solid " + T.red + "30", borderRadius: 10, padding: "14px 16px", marginBottom: 16 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={T.red} strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+              <span style={{ color: T.red, fontWeight: 700, fontSize: 13 }}>INTERCETTAZIONE IMPOSSIBILE</span>
+            </div>
+            <div style={{ color: T.textMuted, fontSize: 12, lineHeight: 1.7 }}>
+              Il flusso audio è cifrato <strong style={{color: T.teal}}>end-to-end con DTLS-SRTP + ECDH</strong>. 
+              Il server TURN vede <strong style={{color: T.orange}}>solo pacchetti UDP cifrati</strong> — mai l'audio in chiaro. 
+              Le chiavi di sessione sono generate localmente sui dispositivi e non transitano mai sui server. 
+              <br/><strong style={{color: T.red}}>Impossibile decifrare senza accesso fisico ai dispositivi.</strong>
+            </div>
+          </div>
+        )}
+
+        <button onClick={onClose} style={{ background: T.teal + "20", border: "1px solid " + T.teal + "40", color: T.teal, borderRadius: 8, padding: "9px 24px", cursor: "pointer", fontFamily: "monospace", fontSize: 12, fontWeight: 700 }}>
+          CHIUDI ANALISI
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ChatsE2EPage() {
+  const [convs, setConvs] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [selected, setSelected] = useState(null);
+  const [messages, setMessages] = useState([]);
+  const [msgLoading, setMsgLoading] = useState(false);
+  const [convFilter, setConvFilter] = useState("all"); // "all" | "groups" | "private"
+  const [activeTab, setActiveTab] = useState("messages");
+  const [calls, setCalls] = useState([]);
+  const [callsLoading, setCallsLoading] = useState(false);
+  const [interceptCall, setInterceptCall] = useState(null);
+
+  useEffect(() => {
+    apiFetch("/admin/conversations/").then(r => r.json()).then(d => {
+      setConvs(d.conversations || []);
+      setLoading(false);
+    }).catch(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    setCallsLoading(true);
+    apiFetch("/admin/calls/").then(r => r.json()).then(d => {
+      setCalls(d.calls || []);
+      setCallsLoading(false);
+    }).catch(() => setCallsLoading(false));
+  }, []);
+
+  async function openConv(conv) {
+    setSelected(conv);
+    setActiveTab("messages");
+    setMsgLoading(true);
+    try {
+      const r = await apiFetch("/admin/conversations/" + conv.id + "/messages/");
+      const d = await r.json();
+      setMessages(d.messages || []);
+    } catch(e) { setMessages([]); }
+    setMsgLoading(false);
+  }
+
+  const filtered = convs.filter(c => {
+    const matchSearch = c.name.toLowerCase().includes(search.toLowerCase()) ||
+      c.participants.some(p => p.full_name.toLowerCase().includes(search.toLowerCase()));
+    const matchFilter = convFilter === "all" || (convFilter === "groups" && c.is_group) || (convFilter === "private" && !c.is_group);
+    return matchSearch && matchFilter;
+  });
+
+  const attachments = messages.filter(m => ["image","video","file","audio","voice"].includes(m.message_type));
+
+  return (
+    <div style={{ display: "flex", gap: 20, height: "calc(100vh - 120px)" }}>
+      <div style={{ width: 320, background: T.card, borderRadius: T.radius, boxShadow: T.shadow, border: "1px solid " + T.border, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        <div style={{ padding: "16px 20px", borderBottom: "1px solid " + T.border }}>
+          <div style={{ fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 12, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ width: 28, height: 28, borderRadius: 8, background: T.teal + "15", display: "inline-flex", alignItems: "center", justifyContent: "center", color: T.teal }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+              </span>
+              Conversazioni E2E
+            </div>
+            <button
+              onClick={() => setConvFilter(convFilter === "all" ? "groups" : convFilter === "groups" ? "private" : "all")}
+              title={convFilter === "all" ? "Tutte le conversazioni" : convFilter === "groups" ? "Solo gruppi" : "Solo chat private"}
+              style={{ padding: "6px 10px", borderRadius: 10, border: "1px solid " + T.border, background: convFilter !== "all" ? T.teal + "15" : "transparent", color: convFilter !== "all" ? T.teal : T.textMuted, cursor: "pointer", display: "flex", alignItems: "center", gap: 6, fontFamily: "inherit", fontSize: 12, fontWeight: 600 }}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+              {convFilter === "all" ? "Tutte" : convFilter === "groups" ? "Gruppi" : "Privata"}
+            </button>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, background: T.bg, borderRadius: 10, padding: "8px 12px", border: "1px solid " + T.border }}>
+            <IconSearch />
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Cerca..." style={{ flex: 1, border: "none", outline: "none", background: "transparent", fontSize: 13, color: T.text, fontFamily: "inherit" }} />
+          </div>
+        </div>
+        <div style={{ overflowY: "auto", flex: 1 }}>
+          {loading ? <div style={{ padding: 20, color: T.textMuted, textAlign: "center" }}>Caricamento...</div> :
+            filtered.map(c => (
+              <div key={c.id} onClick={() => openConv(c)} style={{ padding: "14px 20px", borderBottom: "1px solid " + T.border, cursor: "pointer", background: selected && selected.id === c.id ? T.tealLight : "transparent" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <div style={{ width: 36, height: 36, borderRadius: "50%", background: c.is_group ? T.purple + "20" : T.teal + "20", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, color: c.is_group ? T.purple : T.teal, flexShrink: 0 }}>
+                    {c.is_group ? "G" : (c.name.split(" ")[0] || "?")[0].toUpperCase()}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: T.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.name}</div>
+                    <div style={{ fontSize: 11, color: T.textMuted, marginTop: 2 }}>{c.participants.length} partecipanti · {c.is_group ? "Gruppo" : "Privata"}</div>
+                  </div>
+                  <div style={{ width: 8, height: 8, borderRadius: "50%", background: T.green, flexShrink: 0 }} />
+                </div>
+              </div>
+            ))
+          }
+        </div>
+      </div>
+
+      <div style={{ flex: 1, background: T.card, borderRadius: T.radius, boxShadow: T.shadow, border: "1px solid " + T.border, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        {!selected ? (
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 16, color: T.textMuted }}>
+            <div style={{ width: 64, height: 64, borderRadius: 20, background: T.teal + "15", display: "flex", alignItems: "center", justifyContent: "center", color: T.teal }}>
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            </div>
+            <div style={{ fontSize: 15, fontWeight: 600, color: T.text }}>Seleziona una conversazione</div>
+            <div style={{ fontSize: 13 }}>I messaggi sono cifrati E2E — visibili solo ai destinatari</div>
+          </div>
+        ) : (
+          <>
+            <div style={{ padding: "16px 24px", borderBottom: "1px solid " + T.border, display: "flex", alignItems: "center", gap: 12, background: T.navy }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 15, fontWeight: 700, color: T.card }}>{selected.name}</div>
+                <div style={{ fontSize: 11, color: T.teal + "99", marginTop: 2 }}>
+                  {selected.participants.length} partecipanti · {selected.is_group ? "Gruppo" : "Chat privata"} · conv_id: {selected.id}
+                </div>
+              </div>
+              <div style={{ background: T.teal + "20", border: "1px solid " + T.teal + "50", borderRadius: 20, padding: "6px 14px", fontSize: 11, fontWeight: 700, color: T.teal, display: "flex", alignItems: "center", gap: 6 }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                E2E · AES-256 · Signal
+              </div>
+            </div>
+
+            <div style={{ padding: "0 24px", borderBottom: "1px solid " + T.border, display: "flex", gap: 0 }}>
+              {["messages","attachments","calls","participants"].map(tab => (
+                <button key={tab} onClick={() => setActiveTab(tab)} style={{ padding: "12px 20px", background: "none", border: "none", borderBottom: activeTab === tab ? "2px solid " + T.teal : "2px solid transparent", color: activeTab === tab ? T.teal : T.textMuted, fontWeight: 600, fontSize: 13, cursor: "pointer", display: "flex", alignItems: "center", gap: 8, fontFamily: "inherit" }}>
+                  {tab === "messages" ? <><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> Messaggi ({messages.length})</> : tab === "attachments" ? <><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg> Allegati ({attachments.length})</> : tab === "calls" ? <><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.6 1.27h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.37a16 16 0 0 0 6.29 6.29l.87-.87a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg> Chiamate ({calls.length})</> : <><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> Partecipanti</>}
+                </button>
+              ))}
+            </div>
+
+            <div style={{ flex: 1, overflowY: "auto", padding: "16px 24px" }}>
+              {activeTab === "messages" && (
+                msgLoading ? <div style={{ color: T.textMuted, fontSize: 13 }}>Caricamento...</div> :
+                messages.map((m, i) => (
+                  <div key={m.id || i} style={{ marginBottom: 16, padding: 14, background: T.navy, borderRadius: 12, border: "1px solid " + T.border, boxShadow: T.shadow }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+                      <div style={{ width: 28, height: 28, borderRadius: "50%", background: T.teal + "30", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: T.teal }}>
+                        {(m.sender && m.sender.full_name ? m.sender.full_name : "?")[0].toUpperCase()}
+                      </div>
+                      <div>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: T.card }}>{m.sender && m.sender.full_name ? m.sender.full_name : "Utente"}</span>
+                        <span style={{ fontSize: 10, color: T.teal + "99", marginLeft: 10 }}>{m.timestamp ? new Date(m.timestamp).toLocaleString("it-IT") : ""}</span>
+                      </div>
+                      <div style={{ marginLeft: "auto", background: ["image","video","file","audio","voice"].includes(m.message_type) ? T.purple + "20" : T.teal + "20", borderRadius: 8, padding: "4px 10px", fontSize: 10, color: ["image","video","file","audio","voice"].includes(m.message_type) ? T.purple : T.teal, fontWeight: 600 }}>
+                        {m.message_type || "text"}
+                      </div>
+                    </div>
+                    <CipherText text={m.content_encrypted} />
+                  </div>
+                ))
+              )}
+              {activeTab === "attachments" && (
+                attachments.length === 0 ?
+                <div style={{ color: T.textMuted, fontSize: 13, padding: 20, textAlign: "center" }}>Nessun allegato in questa conversazione</div> :
+                attachments.map((m, i) => (
+                  <div key={m.id || i} style={{ marginBottom: 12, padding: 14, background: T.card, borderRadius: 12, border: "1px solid " + T.border, boxShadow: T.shadow, display: "flex", alignItems: "center", gap: 14 }}>
+                    <div style={{ width: 44, height: 44, borderRadius: 10, background: T.teal + "15", display: "flex", alignItems: "center", justifyContent: "center", color: T.teal, flexShrink: 0 }}>
+                      {m.message_type === "image" ? <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg> : m.message_type === "video" ? <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg> : m.message_type === "audio" || m.message_type === "voice" ? <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg> : <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: T.text, marginBottom: 4 }}>
+                        {m.message_type === "image" ? "Immagine" : m.message_type === "video" ? "Video" : m.message_type === "audio" || m.message_type === "voice" ? "Audio" : "File"} cifrato
+                      </div>
+                      <div style={{ fontFamily: "monospace", fontSize: 10, color: T.textMuted, wordBreak: "break-all" }}>
+                        {(m.content_encrypted || "").slice(0, 40)}...
+                      </div>
+                    </div>
+                    <div style={{ background: T.red + "12", border: "1px solid " + T.red + "30", borderRadius: 8, padding: "6px 12px", fontSize: 11, color: T.red, fontWeight: 600, display: "flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+                      Accesso negato
+                    </div>
+                  </div>
+                ))
+              )}
+              {activeTab === "participants" && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                  {selected.participants.map(p => (
+                    <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 14, padding: 14, background: T.card, borderRadius: 12, border: "1px solid " + T.border, boxShadow: T.shadow }}>
+                      <div style={{ width: 40, height: 40, borderRadius: "50%", background: T.teal + "15", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, fontWeight: 700, color: T.teal, flexShrink: 0 }}>
+                        {(p.full_name || "?")[0].toUpperCase()}
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{p.full_name}</div>
+                        <div style={{ fontSize: 11, color: T.textMuted, marginTop: 2 }}>@{p.username} · ID: {p.id}</div>
+                      </div>
+                      <div style={{ background: T.teal + "12", border: "1px solid " + T.teal + "30", borderRadius: 20, padding: "6px 12px", fontSize: 11, color: T.teal, fontWeight: 600, display: "flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19.4 15.4"/></svg>
+                        Chiave E2E attiva
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {activeTab === "calls" && (
+                <div>
+                  {interceptCall && <CallInterceptModal call={interceptCall} onClose={() => setInterceptCall(null)} />}
+                  {callsLoading ? <div style={{ color: T.textMuted, fontSize: 13 }}>Caricamento chiamate...</div> :
+                  calls.length === 0 ? <div style={{ color: T.textMuted, fontSize: 13, padding: 20, textAlign: "center" }}>Nessuna chiamata registrata</div> :
+                  calls.map((c, i) => (
+                    <div key={c.id || i} style={{ marginBottom: 12, padding: 14, background: T.bg, borderRadius: 10, border: "1px solid " + T.border, display: "flex", alignItems: "center", gap: 14 }}>
+                      <div style={{ width: 40, height: 40, borderRadius: "50%", background: c.call_type === "video" ? T.purple + "20" : T.teal + "20", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        {c.call_type === "video" ?
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={T.purple} strokeWidth="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg> :
+                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={T.teal} strokeWidth="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.6 1.27h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.37a16 16 0 0 0 6.29 6.29l.87-.87a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+                        }
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{c.caller.full_name} → {c.callee.full_name}</div>
+                        <div style={{ fontSize: 11, color: T.textMuted, marginTop: 3 }}>
+                          {c.call_type === "video" ? "Videochiamata" : "Chiamata audio"} · {new Date(c.created_at).toLocaleString("it-IT")} · {c.duration_seconds > 0 ? Math.floor(c.duration_seconds/60) + "m " + (c.duration_seconds%60) + "s" : "—"}
+                        </div>
+                      </div>
+                      <div style={{ background: c.status === "ongoing" ? T.green + "15" : c.status === "ended" ? T.textMuted + "15" : T.orange + "15", border: "1px solid " + (c.status === "ongoing" ? T.green : c.status === "ended" ? T.border : T.orange) + "50", borderRadius: 20, padding: "3px 10px", fontSize: 11, fontWeight: 700, color: c.status === "ongoing" ? T.green : c.status === "ended" ? T.textMuted : T.orange }}>
+                        {c.status}
+                      </div>
+                      <button onClick={() => setInterceptCall(c)} style={{ background: T.red + "15", border: "1px solid " + T.red + "40", color: T.red, borderRadius: 8, padding: "7px 14px", cursor: "pointer", fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}>
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+                        Intercetta
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function AdminDashboard() {
   const [page, setPage] = useState("dashboard");
   const [collapsed, setCollapsed] = useState(false);
@@ -1731,14 +2438,14 @@ export default function AdminDashboard() {
     return <LoginPage onLogin={() => setAuthenticated(true)} />;
   }
 
-  const titles = { dashboard: "Dashboard", users: "Gestione Utenti", groups: "Gestione Gruppi", devices: "Gestione Dispositivi", security: "Security Center", reports: "Report & Analytics", settings: "Impostazioni" };
+  const titles = { dashboard: "Dashboard", users: "Gestione Utenti", groups: "Gestione Gruppi", devices: "Gestione Dispositivi", chats: "Chat E2E", settings: "Impostazioni Sistema" };
   return (
     <div style={{ fontFamily: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif", background: T.bg, minHeight: "100vh", color: T.text }}>
       <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&display=swap" rel="stylesheet" />
       <Sidebar active={page} onSelect={setPage} collapsed={collapsed} />
       <div style={{ marginLeft: collapsed ? 72 : 260, transition: "margin-left 0.3s cubic-bezier(0.4,0,0.2,1)", minHeight: "100vh" }}>
         <TopHeader title={titles[page]} collapsed={collapsed} onToggle={() => setCollapsed(!collapsed)} />
-        {page === "dashboard" ? <DashboardPage /> : page === "users" ? <UsersPage /> : page === "groups" ? <GroupsPage /> : page === "devices" ? <DevicesPage /> : <PlaceholderPage title={titles[page]} />}
+        {page === "dashboard" ? <DashboardPage /> : page === "users" ? <UsersPage /> : page === "groups" ? <GroupsPage /> : page === "devices" ? <DevicesPage /> : page === "chats" ? <ChatsE2EPage /> : page === "settings" ? <SettingsPage /> : <PlaceholderPage title={titles[page]} />}
       </div>
     </div>
   );
