@@ -7,6 +7,7 @@ import '../../core/routes/app_router.dart';
 import '../../core/services/api_service.dart';
 import '../../core/services/auth_service.dart';
 import '../../core/services/crypto_service.dart';
+import '../../core/services/device_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'widgets/animated_feature_icon.dart';
 import 'widgets/dashed_line_painter.dart';
@@ -199,6 +200,33 @@ class _SplashScreenState extends State<SplashScreen>
     if (AuthService().isLoggedIn) {
       debugPrint('[Splash] startup begin');
       if (!mounted) return;
+      final deviceOk = await DeviceService.instance.registerDevice();
+      if (!deviceOk) {
+        await prefs.remove('access_token');
+        await prefs.remove('refresh_token');
+        ApiService().clearTokens();
+        if (!mounted) return;
+        await showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (_) => AlertDialog(
+            title: const Text('Dispositivo bloccato'),
+            content: const Text(
+              'Questo dispositivo è stato bloccato dall\'amministratore. '
+              'Contatta l\'amministratore per maggiori informazioni.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('OK'),
+              ),
+            ],
+          ),
+        );
+        if (!mounted) return;
+        Navigator.of(context).pushReplacementNamed(AppRouter.login);
+        return;
+      }
       try {
         final cryptoService = CryptoService(apiService: ApiService());
         final result = await cryptoService.initializeKeys();

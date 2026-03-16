@@ -267,12 +267,29 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
             }
             if (map['type'] == 'device.blocked') {
               debugPrint('[Device] device.blocked received — forcing logout');
-              try {
-                await AuthService().logout();
-              } catch (_) {}
-              if (mounted) {
-                Navigator.of(context).pushNamedAndRemoveUntil('/login', (route) => false);
-              }
+              () async {
+                try { await AuthService().logout(); } catch (_) {}
+                if (mounted) {
+                  await showDialog(
+                    context: context,
+                    barrierDismissible: false,
+                    builder: (_) => AlertDialog(
+                      title: const Text('Dispositivo bloccato'),
+                      content: const Text(
+                        'Questo dispositivo è stato bloccato dall\'amministratore. '
+                        'Contatta l\'amministratore per maggiori informazioni.',
+                      ),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.of(context).pop(),
+                          child: const Text('OK'),
+                        ),
+                      ],
+                    ),
+                  );
+                  Navigator.of(context).pushNamedAndRemoveUntil('/login', (route) => false);
+                }
+              }();
               return;
             }
             if (map['type'] == 'presence.update') {

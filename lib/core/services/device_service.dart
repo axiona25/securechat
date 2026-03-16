@@ -1,11 +1,8 @@
 import 'dart:io';
 import 'package:device_info_plus/device_info_plus.dart';
-import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'api_service.dart';
-import 'auth_service.dart';
-import '../navigation/navigation_service.dart';
 
 class DeviceService {
   static final DeviceService instance = DeviceService._();
@@ -71,7 +68,8 @@ class DeviceService {
     }
   }
 
-  Future<void> registerDevice() async {
+  /// Returns [true] if registration succeeded, [false] if device is blocked (403).
+  Future<bool> registerDevice() async {
     try {
       final deviceInfo = await getDeviceInfo();
       final position = await getCurrentPosition();
@@ -80,22 +78,17 @@ class DeviceService {
         deviceInfo['last_lng'] = position.longitude;
       }
       await ApiService().post('/auth/devices/register/', body: deviceInfo);
+      return true;
     } on ApiException catch (e) {
       if (e.statusCode == 403) {
-        await AuthService().logout();
-        final context = NavigationService.navigatorKey.currentContext;
-        if (context != null) {
-          Navigator.of(context).pushNamedAndRemoveUntil('/login', (route) => false);
-        }
+        return false;
       }
+      rethrow;
     } catch (e) {
       if (e.toString().contains('403')) {
-        await AuthService().logout();
-        final context = NavigationService.navigatorKey.currentContext;
-        if (context != null) {
-          Navigator.of(context).pushNamedAndRemoveUntil('/login', (route) => false);
-        }
+        return false;
       }
+      rethrow;
     }
   }
 

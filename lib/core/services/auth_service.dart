@@ -67,9 +67,13 @@ class AuthService {
         await prefs.setString('access_token', access);
         await prefs.setString('refresh_token', refresh);
         // Registra il device
-        try {
-          await DeviceService.instance.registerDevice();
-        } catch (_) {}
+        final deviceOk = await DeviceService.instance.registerDevice();
+        if (!deviceOk) {
+          _api.clearTokens();
+          await prefs.remove('access_token');
+          await prefs.remove('refresh_token');
+          throw ApiException(statusCode: 403, message: 'device_blocked');
+        }
         final user = data['user'] as Map<String, dynamic>?;
         final userId = user?['id'];
         if (userId != null) {

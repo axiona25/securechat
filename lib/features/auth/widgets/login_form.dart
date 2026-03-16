@@ -77,6 +77,26 @@ class _LoginFormState extends State<LoginForm> {
 
     if (!result.success) {
       setState(() => _isLoading = false);
+      if (result.error == 'device_blocked') {
+        await showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (_) => AlertDialog(
+            title: const Text('Dispositivo bloccato'),
+            content: const Text(
+              'Questo dispositivo è stato bloccato dall\'amministratore. '
+              'Contatta l\'amministratore per maggiori informazioni.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('OK'),
+              ),
+            ],
+          ),
+        );
+        return;
+      }
       final errorMessage = result.error ?? '';
       if (errorMessage.contains('attesa di approvazione') || errorMessage.contains('pending approval')) {
         ScaffoldMessenger.of(context).showSnackBar(
