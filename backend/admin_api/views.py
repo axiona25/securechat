@@ -569,3 +569,110 @@ class AdminGroupAssignUsersView(APIView):
 
         AdminGroupMembership.objects.filter(user_id=user_id, group=group).delete()
         return Response({'message': 'Utente rimosso dal gruppo'})
+
+
+class AdminDevicesListView(APIView):
+    authentication_classes = ADMIN_AUTH
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        from accounts.models import UserDevice
+        devices = UserDevice.objects.select_related('user').order_by('-last_seen')
+        user_filter = request.GET.get('user_id')
+        if user_filter:
+            devices = devices.filter(user_id=user_filter)
+        data = [{
+            'id': d.id,
+            'user_id': d.user.id,
+            'user_name': f'{d.user.first_name} {d.user.last_name}'.strip() or d.user.username,
+            'user_email': d.user.email, 'user_avatar': d.user.avatar.name if d.user.avatar else None,
+            'device_id': d.device_id,
+            'platform': d.platform,
+            'device_name': d.device_name,
+            'device_model': d.device_model,
+            'os_version': d.os_version,
+            'last_seen': d.last_seen.isoformat(),
+            'last_lat': d.last_lat,
+            'last_lng': d.last_lng,
+            'is_blocked': d.is_blocked,
+            'created_at': d.created_at.isoformat(),
+        } for d in devices]
+        return Response(data)
+
+    def patch(self, request, device_id):
+        from accounts.models import UserDevice
+        from channels.layers import get_channel_layer
+        from asgiref.sync import async_to_sync
+        try:
+            device = UserDevice.objects.get(id=device_id)
+            was_blocked = device.is_blocked
+            device.is_blocked = request.data.get('is_blocked', device.is_blocked)
+            device.save()
+            if device.is_blocked and not was_blocked:
+                try:
+                    channel_layer = get_channel_layer()
+                    async_to_sync(channel_layer.group_send)(
+                        f'user_{device.user.id}',
+                        {'type': 'device.blocked', 'device_id': device.device_id}
+                    )
+                except Exception as e:
+                    print(f'[DeviceBlock] WS notify error: {e}')
+            return Response({'updated': True})
+        except UserDevice.DoesNotExist:
+            return Response({'error': 'Not found'}, status=404)
+
+    def delete(self, request, device_id):
+        from accounts.models import UserDevice
+        try:
+            UserDevice.objects.get(id=device_id).delete()
+            return Response({'deleted': True})
+        except UserDevice.DoesNotExist:
+            return Response({'error': 'Not found'}, status=404)
+
+
+class AdminDevicesListView(APIView):
+    authentication_classes = ADMIN_AUTH
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        from accounts.models import UserDevice
+        devices = UserDevice.objects.select_related('user').order_by('-last_seen')
+        user_filter = request.GET.get('user_id')
+        if user_filter:
+            devices = devices.filter(user_id=user_filter)
+        data = [{'id': d.id, 'user_id': d.user.id, 'user_name': (d.user.first_name + ' ' + d.user.last_name).strip() or d.user.username, 'user_email': d.user.email, 'user_avatar': d.user.avatar.name if d.user.avatar else None, 'device_id': d.device_id, 'platform': d.platform, 'device_name': d.device_name, 'device_model': d.device_model, 'os_version': d.os_version, 'last_seen': d.last_seen.isoformat(), 'last_lat': d.last_lat, 'last_lng': d.last_lng, 'is_blocked': d.is_blocked, 'created_at': d.created_at.isoformat()} for d in devices]
+        return Response(data)
+
+class AdminDeviceDetailView(APIView):
+    authentication_classes = ADMIN_AUTH
+    permission_classes = [IsAdminUser]
+
+    def patch(self, request, device_id):
+        from accounts.models import UserDevice
+        from channels.layers import get_channel_layer
+        from asgiref.sync import async_to_sync
+        try:
+            device = UserDevice.objects.get(id=device_id)
+            was_blocked = device.is_blocked
+            device.is_blocked = request.data.get('is_blocked', device.is_blocked)
+            device.save()
+            if device.is_blocked and not was_blocked:
+                try:
+                    channel_layer = get_channel_layer()
+                    async_to_sync(channel_layer.group_send)(
+                        f'user_{device.user.id}',
+                        {'type': 'device.blocked', 'device_id': device.device_id}
+                    )
+                except Exception as e:
+                    print(f'[DeviceBlock] WS notify error: {e}')
+            return Response({'updated': True})
+        except UserDevice.DoesNotExist:
+            return Response({'error': 'Not found'}, status=404)
+
+    def delete(self, request, device_id):
+        from accounts.models import UserDevice
+        try:
+            UserDevice.objects.get(id=device_id).delete()
+            return Response({'deleted': True})
+        except UserDevice.DoesNotExist:
+            return Response({'error': 'Not found'}, status=404)

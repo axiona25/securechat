@@ -451,6 +451,8 @@ class FCMTokenView(APIView):
         token = request.data.get('token')
         if not token:
             return Response({'error': 'Token richiesto'}, status=status.HTTP_400_BAD_REQUEST)
+        import logging
+        logging.getLogger(__name__).warning('[FCMToken] user=%s token=%s', request.user.id, token[:30] if token else None)
         request.user.fcm_token = token
         request.user.save(update_fields=['fcm_token'])
         return Response({'registered': True}, status=status.HTTP_200_OK)
@@ -467,3 +469,77 @@ class VoipTokenView(APIView):
         request.user.voip_token = token
         request.user.save(update_fields=['voip_token'])
         return Response({'registered': True}, status=status.HTTP_200_OK)
+
+
+class DeviceRegisterView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        from .models import UserDevice
+        data = request.data
+        device_id = data.get('device_id')
+        if not device_id:
+            return Response({'error': 'device_id required'}, status=400)
+        blocked = UserDevice.objects.filter(user=request.user, device_id=device_id, is_blocked=True).exists()
+        if blocked:
+            return Response({'error': 'device_blocked'}, status=403)
+        device, created = UserDevice.objects.update_or_create(
+            user=request.user,
+            device_id=device_id,
+            defaults={
+                'platform': data.get('platform', 'ios'),
+                'device_name': data.get('device_name', ''),
+                'device_model': data.get('device_model', ''),
+                'os_version': data.get('os_version', ''),
+                'last_lat': data.get('last_lat'),
+                'last_lng': data.get('last_lng'),
+            }
+        )
+        return Response({'id': device.id, 'created': created}, status=200)
+
+
+class DeviceListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from .models import UserDevice
+        devices = UserDevice.objects.filter(user=request.user).order_by('-last_seen')
+        data = [{
+            'id': d.id,
+            'device_id': d.device_id,
+            'platform': d.platform,
+            'device_name': d.device_name,
+            'device_model': d.device_model,
+            'os_version': d.os_version,
+            'last_seen': d.last_seen.isoformat(),
+            'last_lat': d.last_lat,
+            'last_lng': d.last_lng,
+            'is_blocked': d.is_blocked,
+            'created_at': d.created_at.isoformat(),
+        } for d in devices]
+        return Response(data)
+
+
+class DeviceDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request, device_id):
+        from .models import UserDevice
+        try:
+            device = UserDevice.objects.get(id=device_id, user=request.user)
+            device.delete()
+            return Response({'deleted': True})
+        except UserDevice.DoesNotExist:
+            return Response({'error': 'Not found'}, status=404)
+
+    def patch(self, request, device_id):
+        from .models import UserDevice
+        try:
+            device = UserDevice.objects.get(id=device_id, user=request.user)
+            device.is_blocked = request.data.get('is_blocked', device.is_blocked)
+            device.last_lat = request.data.get('last_lat', device.last_lat)
+            device.last_lng = request.data.get('last_lng', device.last_lng)
+            device.save()
+            return Response({'updated': True})
+        except UserDevice.DoesNotExist:
+            return Response({'error': 'Not found'}, status=404)

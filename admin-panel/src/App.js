@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area } from "recharts";
@@ -62,14 +62,14 @@ const IconDashboard = () => <SvgIcon><rect x="3" y="3" width="7" height="7" rx="
 const IconUsers = () => <SvgIcon><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></SvgIcon>;
 const IconGroups = () => <SvgIcon><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/><path d="M12 8v8"/></SvgIcon>;
 const IconSecurity = () => <SvgIcon><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></SvgIcon>;
-const IconLock = () => <SvgIcon><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></SvgIcon>;
 const IconReports = () => <SvgIcon><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></SvgIcon>;
 const IconSettings = () => <SvgIcon><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></SvgIcon>;
 const IconBell = () => <SvgIcon><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></SvgIcon>;
 const IconSearch = () => <SvgIcon size={18}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></SvgIcon>;
 
-const iconMap = { dashboard: <IconDashboard/>, users: <IconUsers/>, groups: <IconGroups/>, security: <IconSecurity/>, checke2e: <IconLock/>, reports: <IconReports/>, settings: <IconSettings/> };
-const labels = { dashboard: "Dashboard", users: "Utenti", groups: "Gruppi", security: "Security", checke2e: "Check E2E", reports: "Report", settings: "Impostazioni" };
+const IconDevices = () => <SvgIcon><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></SvgIcon>;
+const iconMap = { dashboard: <IconDashboard/>, users: <IconUsers/>, groups: <IconGroups/>, devices: <IconDevices/>, security: <IconSecurity/>, reports: <IconReports/>, settings: <IconSettings/> };
+const labels = { dashboard: "Dashboard", users: "Utenti", groups: "Gruppi", devices: "Dispositivi", security: "Security", reports: "Report", settings: "Impostazioni" };
 
 function AnimatedNumber({ value, duration = 1200 }) {
   const [display, setDisplay] = useState(0);
@@ -326,25 +326,21 @@ function DashboardPage() {
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 24 }}>
         <ChartCard title="Messaggi nel Tempo" delay={500}>
-          <div style={{ width: "100%", height: 300 }}>
-            {!loading && messageData && messageData.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={messageData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
-                  <defs>
-                    <linearGradient id="tealGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={T.teal} stopOpacity={0.3}/><stop offset="95%" stopColor={T.teal} stopOpacity={0}/></linearGradient>
-                    <linearGradient id="purpleGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={T.purple} stopOpacity={0.2}/><stop offset="95%" stopColor={T.purple} stopOpacity={0}/></linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke={T.border} vertical={false} />
-                  <XAxis dataKey="name" stroke={T.textMuted} fontSize={12} tickLine={false} axisLine={false} />
-                  <YAxis stroke={T.textMuted} fontSize={12} tickLine={false} axisLine={false} />
-                  <Tooltip content={<CustomTooltip />} />
-                  <Area type="monotone" dataKey="messages" stroke={T.teal} strokeWidth={2.5} fill="url(#tealGrad)" name="Totali" dot={false} activeDot={{ r: 6, fill: T.teal, stroke: "#fff", strokeWidth: 2 }} />
-                  <Area type="monotone" dataKey="encrypted" stroke={T.purple} strokeWidth={2} fill="url(#purpleGrad)" name="Cifrati" dot={false} activeDot={{ r: 5, fill: T.purple, stroke: "#fff", strokeWidth: 2 }} />
-                </AreaChart>
-              </ResponsiveContainer>
-            ) : (
-              <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: T.textMuted, fontSize: 13 }}>{loading ? "Caricamento..." : "Nessun dato"}</div>
-            )}
+          <div style={{ height: 280 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={messageData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+                <defs>
+                  <linearGradient id="tealGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={T.teal} stopOpacity={0.3}/><stop offset="95%" stopColor={T.teal} stopOpacity={0}/></linearGradient>
+                  <linearGradient id="purpleGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={T.purple} stopOpacity={0.2}/><stop offset="95%" stopColor={T.purple} stopOpacity={0}/></linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke={T.border} vertical={false} />
+                <XAxis dataKey="name" stroke={T.textMuted} fontSize={12} tickLine={false} axisLine={false} />
+                <YAxis stroke={T.textMuted} fontSize={12} tickLine={false} axisLine={false} />
+                <Tooltip content={<CustomTooltip />} />
+                <Area type="monotone" dataKey="messages" stroke={T.teal} strokeWidth={2.5} fill="url(#tealGrad)" name="Totali" dot={false} activeDot={{ r: 6, fill: T.teal, stroke: "#fff", strokeWidth: 2 }} />
+                <Area type="monotone" dataKey="encrypted" stroke={T.purple} strokeWidth={2} fill="url(#purpleGrad)" name="Cifrati" dot={false} activeDot={{ r: 5, fill: T.purple, stroke: "#fff", strokeWidth: 2 }} />
+              </AreaChart>
+            </ResponsiveContainer>
           </div>
           <div style={{ display: "flex", gap: 20, marginTop: 8, justifyContent: "center" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: T.textMuted }}><div style={{ width: 10, height: 10, borderRadius: "50%", background: T.teal }} /> Totali</div>
@@ -352,19 +348,15 @@ function DashboardPage() {
           </div>
         </ChartCard>
         <ChartCard title="Chiamate per Tipo" delay={600}>
-          <div style={{ width: "100%", height: 300, display: "flex", alignItems: "center", justifyContent: "center" }}>
-            {!loading && callData && callData.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie data={callData} cx="50%" cy="50%" innerRadius={70} outerRadius={110} paddingAngle={4} dataKey="value" stroke="none">
-                    {callData.map((entry, i) => <Cell key={i} fill={entry.color} />)}
-                  </Pie>
-                  <Tooltip formatter={(v) => [`${v}%`, ""]} contentStyle={{ background: T.navy, border: "none", borderRadius: 10, color: "#fff", fontSize: 13 }} itemStyle={{ color: "#fff" }} />
-                </PieChart>
-              </ResponsiveContainer>
-            ) : (
-              <div style={{ color: T.textMuted, fontSize: 13 }}>{loading ? "Caricamento..." : "Nessun dato"}</div>
-            )}
+          <div style={{ height: 280, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie data={callData} cx="50%" cy="50%" innerRadius={70} outerRadius={110} paddingAngle={4} dataKey="value" stroke="none">
+                  {callData.map((entry, i) => <Cell key={i} fill={entry.color} />)}
+                </Pie>
+                <Tooltip formatter={(v) => [`${v}%`, ""]} contentStyle={{ background: T.navy, border: "none", borderRadius: 10, color: "#fff", fontSize: 13 }} itemStyle={{ color: "#fff" }} />
+              </PieChart>
+            </ResponsiveContainer>
           </div>
           <div style={{ display: "flex", gap: 16, justifyContent: "center", marginTop: 4 }}>
             {callData.map((d, i) => <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}><div style={{ width: 10, height: 10, borderRadius: "50%", background: d.color }} /><span style={{ color: T.textMuted, fontWeight: 500 }}>{d.name}</span><span style={{ color: T.text, fontWeight: 700 }}>{d.value}%</span></div>)}
@@ -452,45 +444,39 @@ function UsersPage() {
   const [infoModal, setInfoModal] = useState(null);
   const menuRef = useRef(null);
 
-  const loadUsers = useCallback(async (skipLoading = false) => {
-    console.log("📋 loadUsers chiamata");
-    if (!skipLoading) setLoading(true);
-    let mapped = [];
-    try {
-      const res = await apiFetch("/admin/users/");
-      const data = await res.json();
-      console.log("📋 Utenti ricevuti dal server:", data);
-      const usersList = Array.isArray(data) ? data : data.results || [];
-      mapped = usersList.map(u => ({
-        id: u.id,
-        firstName: u.first_name || u.username,
-        lastName: u.last_name || "",
-        email: u.email,
-        group: u.groups && u.groups.length > 0 ? u.groups.map(g => g.name).join(", ") : "Nessun gruppo",
-        createdAt: u.date_joined || "2026-01-01",
-        device: "-",
-        status: u.approval_status || (u.is_active === false ? "blocked" : "active"),
-        avatar: u.avatar,
-        isOnline: u.is_online,
-        groups: u.groups || [],
-      }));
-      console.log("📋 setUsers chiamato con:", mapped);
-      setUsers(mapped);
-    } catch (e) {
-      console.error("Error loading users:", e);
-    }
-    try {
-      const grpRes = await apiFetch("/admin/groups/");
-      const grpData = await grpRes.json();
-      setAvailableGroups(Array.isArray(grpData) ? grpData : []);
-    } catch (e) { console.error(e); }
-    if (!skipLoading) setLoading(false);
-    return mapped;
-  }, []);
-
   useEffect(() => {
+    async function loadUsers() {
+      try {
+        const res = await apiFetch("/admin/users/");
+        const data = await res.json();
+        const usersList = Array.isArray(data) ? data : data.results || [];
+        const mapped = usersList.map(u => ({
+          id: u.id,
+          firstName: u.first_name || u.username,
+          lastName: u.last_name || "",
+          email: u.email,
+          group: u.groups && u.groups.length > 0 ? u.groups.map(g => g.name).join(", ") : "Nessun gruppo",
+          createdAt: u.date_joined || "2026-01-01",
+          device: "-",
+          status: u.approval_status || (u.is_active === false ? "blocked" : "active"),
+          avatar: u.avatar,
+          isOnline: u.is_online,
+          groups: u.groups || [],
+        }));
+        setUsers(mapped);
+      } catch (e) {
+        console.error("Error loading users:", e);
+      }
+      // Carica gruppi disponibili
+      try {
+        const grpRes = await apiFetch("/admin/groups/");
+        const grpData = await grpRes.json();
+        setAvailableGroups(Array.isArray(grpData) ? grpData : []);
+      } catch (e) { console.error(e); }
+      setLoading(false);
+    }
     loadUsers();
-  }, [loadUsers]);
+  }, []);
 
   useEffect(() => {
     const handler = (e) => {
@@ -595,7 +581,6 @@ function UsersPage() {
   const handleSaveEdit = async () => {
     try {
       if (editingUser.id === "new") {
-        console.log("🔵 Inizio creazione utente", editForm);
         const res = await apiFetch("/admin/users/create/", {
           method: "POST",
           body: JSON.stringify({
@@ -607,32 +592,32 @@ function UsersPage() {
         });
         const data = await res.json();
         if (res.ok) {
-          console.log("✅ Utente creato, risposta:", data);
-          setEditingUser(null);
-          setEditForm({});
-          setSelectedGroupIds([]);
+          // Sincronizza gruppi
+          if (selectedGroupIds.length > 0) {
+            await apiFetch(`/admin/users/${data.id}/sync-groups/`, {
+              method: "POST",
+              body: JSON.stringify({ group_ids: selectedGroupIds }),
+            });
+          }
           setInfoModal({
-            title: "✅ Utente Creato con Successo",
+            title: "Utente Creato con Successo",
             lines: [
               { label: "Email", value: data.email, copyable: true },
               { label: "Password Temporanea", value: data.temp_password, copyable: true },
               { label: "Stato Email", value: data.email_sent ? "✅ Email inviata" : "⚠️ Email non inviata" },
             ],
           });
-          if (selectedGroupIds.length > 0) {
-            try {
-              await apiFetch(`/admin/users/${data.id}/sync-groups/`, {
-                method: "POST",
-                body: JSON.stringify({ group_ids: selectedGroupIds }),
-              });
-            } catch (e) {
-              console.error("Sync gruppi fallito:", e);
-            }
-          }
-          await loadUsers(true);
-          return;
+          // Ricarica utenti
+          const usersRes = await apiFetch("/admin/users/");
+          const usersData = await usersRes.json();
+          const usersList = Array.isArray(usersData) ? usersData : [];
+          setUsers(usersList.map(u => ({
+            id: u.id, firstName: u.first_name || u.username, lastName: u.last_name || "",
+            email: u.email, group: u.groups?.length > 0 ? u.groups.map(g => g.name).join(", ") : "Nessun gruppo",
+            createdAt: u.date_joined || "2026-01-01", device: "-",
+            status: u.approval_status || "active", avatar: u.avatar, isOnline: u.is_online, groups: u.groups || [],
+          })));
         } else {
-          console.log("❌ Errore creazione:", res.status, data);
           setInfoModal({ title: "Errore", lines: [{ label: "Dettaglio", value: data.error || "Errore nella creazione" }] });
           return;
         }
@@ -652,10 +637,27 @@ function UsersPage() {
           method: "POST",
           body: JSON.stringify({ group_ids: selectedGroupIds }),
         });
-        const list = await loadUsers(true);
+        // Ricarica utenti
+        const usersRes = await apiFetch("/admin/users/");
+        const usersData = await usersRes.json();
+        const usersList = Array.isArray(usersData) ? usersData : [];
+        setUsers(usersList.map(u => ({
+          id: u.id, firstName: u.first_name || u.username, lastName: u.last_name || "",
+          email: u.email, group: u.groups?.length > 0 ? u.groups.map(g => g.name).join(", ") : "Nessun gruppo",
+          createdAt: u.date_joined || "2026-01-01", device: "-",
+          status: u.approval_status || "active", avatar: u.avatar, isOnline: u.is_online, groups: u.groups || [],
+        })));
+        // Aggiorna selectedUser
         if (selectedUser) {
-          const fresh = list.find(u => u.id === selectedUser.id);
-          if (fresh) setSelectedUser(fresh);
+          const fresh = usersList.find(u => u.id === selectedUser.id);
+          if (fresh) {
+            setSelectedUser({
+              id: fresh.id, firstName: fresh.first_name || fresh.username, lastName: fresh.last_name || "",
+              email: fresh.email, group: fresh.groups?.length > 0 ? fresh.groups.map(g => g.name).join(", ") : "Nessun gruppo",
+              createdAt: fresh.date_joined || "2026-01-01", device: "-",
+              status: fresh.approval_status || "active", avatar: fresh.avatar, isOnline: fresh.is_online, groups: fresh.groups || [],
+            });
+          }
         }
       }
       setEditingUser(null);
@@ -806,8 +808,8 @@ function UsersPage() {
         </div>
       )}
 
-      {editingUser !== null && editingUser !== undefined ? (
-        <div key={`edit-modal-${editingUser.id}`} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }} onClick={() => setEditingUser(null)}>
+      {editingUser && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }} onClick={() => setEditingUser(null)}>
           <div style={{ background: T.card, borderRadius: 20, padding: 0, width: 520, maxHeight: "85vh", overflow: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.15)" }} onClick={e => e.stopPropagation()}>
             <div style={{ padding: "24px 28px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <div style={{ fontSize: 18, fontWeight: 800, color: T.text }}>{editingUser.id === "new" ? "Nuovo Utente" : "Modifica Utente"}</div>
@@ -871,7 +873,7 @@ function UsersPage() {
             </div>
           </div>
         </div>
-      ) : null}
+      )}
 
       {confirmAction && (
         <ConfirmModal
@@ -1382,454 +1384,250 @@ function GroupsPage() {
 function MapModal({ device, onClose }) {
   const mapRef = useRef(null);
   const mapInstanceRef = useRef(null);
-
   useEffect(() => {
     const ok = mapRef.current && device;
     if (!ok) return;
     if (mapInstanceRef.current) { mapInstanceRef.current.remove(); mapInstanceRef.current = null; }
     const map = L.map(mapRef.current, { center: [device.last_lat, device.last_lng], zoom: 15 });
     mapInstanceRef.current = map;
-    L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", { subdomains: "abcd", maxZoom: 19 }).addTo(map);
-    const nm = device.user_name.split(" ").map(function(n){ return n[0] || ""; }).join("").substring(0,2).toUpperCase();
-    const mb = "https://axphone.it/media/";
-    const au = device.user_avatar ? (device.user_avatar.startsWith("http") ? device.user_avatar : mb + device.user_avatar) : null;
-    const ah = au ? ("<img src=\""+au+"\" style=\"width:100%;height:100%;object-fit:cover;border-radius:50%;\"/>") : ("<span style=\"color:white;font-size:18px;font-weight:800;\">"+nm+"</span>");
-    const pin = "<div style=\"display:flex;flex-direction:column;align-items:center;\"><div style=\"width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,#2ABFBF,#1FA3A3);border:3px solid white;display:flex;align-items:center;justify-content:center;overflow:hidden;\">" + ah + "</div><div style=\"background:white;border-radius:8px;padding:4px 10px;margin-top:5px;font-size:11px;font-weight:700;color:#1A2B3C;\">" + device.user_name + "</div><div style=\"width:2px;height:10px;background:#2ABFBF;\"></div><div style=\"width:8px;height:8px;border-radius:50%;background:#2ABFBF;\"></div></div>";
-    const icon = L.divIcon({ html: pin, className: "", iconSize: [130, 110], iconAnchor: [65, 110] });
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', { subdomains: 'abcd', maxZoom: 19 }).addTo(map);
+    const nm = device.user_name.split(' ').map(function(n){ return n[0] || ''; }).join('').substring(0,2).toUpperCase();
+    const mb = 'https://axphone.it/media/';
+    const au = device.user_avatar ? (device.user_avatar.startsWith('http') ? device.user_avatar : mb + device.user_avatar) : null;
+    const ah = au ? ('<img src="'+au+'" style="width:100%;height:100%;object-fit:cover;border-radius:50%;"/>') : ('<span style="color:white;font-size:18px;font-weight:800;">'+nm+'</span>');
+    const pin = '<div style="display:flex;flex-direction:column;align-items:center;"><div style="width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,#2ABFBF,#1FA3A3);border:3px solid white;display:flex;align-items:center;justify-content:center;overflow:hidden;">' + ah + '</div><div style="background:white;border-radius:8px;padding:4px 10px;margin-top:5px;font-size:11px;font-weight:700;color:#1A2B3C;">' + device.user_name + '</div><div style="width:2px;height:10px;background:#2ABFBF;"></div><div style="width:8px;height:8px;border-radius:50%;background:#2ABFBF;"></div></div>';
+    const icon = L.divIcon({ html: pin, className: '', iconSize: [130, 110], iconAnchor: [65, 110] });
     L.marker([device.last_lat, device.last_lng], { icon }).addTo(map);
     return function() { if (mapInstanceRef.current) { mapInstanceRef.current.remove(); mapInstanceRef.current = null; } };
   }, [device]);
-
   if (!device) return null;
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(6px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2000 }} onClick={onClose}>
-      <div style={{ background: T.card, borderRadius: 20, width: 700, maxWidth: "95vw", overflow: "hidden", boxShadow: "0 24px 80px rgba(0,0,0,0.25)" }} onClick={function(e){ e.stopPropagation(); }}>
-        <div style={{ padding: "18px 24px", borderBottom: "1px solid " + T.border, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }} onClick={onClose}>
+      <div style={{ background: T.card, borderRadius: 20, width: 700, maxWidth: '95vw', overflow: 'hidden', boxShadow: '0 24px 80px rgba(0,0,0,0.25)' }} onClick={function(e){ e.stopPropagation(); }}>
+        <div style={{ padding: '18px 24px', borderBottom: '1px solid ' + T.border, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
             <div style={{ fontSize: 16, fontWeight: 800, color: T.text }}>{device.user_name}</div>
             <div style={{ fontSize: 12, color: T.textMuted }}>{device.device_model} - {device.os_version}</div>
           </div>
-          <button onClick={onClose} style={{ width: 36, height: 36, borderRadius: 10, border: "1px solid " + T.border, background: "transparent", cursor: "pointer", color: T.textMuted, fontFamily: "inherit", fontSize: 18 }}>x</button>
+          <button onClick={onClose} style={{ width: 36, height: 36, borderRadius: 10, border: '1px solid ' + T.border, background: 'transparent', cursor: 'pointer', color: T.textMuted, fontFamily: 'inherit', fontSize: 18 }}>x</button>
         </div>
-        <div ref={mapRef} style={{ width: "100%", height: 440 }} />
-        <div style={{ padding: "14px 24px", borderTop: "1px solid " + T.border, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div ref={mapRef} style={{ width: '100%', height: 440 }} />
+        <div style={{ padding: '14px 24px', borderTop: '1px solid ' + T.border, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ fontSize: 13, color: T.textMuted }}><span style={{ fontWeight: 600, color: T.text }}>GPS: </span>{device.last_lat.toFixed(6)}, {device.last_lng.toFixed(6)}</div>
-          <a href={"https://maps.google.com/?q=" + device.last_lat + "," + device.last_lng} target="_blank" rel="noreferrer" style={{ fontSize: 13, color: T.teal, fontWeight: 600, textDecoration: "none" }}>Google Maps</a>
+          <a href={'https://maps.google.com/?q=' + device.last_lat + ',' + device.last_lng} target='_blank' rel='noreferrer' style={{ fontSize: 13, color: T.teal, fontWeight: 600, textDecoration: 'none' }}>Google Maps</a>
         </div>
       </div>
     </div>
   );
 }
 
-function CheckE2EPage() {
-  const PRIMARY = "#2ABFBF";
-  const PRIMARY_DARK = "#1FA3A3";
-  const SUCCESS = "#22c55e";
-  const WARNING = "#f59e0b";
-  const ERROR = "#ef4444";
-  const BG = "#f8fafc";
-  const CARD_BG = "#ffffff";
-  const BORDER = "#e2e8f0";
-  const TEXT = "#1e293b";
-  const TEXT_SEC = "#64748b";
+function DevicesPage() {
+  const [devices, setDevices] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [platformFilter, setPlatformFilter] = useState("all");
+  const [confirmAction, setConfirmAction] = useState(null);
+  const [selectedDevice, setSelectedDevice] = useState(null);
+  const [mapDevice, setMapDevice] = useState(null);
 
-  const [tab, setTab] = useState(0);
-  const [refreshTrigger, setRefreshTrigger] = useState(0);
-  const [refreshing, setRefreshing] = useState(false);
+  useEffect(() => { loadDevices(); }, []);
 
-  const [conversations, setConversations] = useState([]);
-  const [convLoading, setConvLoading] = useState(true);
-  const [convError, setConvError] = useState("");
+  async function loadDevices() {
+    try {
+      const res = await apiFetch("/admin/devices/");
+      const data = await res.json();
+      setDevices(Array.isArray(data) ? data : []);
+    } catch(e) { console.error(e); }
+    setLoading(false);
+  }
 
-  const [calls, setCalls] = useState([]);
-  const [callsLoading, setCallsLoading] = useState(true);
-  const [callsError, setCallsError] = useState("");
+  const filtered = devices.filter(d => {
+    const matchSearch = (d.user_name + " " + d.user_email + " " + d.device_model + " " + d.device_name).toLowerCase().includes(searchQuery.toLowerCase());
+    const matchPlatform = platformFilter === "all" || d.platform === platformFilter;
+    return matchSearch && matchPlatform;
+  });
 
-  const [bundles, setBundles] = useState([]);
-  const [bundlesLoading, setBundlesLoading] = useState(true);
-  const [bundlesError, setBundlesError] = useState("");
-
-  const [msgDrawer, setMsgDrawer] = useState(null);
-  const [messages, setMessages] = useState([]);
-  const [msgsLoading, setMsgsLoading] = useState(false);
-  const [callDrawer, setCallDrawer] = useState(null);
-  const [callDetail, setCallDetail] = useState(null);
-  const [callDetailLoading, setCallDetailLoading] = useState(false);
-  const [keyDrawer, setKeyDrawer] = useState(null);
-
-  useEffect(() => {
-    setConvLoading(true);
-    setConvError("");
-    apiFetch("/admin-panel/conversations/")
-      .then(res => res.json())
-      .then(d => setConversations(d.conversations || []))
-      .catch(e => setConvError(e.message || "Errore"))
-      .finally(() => setConvLoading(false));
-  }, [refreshTrigger]);
-
-  useEffect(() => {
-    setCallsLoading(true);
-    setCallsError("");
-    apiFetch("/admin-panel/calls/")
-      .then(res => res.json())
-      .then(d => setCalls(d.calls || []))
-      .catch(e => setCallsError(e.message || "Errore"))
-      .finally(() => setCallsLoading(false));
-  }, [refreshTrigger]);
-
-  useEffect(() => {
-    setBundlesLoading(true);
-    setBundlesError("");
-    apiFetch("/admin-panel/key-bundles/")
-      .then(res => res.json())
-      .then(d => setBundles(d.key_bundles || []))
-      .catch(e => setBundlesError(e.message || "Errore"))
-      .finally(() => setBundlesLoading(false));
-  }, [refreshTrigger]);
-
-  useEffect(() => {
-    if (!msgDrawer) return;
-    setMsgsLoading(true);
-    apiFetch(`/admin-panel/conversations/${msgDrawer.id}/messages/`)
-      .then(res => res.json())
-      .then(d => setMessages(d.messages || []))
-      .catch(() => setMessages([]))
-      .finally(() => setMsgsLoading(false));
-    const t = setInterval(() => {
-      apiFetch(`/admin-panel/conversations/${msgDrawer.id}/messages/`)
-        .then(res => res.json())
-        .then(d => setMessages(d.messages || []))
-        .catch(() => {});
-    }, 3000);
-    return () => clearInterval(t);
-  }, [msgDrawer]);
-
-  useEffect(() => {
-    if (!callDrawer) return;
-    setCallDetailLoading(true);
-    apiFetch(`/admin-panel/calls/${callDrawer.id}/`)
-      .then(res => res.json())
-      .then(d => setCallDetail(d))
-      .catch(() => setCallDetail(null))
-      .finally(() => setCallDetailLoading(false));
-  }, [callDrawer]);
-
-  const handleRefresh = () => {
-    setRefreshing(true);
-    setRefreshTrigger(t => t + 1);
-    setTimeout(() => setRefreshing(false), 800);
+  const handleBlock = (device) => {
+    const isBlocking = !device.is_blocked;
+    setConfirmAction({
+      title: isBlocking ? "Blocca Dispositivo" : "Sblocca Dispositivo",
+      message: "Stai per " + (isBlocking ? "bloccare" : "sbloccare") + " il dispositivo " + device.device_model + " di " + device.user_name + ".",
+      warning: isBlocking ? "Il dispositivo non potra piu essere utilizzato." : null,
+      confirmLabel: isBlocking ? "Blocca" : "Sblocca",
+      confirmColor: isBlocking ? T.red : T.green,
+      onConfirm: async () => {
+        await apiFetch("/admin/devices/" + device.id + "/", { method: "PATCH", body: JSON.stringify({ is_blocked: isBlocking }) });
+        setDevices(prev => prev.map(d => d.id === device.id ? { ...d, is_blocked: isBlocking } : d));
+        setConfirmAction(null);
+      },
+    });
   };
 
-  const isEncrypted = (val) => {
-    const s = String(val || "");
-    return s.startsWith("0x") || (s.startsWith("{") && (s.includes("ciphertext") || s.includes("iv")));
+  const handleDelete = (device) => {
+    setConfirmAction({
+      title: "Rimuovi Dispositivo",
+      message: "Stai per rimuovere il dispositivo " + device.device_model + " di " + device.user_name + ".",
+      confirmLabel: "Rimuovi",
+      confirmColor: T.red,
+      onConfirm: async () => {
+        await apiFetch("/admin/devices/" + device.id + "/", { method: "DELETE" });
+        setDevices(prev => prev.filter(d => d.id !== device.id));
+        setConfirmAction(null);
+      },
+    });
   };
 
-  const badge = (label, color) => (
-    <span style={{
-      display: "inline-block", padding: "2px 8px", borderRadius: 999,
-      background: color, color: "#fff", fontSize: 11, fontWeight: 700, marginRight: 4
-    }}>{label}</span>
-  );
-
-  const initials = (name) => (name || "?").slice(0, 2).toUpperCase();
-
-  const tableHead = { padding: "12px 16px", textAlign: "left", fontSize: 11, fontWeight: 600, color: T.textMuted, textTransform: "uppercase", letterSpacing: "0.5px", borderBottom: `1px solid ${T.border}` };
-  const tableCell = { padding: "12px 16px", fontSize: 13, borderBottom: `1px solid ${T.border}`, color: T.text };
-  const btnOutline = {
-    border: `1px solid ${T.teal}`, color: T.teal, background: "transparent",
-    borderRadius: 8, padding: "6px 14px", fontSize: 13, fontWeight: 500,
-    cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4, fontFamily: "inherit"
-  };
-  const drawerOverlay = {
-    position: "fixed", inset: 0, background: "rgba(0,0,0,0.35)", zIndex: 1000,
-    display: "flex", justifyContent: "flex-end"
-  };
-  const drawerPanel = {
-    background: T.card, width: 460, maxWidth: "100vw", height: "100vh",
-    overflowY: "auto", boxShadow: "-4px 0 24px rgba(0,0,0,0.15)", display: "flex", flexDirection: "column"
-  };
-  const drawerHeader = {
-    padding: "16px 24px", borderBottom: `1px solid ${T.border}`,
-    display: "flex", alignItems: "center", justifyContent: "space-between"
-  };
+  const totalIos = devices.filter(d => d.platform === "ios").length;
+  const totalAndroid = devices.filter(d => d.platform === "android").length;
+  const totalBlocked = devices.filter(d => d.is_blocked).length;
 
   return (
     <div style={{ padding: "28px 32px" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", marginBottom: 24 }}>
-        <button onClick={handleRefresh} disabled={refreshing} style={{
-          padding: "8px 16px", borderRadius: 10, border: "none", background: T.gradient, color: "#fff",
-          fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", opacity: refreshing ? 0.7 : 1
-        }}>
-          {refreshing ? "Aggiornamento..." : "⟳ Aggiorna"}
-        </button>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, marginBottom: 24 }}>
+        {[
+          { label: "Totale Dispositivi", value: devices.length, color: T.teal },
+          { label: "iOS", value: totalIos, color: T.blue },
+          { label: "Android", value: totalAndroid, color: T.green },
+          { label: "Bloccati", value: totalBlocked, color: T.red },
+        ].map((s, i) => (
+          <div key={i} style={{ background: T.card, borderRadius: T.radiusSm, padding: "16px 20px", border: "1px solid " + T.border, boxShadow: T.shadow, display: "flex", alignItems: "center", gap: 14 }}>
+            <div style={{ width: 10, height: 10, borderRadius: "50%", background: s.color, boxShadow: "0 0 8px " + s.color + "40" }} />
+            <div>
+              <div style={{ fontSize: 22, fontWeight: 800, color: T.text }}>{s.value}</div>
+              <div style={{ fontSize: 12, color: T.textMuted, fontWeight: 500, textTransform: "uppercase" }}>{s.label}</div>
+            </div>
+          </div>
+        ))}
       </div>
-
-      <div style={{ background: T.card, borderRadius: T.radius, border: `1px solid ${T.border}`, boxShadow: T.shadow, overflow: "hidden" }}>
-        <div style={{ padding: "16px 24px", display: "flex", alignItems: "center", gap: 4, borderBottom: `1px solid ${T.border}` }}>
-          {[["💬 Chat & Messaggi", 0], ["📞 Chiamate", 1], ["🔑 Chiavi E2E", 2]].map(([label, idx]) => (
-            <button
-              key={idx}
-              onClick={() => setTab(idx)}
-              style={{
-                padding: "6px 14px",
-                borderRadius: 8,
-                border: `1px solid ${tab === idx ? T.teal : T.border}`,
-                background: tab === idx ? `${T.teal}10` : "transparent",
-                color: tab === idx ? T.teal : T.textMuted,
-                fontSize: 13,
-                fontWeight: 500,
-                cursor: "pointer",
-                fontFamily: "inherit",
-                transition: "all 0.2s"
-              }}
-            >
-              {label}
-            </button>
-          ))}
+      <div style={{ background: T.card, borderRadius: T.radius, border: "1px solid " + T.border, boxShadow: T.shadow }}>
+        <div style={{ padding: "16px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "1px solid " + T.border }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, background: T.bg, borderRadius: 10, padding: "8px 14px", border: "1px solid " + T.border }}>
+              <IconSearch />
+              <input value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="Cerca dispositivo o utente..." style={{ border: "none", outline: "none", background: "transparent", fontSize: 13, color: T.text, width: 220, fontFamily: "inherit" }} />
+            </div>
+            <div style={{ display: "flex", gap: 4 }}>
+              {[{ key: "all", label: "Tutti" }, { key: "ios", label: "iOS" }, { key: "android", label: "Android" }].map(f => (
+                <button key={f.key} onClick={() => setPlatformFilter(f.key)} style={{ padding: "6px 14px", borderRadius: 8, border: "1px solid " + (platformFilter === f.key ? T.teal : T.border), background: platformFilter === f.key ? T.teal + "10" : "transparent", color: platformFilter === f.key ? T.teal : T.textMuted, fontSize: 13, fontWeight: 500, cursor: "pointer", fontFamily: "inherit" }}>{f.label}</button>
+              ))}
+            </div>
+          </div>
+          <div style={{ fontSize: 13, color: T.textMuted }}>{filtered.length} dispositivi trovati</div>
         </div>
-
-        <div style={{ padding: 24 }}>
-
-          {tab === 0 && (
-            <div>
-              {convError && <div style={{ background: "#fee2e2", color: ERROR, padding: 12, borderRadius: 10, marginBottom: 16, fontSize: 13 }}>⚠️ {convError}</div>}
-              {convLoading ? (
-                <div style={{ textAlign: "center", padding: 40, color: T.textMuted }}>Caricamento...</div>
-              ) : (
-                <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                  <thead>
-                    <tr>
-                      {["Chat", "Partecipanti", "Ultima attività", ""].map(h => (
-                        <th key={h} style={tableHead}>{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {conversations.length === 0 ? (
-                      <tr><td colSpan={4} style={{ ...tableCell, textAlign: "center", color: T.textMuted }}>Nessuna conversazione</td></tr>
-                    ) : conversations.map(c => (
-                      <tr key={c.id} style={{ transition: "background 0.15s" }}
-                        onMouseEnter={e => e.currentTarget.style.background = "#f8fafc"}
-                        onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                        <td style={tableCell}>
-                          <div style={{ fontWeight: 600 }}>{c.name}</div>
-                          <div style={{ fontSize: 11, color: T.textMuted }}>{c.is_group ? "Gruppo" : "Privata"}</div>
-                        </td>
-                        <td style={tableCell}>
-                          {(c.participants || []).slice(0, 3).map(p => (
-                            <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
-                              <div style={{ width: 24, height: 24, borderRadius: "50%", background: T.teal, color: "#fff", fontSize: 10, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                                {initials(p.full_name || p.username)}
-                              </div>
-                              <span style={{ fontSize: 12 }}>{p.full_name || p.username}</span>
-                            </div>
-                          ))}
-                          {(c.participants || []).length > 3 && <span style={{ fontSize: 11, color: T.textMuted }}>+{c.participants.length - 3}</span>}
-                        </td>
-                        <td style={{ ...tableCell, color: T.textMuted, fontSize: 12 }}>
-                          {c.last_activity ? new Date(c.last_activity).toLocaleString("it-IT") : "-"}
-                        </td>
-                        <td style={tableCell}>
-                          <button style={btnOutline} onClick={() => { setMsgDrawer(c); setMessages([]); }}>
-                            👁 Ispeziona
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
-          )}
-
-          {tab === 1 && (
-            <div>
-              {callsError && <div style={{ background: "#fee2e2", color: ERROR, padding: 12, borderRadius: 10, marginBottom: 16, fontSize: 13 }}>⚠️ {callsError}</div>}
-              {callsLoading ? (
-                <div style={{ textAlign: "center", padding: 40, color: T.textMuted }}>Caricamento...</div>
-              ) : (
-                <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                  <thead>
-                    <tr>
-                      {["Caller", "Callee", "Tipo", "Status", "Durata", ""].map(h => (
-                        <th key={h} style={tableHead}>{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {calls.length === 0 ? (
-                      <tr><td colSpan={6} style={{ ...tableCell, textAlign: "center", color: T.textMuted }}>Nessuna chiamata</td></tr>
-                    ) : calls.map(c => (
-                      <tr key={c.id}
-                        onMouseEnter={e => e.currentTarget.style.background = "#f8fafc"}
-                        onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                        <td style={tableCell}>{c.caller?.full_name || c.caller?.username || "-"}</td>
-                        <td style={tableCell}>{c.callee?.full_name || c.callee?.username || "-"}</td>
-                        <td style={tableCell}>{c.call_type || "audio"}</td>
-                        <td style={tableCell}>
-                          <span style={{ padding: "2px 8px", borderRadius: 6, background: "#f1f5f9", fontSize: 11, fontWeight: 600 }}>{c.status}</span>
-                        </td>
-                        <td style={tableCell}>{c.duration_seconds ? `${c.duration_seconds}s` : "-"}</td>
-                        <td style={tableCell}>
-                          <button style={btnOutline} onClick={() => { setCallDrawer(c); setCallDetail(null); }}>
-                            👁 Ispeziona
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
-          )}
-
-          {tab === 2 && (
-            <div>
-              {bundlesError && <div style={{ background: "#fee2e2", color: ERROR, padding: 12, borderRadius: 10, marginBottom: 16, fontSize: 13 }}>⚠️ {bundlesError}</div>}
-              {bundlesLoading ? (
-                <div style={{ textAlign: "center", padding: 40, color: T.textMuted }}>Caricamento...</div>
-              ) : (
-                <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                  <thead>
-                    <tr>
-                      {["Utente", "Prekeys", "Data creazione", ""].map(h => (
-                        <th key={h} style={tableHead}>{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {bundles.length === 0 ? (
-                      <tr><td colSpan={4} style={{ ...tableCell, textAlign: "center", color: T.textMuted }}>Nessun key bundle</td></tr>
-                    ) : bundles.map(b => (
-                      <tr key={b.user_id}
-                        onMouseEnter={e => e.currentTarget.style.background = "#f8fafc"}
-                        onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                        <td style={tableCell}>
-                          <div style={{ fontWeight: 600 }}>{b.full_name || b.username}</div>
-                          <div style={{ fontSize: 11, color: T.textMuted }}>{b.username}</div>
-                        </td>
-                        <td style={tableCell}>{b.one_time_prekeys_count ?? 0}</td>
-                        <td style={tableCell}>{b.created_at ? new Date(b.created_at).toLocaleDateString("it-IT") : "-"}</td>
-                        <td style={tableCell}>
-                          <button style={btnOutline} onClick={() => setKeyDrawer(b)}>
-                            👁 Ispeziona
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
-          )}
-
-        </div>
-      </div>
-
-      {msgDrawer && (
-        <div style={drawerOverlay} onClick={() => setMsgDrawer(null)}>
-          <div style={drawerPanel} onClick={e => e.stopPropagation()}>
-            <div style={drawerHeader}>
-              <div style={{ fontWeight: 700, fontSize: 16, color: T.text }}>Messaggi — {msgDrawer.name}</div>
-              <button onClick={() => setMsgDrawer(null)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 20, color: T.textMuted, fontFamily: "inherit" }}>✕</button>
-            </div>
-            <div style={{ padding: 16, overflowY: "auto", flex: 1 }}>
-              {msgsLoading && messages.length === 0 ? (
-                <div style={{ textAlign: "center", padding: 40, color: T.textMuted }}>Caricamento messaggi...</div>
-              ) : messages.length === 0 ? (
-                <div style={{ color: T.textMuted, fontSize: 13 }}>Nessun messaggio.</div>
-              ) : messages.map(m => {
-                const enc = isEncrypted(m.content_encrypted);
-                const hasTranslation = m.content_for_translation && m.content_for_translation.trim() !== "";
-                const preview = typeof m.content_encrypted === "string"
-                  ? m.content_encrypted.slice(0, 500)
-                  : JSON.stringify(m.content_encrypted || "").slice(0, 500);
-                return (
-                  <div key={m.id} style={{ border: `1px solid ${T.border}`, borderRadius: 10, padding: 12, marginBottom: 10 }}>
-                    <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6, marginBottom: 6 }}>
-                      <span style={{ fontWeight: 600, fontSize: 13, color: T.text }}>{m.sender?.full_name || m.sender?.username}</span>
-                      <span style={{ color: T.textMuted, fontSize: 11 }}>{new Date(m.timestamp).toLocaleString("it-IT")} · {m.message_type}</span>
-                      {badge(enc ? "CIFRATO ✓" : "TESTO IN CHIARO ⚠️", enc ? SUCCESS : ERROR)}
-                      {hasTranslation && badge("TRAD. IN CHIARO ⚠️", WARNING)}
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr style={{ borderBottom: "1px solid " + T.border }}>
+                {["Utente", "Modello", "Platform", "OS", "Ultimo Accesso", "Posizione GPS", "Stato", ""].map((h, i) => (
+                  <th key={i} style={{ padding: "12px 16px", textAlign: "left", fontSize: 11, fontWeight: 600, color: T.textMuted, textTransform: "uppercase", letterSpacing: "0.5px", whiteSpace: "nowrap" }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr><td colSpan={8} style={{ padding: 40, textAlign: "center", color: T.textMuted }}>Caricamento...</td></tr>
+              ) : filtered.length === 0 ? (
+                <tr><td colSpan={8} style={{ padding: 40, textAlign: "center", color: T.textMuted }}>Nessun dispositivo trovato</td></tr>
+              ) : filtered.map(device => (
+                <tr key={device.id} onClick={() => setSelectedDevice(device)} style={{ borderBottom: "1px solid " + T.border, cursor: "pointer", transition: "background 0.15s" }}
+                  onMouseEnter={e => e.currentTarget.style.background = T.bg}
+                  onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                  <td style={{ padding: "14px 16px" }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{device.user_name}</div>
+                    <div style={{ fontSize: 12, color: T.textMuted }}>{device.user_email}</div>
+                  </td>
+                  <td style={{ padding: "14px 16px" }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{device.device_model}</div>
+                    <div style={{ fontSize: 12, color: T.textMuted }}>{device.device_name}</div>
+                  </td>
+                  <td style={{ padding: "14px 16px" }}>
+                    <span style={{ padding: "4px 10px", borderRadius: 6, background: device.platform === "ios" ? T.blue + "15" : T.green + "15", color: device.platform === "ios" ? T.blue : T.green, fontSize: 12, fontWeight: 600 }}>
+                      {device.platform === "ios" ? "iOS" : "Android"}
+                    </span>
+                  </td>
+                  <td style={{ padding: "14px 16px", fontSize: 13, color: T.textMuted }}>{device.os_version}</td>
+                  <td style={{ padding: "14px 16px", fontSize: 13, color: T.textMuted, whiteSpace: "nowrap" }}>
+                    {new Date(device.last_seen).toLocaleString("it-IT", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+                  </td>
+                  <td style={{ padding: "14px 16px", fontSize: 13 }}>
+                    {device.last_lat && device.last_lng ? (<button onClick={e => { e.stopPropagation(); setMapDevice(device); }} style={{ background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 6, color: T.teal, fontWeight: 600, fontSize: 13, padding: 0, fontFamily: "inherit" }}><div style={{ width: 30, height: 30, borderRadius: 8, background: T.teal + "15", display: "flex", alignItems: "center", justifyContent: "center" }}><svg width="16" height="16" viewBox="0 0 24 24" fill={T.teal}><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg></div>Mostra</button>) : <span style={{ color: T.textMuted }}>—</span>}
+                  </td>
+                  <td style={{ padding: "14px 16px" }}>
+                    <span style={{ padding: "4px 12px", borderRadius: 20, background: device.is_blocked ? "#FFEBEE" : "#E8F5E9", color: device.is_blocked ? T.red : T.green, fontSize: 12, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 5 }}>
+                      <span style={{ width: 6, height: 6, borderRadius: "50%", background: device.is_blocked ? T.red : T.green }} />
+                      {device.is_blocked ? "Bloccato" : "Attivo"}
+                    </span>
+                  </td>
+                  <td style={{ padding: "14px 8px" }} onClick={e => e.stopPropagation()}>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <button onClick={() => handleBlock(device)} title={device.is_blocked ? "Sblocca" : "Blocca"} style={{ width: 30, height: 30, borderRadius: 8, border: "1px solid " + T.border, background: "transparent", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: device.is_blocked ? T.green : T.orange, fontFamily: "inherit" }}>
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d={device.is_blocked ? "M12 17c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm6-9h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6h1.9c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm0 12H6V10h12v10z" : "M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"}/></svg>
+                      </button>
+                      <button onClick={() => handleDelete(device)} title="Rimuovi" style={{ width: 30, height: 30, borderRadius: 8, border: "1px solid " + T.border, background: "transparent", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.red, fontFamily: "inherit" }}>
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+                      </button>
                     </div>
-                    <pre style={{ background: "#f1f5f9", padding: 8, borderRadius: 6, fontSize: 10, overflow: "auto", maxHeight: 100, wordBreak: "break-all", margin: 0 }}>
-                      {preview}{m.content_encrypted && String(m.content_encrypted).length > 500 ? "…" : ""}
-                    </pre>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
-      )}
-
-      {callDrawer && (
-        <div style={drawerOverlay} onClick={() => setCallDrawer(null)}>
-          <div style={drawerPanel} onClick={e => e.stopPropagation()}>
-            <div style={drawerHeader}>
-              <div style={{ fontWeight: 700, fontSize: 16, color: T.text }}>Dettaglio chiamata #{callDrawer.id}</div>
-              <button onClick={() => setCallDrawer(null)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 20, color: T.textMuted, fontFamily: "inherit" }}>✕</button>
+      </div>
+      {selectedDevice && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }} onClick={() => setSelectedDevice(null)}>
+          <div style={{ background: T.card, borderRadius: 20, width: 480, maxHeight: "85vh", overflow: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.15)" }} onClick={e => e.stopPropagation()}>
+            <div style={{ padding: "24px 28px", borderBottom: "1px solid " + T.border, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div style={{ fontSize: 18, fontWeight: 800, color: T.text }}>Dettaglio Dispositivo</div>
+              <button onClick={() => setSelectedDevice(null)} style={{ width: 36, height: 36, borderRadius: 10, border: "1px solid " + T.border, background: "transparent", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textMuted, fontFamily: "inherit", fontSize: 18 }}>x</button>
             </div>
-            <div style={{ padding: 16 }}>
-              {callDetailLoading ? (
-                <div style={{ textAlign: "center", padding: 40, color: T.textMuted }}>Caricamento...</div>
-              ) : callDetail ? (
-                <>
-                  <div style={{ fontSize: 13, marginBottom: 6 }}><strong>Caller:</strong> {callDetail.caller?.full_name} ({callDetail.caller?.username})</div>
-                  <div style={{ fontSize: 13, marginBottom: 6 }}><strong>Callee:</strong> {callDetail.callee?.full_name} ({callDetail.callee?.username})</div>
-                  <div style={{ fontSize: 13, marginBottom: 6 }}><strong>Tipo:</strong> {callDetail.call_type} · <strong>Status:</strong> {callDetail.status}</div>
-                  <div style={{ fontSize: 13, marginBottom: 12 }}><strong>Durata:</strong> {callDetail.duration_seconds ?? 0}s</div>
-                  {(callDetail.participants || []).length > 0 && (
-                    <>
-                      <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 4 }}>Partecipanti</div>
-                      {callDetail.participants.map(p => (
-                        <div key={p.user_id} style={{ fontSize: 12, color: T.textMuted }}>• {p.full_name} ({p.username})</div>
-                      ))}
-                    </>
-                  )}
-                  <div style={{ marginTop: 16 }}>
-                    {badge("NESSUN MEDIA SUL SERVER ✓", SUCCESS)}
-                  </div>
-                </>
-              ) : (
-                <div style={{ color: T.textMuted, fontSize: 13 }}>Nessun dettaglio disponibile.</div>
+            <div style={{ padding: "24px 28px" }}>
+              {[
+                { label: "Utente", value: selectedDevice.user_name },
+                { label: "Email", value: selectedDevice.user_email },
+                { label: "Modello", value: selectedDevice.device_model },
+                { label: "Nome device", value: selectedDevice.device_name },
+                { label: "Platform", value: selectedDevice.platform === "ios" ? "iOS" : "Android" },
+                { label: "OS Version", value: selectedDevice.os_version },
+                { label: "Device ID", value: selectedDevice.device_id },
+                { label: "Ultimo accesso", value: new Date(selectedDevice.last_seen).toLocaleString("it-IT") },
+                { label: "Registrato il", value: new Date(selectedDevice.created_at).toLocaleString("it-IT") },
+                { label: "Latitudine", value: selectedDevice.last_lat ? selectedDevice.last_lat.toFixed(6) : "—" },
+                { label: "Longitudine", value: selectedDevice.last_lng ? selectedDevice.last_lng.toFixed(6) : "—" },
+                { label: "Stato", value: selectedDevice.is_blocked ? "Bloccato" : "Attivo", color: selectedDevice.is_blocked ? T.red : T.green },
+              ].map((f, i) => (
+                <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "11px 0", borderBottom: i < 11 ? "1px solid " + T.border : "none" }}>
+                  <span style={{ fontSize: 13, color: T.textMuted, fontWeight: 500 }}>{f.label}</span>
+                  <span style={{ fontSize: 13, color: f.color || T.text, fontWeight: 600, maxWidth: 260, textAlign: "right", wordBreak: "break-all" }}>{f.value}</span>
+                </div>
+              ))}
+              {selectedDevice.last_lat && selectedDevice.last_lng && (
+                <div style={{ marginTop: 16 }}>
+                  <a href={"https://maps.google.com/?q=" + selectedDevice.last_lat + "," + selectedDevice.last_lng} target="_blank" rel="noreferrer" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "12px", borderRadius: 12, background: T.teal + "15", color: T.teal, fontWeight: 600, fontSize: 14, textDecoration: "none", border: "1px solid " + T.teal + "30" }}>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>
+                    Apri su Google Maps
+                  </a>
+                </div>
               )}
             </div>
           </div>
         </div>
       )}
-
-      {keyDrawer && (
-        <div style={drawerOverlay} onClick={() => setKeyDrawer(null)}>
-          <div style={drawerPanel} onClick={e => e.stopPropagation()}>
-            <div style={drawerHeader}>
-              <div style={{ fontWeight: 700, fontSize: 16, color: T.text }}>Key bundle — {keyDrawer.full_name || keyDrawer.username}</div>
-              <button onClick={() => setKeyDrawer(null)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 20, color: T.textMuted, fontFamily: "inherit" }}>✕</button>
-            </div>
-            <div style={{ padding: 16 }}>
-              <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 4 }}>identity_key (pubblica):</div>
-              <pre style={{ background: "#f1f5f9", padding: 8, borderRadius: 6, fontSize: 10, overflow: "auto", maxHeight: 80, wordBreak: "break-all" }}>
-                {keyDrawer.identity_key ? String(keyDrawer.identity_key).slice(0, 300) + (keyDrawer.identity_key.length > 300 ? "…" : "") : "-"}
-              </pre>
-              <div style={{ fontWeight: 600, fontSize: 12, marginTop: 12, marginBottom: 4 }}>signed_prekey (pubblica):</div>
-              <pre style={{ background: "#f1f5f9", padding: 8, borderRadius: 6, fontSize: 10, overflow: "auto", maxHeight: 80, wordBreak: "break-all" }}>
-                {keyDrawer.signed_prekey ? String(keyDrawer.signed_prekey).slice(0, 300) + (keyDrawer.signed_prekey.length > 300 ? "…" : "") : "-"}
-              </pre>
-              <div style={{ fontSize: 13, marginTop: 12 }}>one_time_prekeys: <strong>{keyDrawer.one_time_prekeys_count ?? 0}</strong></div>
-              <div style={{ fontSize: 13 }}>session_keys: <strong>{keyDrawer.session_keys_count ?? 0}</strong></div>
-              <div style={{ marginTop: 16 }}>
-                {badge("CHIAVI PRIVATE MAI SUL SERVER ✓", SUCCESS)}
-              </div>
-            </div>
-          </div>
-        </div>
+      {mapDevice && <MapModal device={mapDevice} onClose={() => setMapDevice(null)} />}
+      {confirmAction && (
+        <ConfirmModal
+          title={confirmAction.title}
+          message={confirmAction.message}
+          warning={confirmAction.warning}
+          confirmLabel={confirmAction.confirmLabel}
+          confirmColor={confirmAction.confirmColor}
+          onConfirm={confirmAction.onConfirm}
+          onCancel={() => setConfirmAction(null)}
+        />
       )}
-
     </div>
   );
 }
-
 function PlaceholderPage({ title }) {
   return (
     <div style={{ padding: 32, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "60vh" }}>
@@ -1905,14 +1703,14 @@ export default function AdminDashboard() {
     return <LoginPage onLogin={() => setAuthenticated(true)} />;
   }
 
-  const titles = { dashboard: "Dashboard", users: "Gestione Utenti", groups: "Gestione Gruppi", security: "Security Center", checke2e: "Check E2E Security", reports: "Report & Analytics", settings: "Impostazioni" };
+  const titles = { dashboard: "Dashboard", users: "Gestione Utenti", groups: "Gestione Gruppi", devices: "Gestione Dispositivi", security: "Security Center", reports: "Report & Analytics", settings: "Impostazioni" };
   return (
     <div style={{ fontFamily: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif", background: T.bg, minHeight: "100vh", color: T.text }}>
       <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&display=swap" rel="stylesheet" />
       <Sidebar active={page} onSelect={setPage} collapsed={collapsed} />
       <div style={{ marginLeft: collapsed ? 72 : 260, transition: "margin-left 0.3s cubic-bezier(0.4,0,0.2,1)", minHeight: "100vh" }}>
         <TopHeader title={titles[page]} collapsed={collapsed} onToggle={() => setCollapsed(!collapsed)} />
-        {page === "dashboard" ? <DashboardPage /> : page === "users" ? <UsersPage /> : page === "groups" ? <GroupsPage /> : page === "checke2e" ? <CheckE2EPage /> : <PlaceholderPage title={titles[page]} />}
+        {page === "dashboard" ? <DashboardPage /> : page === "users" ? <UsersPage /> : page === "groups" ? <GroupsPage /> : page === "devices" ? <DevicesPage /> : <PlaceholderPage title={titles[page]} />}
       </div>
     </div>
   );

@@ -149,12 +149,18 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
             return
         
         # Broadcast to conversation group
+        import json as _json
+        import time as _time
+        t0 = _time.time()
         conv_group = f'conv_{conversation_id}'
+        safe_message_data = _json.loads(_json.dumps(message_data, default=str))
         await self.channel_layer.group_send(conv_group, {
             'type': 'chat.message',
-            'message': message_data,
+            'message': safe_message_data,
             'sender_id': self.user.id,
         })
+        t1 = _time.time()
+        print(f'[PERF] group_send took {(t1-t0)*1000:.1f}ms sender={self.user.email}')
         
         # Send push notifications to offline participants
         await self._notify_offline_participants(conversation_id, message_data)
@@ -301,6 +307,8 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
 
     async def chat_message(self, event):
         """Forward chat message to WebSocket client"""
+        import time as _time
+        t_recv = _time.time()
         # Don't send own messages back
         if event.get('sender_id') == self.user.id:
             return
@@ -308,6 +316,9 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
             'type': 'chat.message',
             'message': event['message'],
         })
+        t_sent = _time.time()
+        msg_id = event['message'].get('id', '?')[:8]
+        print(f'[PERF] chat_message forwarded to {self.user.email} in {(t_sent-t_recv)*1000:.1f}ms msg={msg_id}')
 
     async def typing_indicator(self, event):
         """Forward typing indicator (including is_recording for voice)"""
@@ -398,6 +409,39 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
         except (TokenError, User.DoesNotExist, KeyError) as e:
             logger.warning(f'WebSocket auth failed: {e}')
             return None
+
+
+    async def call_incoming(self, event):
+        """Ignora messaggi call.incoming nel chat consumer (gestiti dal calls consumer)."""
+        pass
+
+    async def call_accepted(self, event):
+        """Ignora messaggi call.accepted nel chat consumer."""
+        pass
+
+    async def call_rejected(self, event):
+        """Ignora messaggi call.rejected nel chat consumer."""
+        pass
+
+    async def call_offer(self, event):
+        """Ignora messaggi call.offer nel chat consumer."""
+        pass
+
+    async def call_answer(self, event):
+        """Ignora messaggi call.answer nel chat consumer."""
+        pass
+
+    async def call_ice_candidate(self, event):
+        """Ignora messaggi call.ice_candidate nel chat consumer."""
+        pass
+
+    async def call_ended(self, event):
+        """Ignora messaggi call.ended nel chat consumer."""
+        pass
+
+    async def call_participant_update(self, event):
+        """Ignora messaggi call.participant_update nel chat consumer."""
+        pass
 
     @database_sync_to_async
     def _get_user_conversations(self):
@@ -659,3 +703,9 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
                 )
             except ImportError:
                 pass  # Notifications module not yet implemented
+
+    async def device_blocked(self, event):
+        await self.send_json({
+            'type': 'device.blocked',
+            'device_id': event.get('device_id'),
+        })
