@@ -65,6 +65,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
   WebSocket? _homeWebSocket;
   final Map<String, bool> _typingConversations = {}; // conversationId -> isTyping
   final Map<String, bool> _recordingConversations = {}; // conversationId -> isRecording
+  final Set<String> _notifiedMessageIds = {};
   StreamSubscription<CallState>? _incomingCallSub;
   bool _isCallScreenOpen = false;
   int _missedCallsCount = 0;
@@ -426,12 +427,18 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
             final isCurrentlyOpenChat =
                 ChatDetailScreen.currentOpenConversationId == newConv.id;
             if (mounted && !isCurrentlyOpenChat) {
+              debugPrint('[NotifDedup] messageId=$messageId alreadyNotified=${messageId != null && _notifiedMessageIds.contains(messageId)} notifiedCount=${_notifiedMessageIds.length}');
+              if (messageId != null && _notifiedMessageIds.contains(messageId)) continue;
+              if (messageId != null) _notifiedMessageIds.add(messageId);
+              // Mantieni solo gli ultimi 50 per evitare memory leak
+              if (_notifiedMessageIds.length > 50) {
+                _notifiedMessageIds.remove(_notifiedMessageIds.first);
+              }
               ChatSoundService().tryPlayIncoming(
                 messageId: messageId,
                 senderId: senderId,
                 currentUserId: currentUserId,
               );
-              // Mostra notifica di sistema invece del toast interno
               final preview = lastMessage?.messageType == 'image' ? '📷 Immagine'
                   : lastMessage?.messageType == 'video' ? '🎥 Video'
                   : lastMessage?.messageType == 'audio' ? '🎵 Audio'

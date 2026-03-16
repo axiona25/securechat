@@ -136,12 +136,26 @@ import UserNotifications
     completion()
   }
 
-  // Mostra notifica anche in foreground
+  // Mostra notifica anche in foreground (tranne messaggi chat: Flutter/polling)
   override func userNotificationCenter(
     _ center: UNUserNotificationCenter,
     willPresent notification: UNNotification,
     withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
   ) {
+    print("[APNs willPresent] userInfo: \(notification.request.content.userInfo)")
+    print("[APNs willPresent] identifier: \(notification.request.identifier)")
+    let userInfo = notification.request.content.userInfo
+    let isMessageNotification = userInfo["conversation_id"] != nil
+        || (userInfo["type"] as? String) == "message"
+
+    if isMessageNotification {
+      // Notifica di chat: Flutter gestisce il banner tramite polling
+      // Non mostrare il banner APNs in foreground per evitare duplicati
+      completionHandler([.badge])
+      return
+    }
+
+    // Altre notifiche (chiamate, sistema): mostra normalmente
     if #available(iOS 14.0, *) {
       completionHandler([.banner, .badge, .sound])
     } else {

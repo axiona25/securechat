@@ -97,13 +97,6 @@ class AuthService {
           print('[Auth] clearAllSessions failed: $e');
         }
         try {
-          final sessionMgr = SessionManager(apiService: _api);
-          await sessionMgr.clearAllFailedDecryptMarks();
-          print('[Auth] Failed decrypt marks cleared');
-        } catch (e) {
-          print('[Auth] clearAllFailedDecryptMarks failed: $e');
-        }
-        try {
           final crypto = CryptoService(apiService: _api);
           await crypto.forceReuploadOnNextInit();
           print('[Auth] E2E reupload flag set');

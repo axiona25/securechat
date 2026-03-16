@@ -1256,7 +1256,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           final errStr = e.toString();
           final isSessionMissing = errStr.contains('No session exists') || errStr.contains('message is not initial');
           msg['content'] = kMessageUndecryptablePlaceholder;
-          if (!isSessionMissing) {
+          // Marca come failed se:
+          // - errore non è session missing (qualsiasi messaggio), oppure
+          // - errore è session missing MA il messaggio è storico (non ritentare mai i messaggi storici irrecuperabili)
+          if (!isSessionMissing || isHistoricalSilent) {
             _failedDecryptIds.add(messageId);
             await _sessionManager.markDecryptFailed(messageId);
             await _persistFailedDecryptIds();
@@ -1527,7 +1530,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           final errStr = e.toString();
           final isSessionMissing = errStr.contains('No session exists') || errStr.contains('message is not initial');
           msg['content'] = kMessageUndecryptablePlaceholder;
-          if (!isSessionMissing) {
+          // Marca come failed se:
+          // - errore non è session missing (qualsiasi messaggio), oppure
+          // - errore è session missing MA il messaggio è storico (non ritentare mai i messaggi storici irrecuperabili)
+          if (!isSessionMissing || isHistoricalForce) {
             _failedDecryptIds.add(messageId);
             await _sessionManager.markDecryptFailed(messageId);
             await _persistFailedDecryptIds();
@@ -1731,7 +1737,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
               'senderId=$senderIdInt '
               'error=$errStr');
           msg['content'] = kMessageUndecryptablePlaceholder;
-          if (!isSessionMissing) {
+          // Marca come failed se:
+          // - errore non è session missing (qualsiasi messaggio), oppure
+          // - errore è session missing MA il messaggio è storico (non ritentare mai i messaggi storici irrecuperabili)
+          if (!isSessionMissing || isHistorical) {
             _failedDecryptIds.add(messageId);
             await _sessionManager.markDecryptFailed(messageId);
             await _persistFailedDecryptIds();

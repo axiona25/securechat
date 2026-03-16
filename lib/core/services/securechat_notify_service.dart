@@ -9,8 +9,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:web_socket_channel/io.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import '../constants/app_constants.dart';
-import '../../features/chat/screens/chat_detail_screen.dart';
-import 'local_notification_service.dart';
 import 'session_manager.dart';
 
 class SecureChatNotifyService {
@@ -266,22 +264,8 @@ class SecureChatNotifyService {
 
   void _handleMessageNotification(Map<String, dynamic> data) {
     onMessage?.call(data);
-    // Non mostrare notifica se la chat specifica è già aperta
-    final conversationId = data['conversation_id']?.toString() ?? '';
-    if (conversationId.isNotEmpty &&
-        ChatDetailScreen.currentOpenConversationId == conversationId) {
-      return;
-    }
-    final title = data['title'] as String? ??
-        data['sender_name'] as String? ??
-        'Nuovo messaggio';
-    final body =
-        data['body'] as String? ?? data['message'] as String? ?? '';
-    LocalNotificationService.instance.showFromPush({
-      'title': title,
-      'body': body,
-      'conversation_id': conversationId,
-    });
+    // La notifica di sistema è gestita dal polling in home_screen.dart
+    // qui non mostriamo nulla — evita notifiche doppie
   }
 
   void _handleKeysChanged(Map<String, dynamic> data) {
