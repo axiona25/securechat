@@ -2413,7 +2413,24 @@ function ChatsE2EPage() {
                       <div style={{ background: c.status === "ongoing" ? T.green + "15" : c.status === "ended" ? T.textMuted + "15" : T.orange + "15", border: "1px solid " + (c.status === "ongoing" ? T.green : c.status === "ended" ? T.border : T.orange) + "50", borderRadius: 20, padding: "3px 10px", fontSize: 11, fontWeight: 700, color: c.status === "ongoing" ? T.green : c.status === "ended" ? T.textMuted : T.orange }}>
                         {c.status}
                       </div>
-                      <button onClick={() => setInterceptCall(c)} style={{ background: T.red + "15", border: "1px solid " + T.red + "40", color: T.red, borderRadius: 8, padding: "7px 14px", cursor: "pointer", fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}>
+                      <button
+                        disabled={c.status !== "ongoing"}
+                        onClick={() => c.status === "ongoing" && setInterceptCall(c)}
+                        style={{
+                          background: c.status === "ongoing" ? T.red + "15" : T.textMuted + "10",
+                          border: "1px solid " + (c.status === "ongoing" ? T.red + "40" : T.border),
+                          color: c.status === "ongoing" ? T.red : T.textMuted,
+                          borderRadius: 8,
+                          padding: "7px 14px",
+                          cursor: c.status === "ongoing" ? "pointer" : "not-allowed",
+                          fontSize: 11,
+                          fontWeight: 700,
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 6,
+                          opacity: c.status === "ongoing" ? 1 : 0.7
+                        }}
+                      >
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
                         Intercetta
                       </button>

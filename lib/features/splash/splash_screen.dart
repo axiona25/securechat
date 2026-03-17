@@ -205,13 +205,26 @@ class _SplashScreenState extends State<SplashScreen>
       final tokenOk = await AuthService().refreshAccessTokenIfNeeded();
       debugPrint('[Splash] token refresh result: $tokenOk');
       if (!tokenOk) {
-        // Token non rinnovabile → vai al login
-        await prefs.remove('access_token');
-        await prefs.remove('refresh_token');
-        ApiService().clearTokens();
-        if (!mounted) return;
-        Navigator.of(context).pushReplacementNamed(AppRouter.login);
-        return;
+        // Refresh fallito — verifica se l'access token corrente è ancora valido
+        bool accessValid = false;
+        try {
+          final response = await ApiService().get('/auth/profile/');
+          accessValid = response != null;
+          debugPrint('[Splash] access token still valid: $accessValid');
+        } catch (_) {
+          accessValid = false;
+          debugPrint('[Splash] access token invalid');
+        }
+        if (!accessValid) {
+          // Token completamente scaduto → vai al login
+          await prefs.remove('access_token');
+          await prefs.remove('refresh_token');
+          ApiService().clearTokens();
+          if (!mounted) return;
+          Navigator.of(context).pushReplacementNamed(AppRouter.login);
+          return;
+        }
+        // Access token ancora valido — continua normalmente
       }
 
       final deviceOk = await DeviceService.instance.registerDevice();

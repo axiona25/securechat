@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -65,6 +66,8 @@ class SessionManager {
 
   /// Cache of plaintext for messages we sent (messageId → plaintext).
   final Map<String, String> _sentMessagePlaintexts = {};
+  /// Lock per evitare decrypt concorrenti dello stesso messageId (race condition Double Ratchet)
+  final Map<String, Completer<String>> _decryptLocks = {};
   final Map<String, bool> _failedDecryptCache = {};
   /// Log Cache MISS only once per messageId to avoid console flooding.
   final Set<String> _loggedCacheMisses = {};
@@ -385,6 +388,24 @@ class SessionManager {
     bool isHistorical = false,
   }) async {
     print('[CryptoDebug] decryptMessage from userId=$senderUserId');
+
+    // Controlla cache prima di decifrare — evita doppia decifratura concorrente
+    // che consumerebbe la OTP e corrompere il Double Ratchet
+    if (messageId != null) {
+      final cached = await getCachedPlaintext(messageId);
+      if (cached != null) {
+        debugPrint('[SessionManager] Cache HIT for $messageId — skipping decrypt');
+        return cached;
+      }
+      // Se un altro decrypt per lo stesso messageId è già in corso, aspetta il risultato
+      if (_decryptLocks.containsKey(messageId)) {
+        debugPrint('[SessionManager] Decrypt lock for $messageId — waiting for existing decrypt');
+        return await _decryptLocks[messageId]!.future;
+      }
+      // Acquisisce il lock
+      _decryptLocks[messageId] = Completer<String>();
+    }
+
     if (combinedPayload.length < 3) {
       throw Exception('Message too short');
     }
@@ -497,8 +518,18 @@ class SessionManager {
       debugPrint(
         '[SessionManager] Decrypted message from user $senderUserId: "${result.substring(0, result.length.clamp(0, 20))}..."',
       );
+      // Rilascia il lock e notifica chi stava aspettando
+      if (messageId != null && _decryptLocks.containsKey(messageId)) {
+        final completer = _decryptLocks.remove(messageId)!;
+        if (!completer.isCompleted) completer.complete(result);
+      }
       return result;
     } catch (e) {
+      // Rilascia il lock in caso di errore
+      if (messageId != null && _decryptLocks.containsKey(messageId)) {
+        final completer = _decryptLocks.remove(messageId)!;
+        if (!completer.isCompleted) completer.completeError(e);
+      }
       print('[CryptoDebug] decryptMessage FAILED: $e');
       print('[DecryptError] messageId=$messageId '
           'sender=$senderUserId '
@@ -514,6 +545,11 @@ class SessionManager {
           final plaintext = backupSession.decrypt(encryptedPayload, header);
           final result = utf8.decode(plaintext);
           debugPrint('[SessionAudit] action=decrypt_with_backup senderId=$senderUserId messageId=$messageId');
+          // Rilascia il lock e notifica chi stava aspettando
+          if (messageId != null && _decryptLocks.containsKey(messageId)) {
+            final completer = _decryptLocks.remove(messageId)!;
+            if (!completer.isCompleted) completer.complete(result);
+          }
           return result;
         } catch (_) {}
       }

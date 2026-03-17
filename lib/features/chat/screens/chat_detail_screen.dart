@@ -427,10 +427,14 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         final cached = (jsonDecode(cachedMessagesJson) as List)
             .map((e) => Map<String, dynamic>.from(e as Map))
             .toList();
+        // Carica currentUserId PRIMA di mostrare la cache
+        // così isMe viene calcolato correttamente fin dal primo render
+        final cachedUserId = await AuthService.getCurrentUserId();
         if (mounted && cached.isNotEmpty) {
           setState(() {
             _messages = cached;
             _loading = false;
+            if (cachedUserId != null) _currentUserId = cachedUserId;
           });
         }
       } catch (_) {}
@@ -1238,6 +1242,11 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                 _attachmentCaptionCache[attId] = caption;
                 await prefsForCacheSilent.setString('scp_att_key_$attId', fk);
                 await prefsForCacheSilent.setString('scp_att_caption_$attId', caption);
+                // Avvia decrypt allegato in background subito dopo aver salvato la chiave
+                if (attId != null && atts.isNotEmpty && atts[0] is Map) {
+                  final attMap = Map<String, dynamic>.from(atts[0] as Map);
+                  _decryptFutureCache.putIfAbsent(attId, () => _decryptAttachmentToFile(attMap, msg));
+                }
               }
             }
             await _sessionManager.cacheSentMessage(messageId, msg['content'] as String);
@@ -1513,6 +1522,11 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                 final prefs = await SharedPreferences.getInstance();
                 await prefs.setString('scp_att_key_$attId', fk);
                 await prefs.setString('scp_att_caption_$attId', caption);
+                // Avvia decrypt allegato in background subito dopo aver salvato la chiave
+                if (attId != null && atts.isNotEmpty && atts[0] is Map) {
+                  final attMap = Map<String, dynamic>.from(atts[0] as Map);
+                  _decryptFutureCache.putIfAbsent(attId, () => _decryptAttachmentToFile(attMap, msg));
+                }
               }
             }
             await _sessionManager.cacheSentMessage(messageId, msg['content'] as String);
@@ -1559,7 +1573,12 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     if (_isLoadingMessages) return; // Prevent concurrent loads
     _isLoadingMessages = true;
     if (!silent && _messages.isEmpty) {
-      setState(() => _loading = true);
+      // Mostra loading solo se non c'è cache disponibile
+      final prefs = await SharedPreferences.getInstance();
+      final hasCache = prefs.getString('scp_messages_$_conversationId') != null;
+      if (!hasCache) {
+        setState(() => _loading = true);
+      }
     }
     try {
       if (!silent) {
@@ -1717,6 +1736,11 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                 final prefs = await SharedPreferences.getInstance();
                 await prefs.setString('scp_att_key_$attId', fk);
                 await prefs.setString('scp_att_caption_$attId', caption);
+                // Avvia decrypt allegato in background subito dopo aver salvato la chiave
+                if (attId != null && atts.isNotEmpty && atts[0] is Map) {
+                  final attMap = Map<String, dynamic>.from(atts[0] as Map);
+                  _decryptFutureCache.putIfAbsent(attId, () => _decryptAttachmentToFile(attMap, msg));
+                }
               }
             }
             await _sessionManager.cacheSentMessage(messageId, msg['content'] as String);
@@ -2333,6 +2357,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     Map<String, dynamic> message,
   ) async {
     final attachmentId = att['id']?.toString();
+    debugPrint('[AttachDecrypt] called for attachmentId=$attachmentId hasKey=${_attachmentKeyCache.containsKey(attachmentId)}');
     if (attachmentId == null || attachmentId.isEmpty) return null;
     // Controlla indice path su disco
     try {
@@ -2388,7 +2413,11 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         downloadUrl,
         headers: {'Authorization': 'Bearer $token'},
       );
-      if (response.statusCode != 200) return null;
+      debugPrint('[AttachDecrypt] download status: ${response.statusCode} for $attachmentId');
+      if (response.statusCode != 200) {
+        debugPrint('[AttachDecrypt] download failed with status ${response.statusCode}');
+        return null;
+      }
       final encryptedBytes = Uint8List.fromList(response.bodyBytes);
       final plainBytes = await MediaEncryptionService.decryptFile(encryptedBytes, fileKey);
       final expectedHash = att['file_hash']?.toString() ?? '';
