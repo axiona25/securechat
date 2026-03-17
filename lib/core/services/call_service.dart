@@ -578,6 +578,18 @@ class CallService {
     }
   }
 
+  Future<void> switchCamera() async {
+    final tracks = _state.localStream?.getVideoTracks() ?? [];
+    final videoTrack = tracks.isNotEmpty ? tracks.first : null;
+    if (videoTrack == null) return;
+    try {
+      await Helper.switchCamera(videoTrack);
+      _remoteLog('[CallService] switchCamera OK');
+    } catch (e) {
+      debugPrint('[CallService] switchCamera error: $e');
+    }
+  }
+
   void _setRemoteStream(MediaStream stream) {
     _remoteStream = stream;
   }

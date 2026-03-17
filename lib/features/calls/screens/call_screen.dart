@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
@@ -69,6 +70,21 @@ class _CallScreenState extends State<CallScreen> {
     }
     _stateSub = _callService.stateStream.listen(_onStateUpdate);
     _initRenderers();
+    // Status bar con icone bianche su sfondo scuro (chiamata audio/video)
+    _setLightStatusBar();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _setLightStatusBar();
+    });
+  }
+
+  static const SystemUiOverlayStyle _lightStatusBarStyle = SystemUiOverlayStyle(
+    statusBarColor: Colors.transparent,
+    statusBarIconBrightness: Brightness.light,
+    statusBarBrightness: Brightness.dark,
+  );
+
+  void _setLightStatusBar() {
+    SystemChrome.setSystemUIOverlayStyle(_lightStatusBarStyle);
   }
 
   Future<void> _initRenderers() async {
@@ -154,6 +170,12 @@ class _CallScreenState extends State<CallScreen> {
 
   @override
   void dispose() {
+    // Ripristina status bar predefinita (icone scure)
+    SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+      statusBarIconBrightness: Brightness.dark,
+      statusBarBrightness: Brightness.light,
+    ));
     CallSoundService().stopAll();
     WakelockPlus.disable();
     _durationTimer?.cancel();
@@ -195,14 +217,17 @@ class _CallScreenState extends State<CallScreen> {
           if (mounted) _closeScreen();
         }
       },
-      child: Scaffold(
-        backgroundColor: _navy,
-        body: SafeArea(
+      child: AnnotatedRegion<SystemUiOverlayStyle>(
+        value: _lightStatusBarStyle,
+        child: Scaffold(
+          backgroundColor: _navy,
+          body: SafeArea(
           child: _callService.state.status == CallStatus.ringing && widget.isIncoming
               ? _buildIncomingLayout()
               : widget.callType == 'video'
                   ? _buildVideoLayout()
                   : _buildAudioLayout(),
+        ),
         ),
       ),
     );
@@ -401,9 +426,7 @@ class _CallScreenState extends State<CallScreen> {
               icon: Icons.cameraswitch_rounded,
               label: 'Cambia',
               isOn: true,
-              onTap: () {
-                // Switch camera: would need CallService to support switchCamera
-              },
+              onTap: () => _callService.switchCamera(),
             ),
         ],
         _circleButton(
