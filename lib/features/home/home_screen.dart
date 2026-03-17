@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/models/conversation_model.dart';
@@ -138,17 +139,39 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
         final needsRecovery = await CryptoService.getNeedsManualRecoveryFlag();
         debugPrint('[Home] e2e recovery flag at startup: $needsRecovery');
         if (mounted && needsRecovery && !_e2eNeedsManualRecovery) {
-          setState(() => _e2eNeedsManualRecovery = true);
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (!mounted) return;
-            if (_e2eNeedsManualRecovery && !_hasShownRecoveryDialog) {
-              _hasShownRecoveryDialog = true;
-              debugPrint('[Home] showing recovery modal');
-              _showE2ERecoveryModalIfNeeded();
-            } else if (_hasShownRecoveryDialog) {
-              debugPrint('[Home] recovery modal skipped because already shown');
-            }
-          });
+          // Se le chiavi non sono mai state caricate (nuova installazione / nuovo device),
+          // il flag di recovery è un falso positivo — lo azzeriamo silenziosamente.
+          // Le chiavi vengono rigenerate automaticamente da initializeKeys() in splash/login.
+          String? keysUploaded;
+          try {
+            keysUploaded = await const FlutterSecureStorage().read(
+              key: 'scp_keys_uploaded',
+              aOptions: AndroidOptions.defaultOptions,
+              iOptions: IOSOptions(
+                groupId: 'com.axphone.app.shared',
+                accessibility: KeychainAccessibility.first_unlock_this_device,
+              ),
+            );
+          } catch (e) {
+            debugPrint('[Home] keysUploaded read error (debug mode?): $e');
+            keysUploaded = null;
+          }
+          if (keysUploaded != 'true') {
+            await CryptoService.clearNeedsManualRecoveryFlag();
+            debugPrint('[Home] recovery flag cleared — keys never uploaded, new install');
+          } else {
+            setState(() => _e2eNeedsManualRecovery = true);
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (!mounted) return;
+              if (_e2eNeedsManualRecovery && !_hasShownRecoveryDialog) {
+                _hasShownRecoveryDialog = true;
+                debugPrint('[Home] showing recovery modal');
+                _showE2ERecoveryModalIfNeeded();
+              } else if (_hasShownRecoveryDialog) {
+                debugPrint('[Home] recovery modal skipped because already shown');
+              }
+            });
+          }
         }
         await CryptoService(apiService: ApiService()).checkAndReplenishPreKeys();
       } catch (e, stack) {

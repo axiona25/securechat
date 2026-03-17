@@ -200,6 +200,20 @@ class _SplashScreenState extends State<SplashScreen>
     if (AuthService().isLoggedIn) {
       debugPrint('[Splash] startup begin');
       if (!mounted) return;
+
+      // Refresh token se scaduto prima di qualsiasi chiamata API
+      final tokenOk = await AuthService().refreshAccessTokenIfNeeded();
+      debugPrint('[Splash] token refresh result: $tokenOk');
+      if (!tokenOk) {
+        // Token non rinnovabile → vai al login
+        await prefs.remove('access_token');
+        await prefs.remove('refresh_token');
+        ApiService().clearTokens();
+        if (!mounted) return;
+        Navigator.of(context).pushReplacementNamed(AppRouter.login);
+        return;
+      }
+
       final deviceOk = await DeviceService.instance.registerDevice();
       if (!deviceOk) {
         await prefs.remove('access_token');
@@ -447,7 +461,6 @@ class _SplashScreenState extends State<SplashScreen>
           // Feature 1: Lock + Shield
           AnimatedFeatureIcon(
             icon: Icons.lock_outline,
-            overlayIcon: Icons.shield_outlined,
             animation: _feature1Scale,
           ),
 

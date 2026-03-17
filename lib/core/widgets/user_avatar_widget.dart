@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
 import '../services/avatar_cache_service.dart';
 
-class UserAvatarWidget extends StatelessWidget {
+class UserAvatarWidget extends StatefulWidget {
   final String? avatarUrl;
   final String? firstName;
   final String? lastName;
@@ -24,73 +24,127 @@ class UserAvatarWidget extends StatelessWidget {
     this.borderColor,
   });
 
+  @override
+  State<UserAvatarWidget> createState() => _UserAvatarWidgetState();
+}
+
+class _UserAvatarWidgetState extends State<UserAvatarWidget> {
+  String? _previousUrl;
+
   String get _initials {
-    if (firstName != null && firstName!.isNotEmpty) {
-      final first = firstName![0].toUpperCase();
-      final last = (lastName != null && lastName!.isNotEmpty)
-          ? lastName![0].toUpperCase()
+    if (widget.firstName != null && widget.firstName!.isNotEmpty) {
+      final first = widget.firstName![0].toUpperCase();
+      final last = (widget.lastName != null && widget.lastName!.isNotEmpty)
+          ? widget.lastName![0].toUpperCase()
           : '';
       return '$first$last';
     }
-    if (displayName != null && displayName!.isNotEmpty) {
-      final parts = displayName!.trim().split(' ');
+    if (widget.displayName != null && widget.displayName!.isNotEmpty) {
+      final parts = widget.displayName!.trim().split(' ');
       if (parts.length >= 2) {
         return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
       }
-      return displayName!.length >= 2
-          ? displayName!.substring(0, 2).toUpperCase()
-          : displayName!.toUpperCase();
+      return widget.displayName!.length >= 2
+          ? widget.displayName!.substring(0, 2).toUpperCase()
+          : widget.displayName!.toUpperCase();
     }
     return '?';
   }
 
-  String? get _bustedUrl {
-    if (avatarUrl == null) return null;
-    final buster = AvatarCacheService.instance.cacheBuster.value;
-    if (buster == 0) return avatarUrl;
-    final sep = avatarUrl!.contains('?') ? '&' : '?';
-    return '$avatarUrl${sep}t=$buster';
+  String? _bustedUrl(int buster) {
+    if (widget.avatarUrl == null) return null;
+    if (buster == 0) return widget.avatarUrl;
+    final sep = widget.avatarUrl!.contains('?') ? '&' : '?';
+    return '${widget.avatarUrl}${sep}t=$buster';
+  }
+
+  void _evictIfChanged(String? newUrl) {
+    // Evict sempre l'URL base quando cambia qualcosa
+    if (widget.avatarUrl != null) {
+      NetworkImage(widget.avatarUrl!).evict();
+    }
+    // Evict anche l'URL precedente (con o senza buster)
+    if (_previousUrl != null && _previousUrl != newUrl) {
+      NetworkImage(_previousUrl!).evict();
+      final baseUrl = _previousUrl!.contains('?')
+          ? _previousUrl!.substring(0, _previousUrl!.indexOf('?'))
+          : _previousUrl!;
+      NetworkImage(baseUrl).evict();
+    }
+    _previousUrl = newUrl;
   }
 
   @override
   Widget build(BuildContext context) {
     return ValueListenableBuilder<int>(
       valueListenable: AvatarCacheService.instance.cacheBuster,
-      builder: (context, _, __) {
-        final url = _bustedUrl;
-        final avatar = Container(
-          width: size,
-          height: size,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            border: borderWidth > 0
-                ? Border.all(color: borderColor ?? AppColors.teal300, width: borderWidth)
-                : null,
-            color: url == null ? AppColors.primary : null,
-            image: url != null
-                ? DecorationImage(image: NetworkImage(url), fit: BoxFit.cover)
-                : null,
-          ),
-          child: url == null
-              ? Center(
-                  child: Text(
-                    _initials,
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: size * 0.35,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0.5,
-                    ),
-                  ),
-                )
-              : null,
-        );
+      builder: (context, buster, __) {
+        final url = _bustedUrl(buster);
+        _evictIfChanged(url);
 
-        if (onTap != null) {
-          return GestureDetector(onTap: onTap, child: avatar);
+        Widget avatar;
+        if (url != null) {
+          avatar = Container(
+            width: widget.size,
+            height: widget.size,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              border: widget.borderWidth > 0
+                  ? Border.all(
+                      color: widget.borderColor ?? AppColors.teal300,
+                      width: widget.borderWidth)
+                  : null,
+            ),
+            child: ClipOval(
+              child: Image.network(
+                url,
+                key: ValueKey('$url-$buster'),
+                width: widget.size,
+                height: widget.size,
+                fit: BoxFit.cover,
+                headers: const {'Cache-Control': 'no-cache'},
+                errorBuilder: (_, error, stack) => _initialsWidget(),
+                loadingBuilder: (context, child, loadingProgress) {
+                  if (loadingProgress == null) return child;
+                  return _initialsWidget();
+                },
+              ),
+            ),
+          );
+        } else {
+          avatar = Container(
+            width: widget.size,
+            height: widget.size,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              border: widget.borderWidth > 0
+                  ? Border.all(
+                      color: widget.borderColor ?? AppColors.teal300,
+                      width: widget.borderWidth)
+                  : null,
+              color: AppColors.primary,
+            ),
+            child: Center(child: _initialsWidget()),
+          );
+        }
+
+        if (widget.onTap != null) {
+          return GestureDetector(onTap: widget.onTap, child: avatar);
         }
         return avatar;
       },
+    );
+  }
+
+  Widget _initialsWidget() {
+    return Text(
+      _initials,
+      style: TextStyle(
+        color: Colors.white,
+        fontSize: widget.size * 0.35,
+        fontWeight: FontWeight.w700,
+        letterSpacing: 0.5,
+      ),
     );
   }
 }

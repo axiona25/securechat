@@ -28,8 +28,7 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   Map<String, dynamic>? _profile;
   bool _loading = true;
-  /// Cache buster per forzare refresh avatar dopo upload (evita immagine in cache).
-  int? _avatarCacheBuster;
+  // (rimosso: cache buster locale sostituito da AvatarCacheService globale)
 
   static const Color _teal = Color(0xFF2ABFBF);
   AppLocalizations get l10n => AppLocalizations.of(context)!;
@@ -144,9 +143,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String? get _avatarUrl {
     final url = _profile?['avatar']?.toString();
     if (url == null || url.isEmpty) return null;
-    final base = url.startsWith('http') ? url : '${AppConstants.mediaBaseUrl}$url';
-    if (_avatarCacheBuster != null) return '$base?t=$_avatarCacheBuster';
-    return base;
+    return url.startsWith('http') ? url : '${AppConstants.mediaBaseUrl}$url';
   }
 
   String get _statusText {
@@ -252,12 +249,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
       request.files.add(await http.MultipartFile.fromPath('avatar', picked.path));
 
       final response = await request.send();
-      final responseBody = await response.stream.bytesToString();
       if (response.statusCode == 200) {
         await _loadProfile();
         if (mounted) {
           AvatarCacheService.instance.bust();
-          setState(() => _avatarCacheBuster = DateTime.now().millisecondsSinceEpoch);
+          setState(() {});
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Foto profilo aggiornata'), backgroundColor: Color(0xFF2ABFBF)),
           );
@@ -342,7 +338,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       await _loadProfile();
       if (mounted) {
         AvatarCacheService.instance.bust();
-        setState(() => _avatarCacheBuster = DateTime.now().millisecondsSinceEpoch);
+        setState(() {});
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Foto profilo rimossa'), backgroundColor: Color(0xFF2ABFBF)),
         );
@@ -428,19 +424,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 border: Border.all(color: Colors.white, width: 2),
                               ),
                               child: const Icon(Icons.camera_alt, color: Colors.white, size: 16),
-                            ),
-                          ),
-                          Positioned(
-                            bottom: 4,
-                            left: 4,
-                            child: Container(
-                              width: 20,
-                              height: 20,
-                              decoration: BoxDecoration(
-                                color: _statusColor,
-                                shape: BoxShape.circle,
-                                border: Border.all(color: Colors.white, width: 2.5),
-                              ),
                             ),
                           ),
                         ],
