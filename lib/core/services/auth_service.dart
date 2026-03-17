@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -101,12 +102,25 @@ class AuthService {
         } catch (e) {
           print('[Auth] Install id update failed: $e');
         }
+        // Cancella sessioni E2E solo se le chiavi locali sono cambiate
+        // (nuovo dispositivo o reinstallazione). Se le chiavi sono le stesse
+        // mantieni le sessioni per preservare la decifratura dei messaggi storici.
         try {
-          final sessionMgr = SessionManager(apiService: _api);
-          await sessionMgr.clearAllSessions();
-          print('[Auth] E2E sessions cleared on login');
+          final prefs = await SharedPreferences.getInstance();
+          final storedUserId = prefs.getInt('scp_last_login_user_id');
+          final currentUserId = data['user_id'] as int? ?? (data['user'] as Map<String, dynamic>?)?['id'] as int?;
+          final keysPresent = await _checkLocalKeysPresent();
+          final sameUser = storedUserId != null && storedUserId == currentUserId;
+          if (!sameUser || !keysPresent) {
+            final sessionMgr = SessionManager(apiService: _api);
+            await sessionMgr.clearAllSessions();
+            print('[Auth] E2E sessions cleared on login (new user or missing keys)');
+          } else {
+            print('[Auth] E2E sessions preserved on login (same user, keys intact)');
+          }
+          await prefs.setInt('scp_last_login_user_id', currentUserId ?? 0);
         } catch (e) {
-          print('[Auth] clearAllSessions failed: $e');
+          print('[Auth] clearAllSessions check failed: $e');
         }
         return AuthResult(
           success: true,
@@ -262,5 +276,24 @@ class AuthService {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt(_keyCurrentUserId, id);
     debugPrint('[AuthUser] source=setCurrentUserId, currentUserId=$id');
+  }
+
+  Future<bool> _checkLocalKeysPresent() async {
+    try {
+      const storage = FlutterSecureStorage(
+        aOptions: AndroidOptions(encryptedSharedPreferences: true),
+        iOptions: IOSOptions(
+          accountName: 'com.axphone.app.e2e',
+          accessibility: KeychainAccessibility.first_unlock_this_device,
+          groupId: 'F28CW3467A.com.axphone.app.e2e',
+        ),
+      );
+      final identity = await storage.read(key: 'scp_identity_private');
+      final identityDh = await storage.read(key: 'scp_identity_dh_private');
+      final signedPrekey = await storage.read(key: 'scp_signed_prekey_private');
+      return identity != null && identityDh != null && signedPrekey != null;
+    } catch (_) {
+      return false;
+    }
   }
 }
