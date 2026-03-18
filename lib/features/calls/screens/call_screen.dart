@@ -58,12 +58,9 @@ class _CallScreenState extends State<CallScreen> {
   void initState() {
     super.initState();
     if (widget.isRejoining) {
-      // Solo riattacco a stato e renderer; la chiamata è già attiva.
+      // Riattacco a stato e renderer; la chiamata è già attiva.
       _stateSub = _callService.stateStream.listen(_onStateUpdate);
-      _initRenderers();
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && _renderersInitialized) _onStateUpdate(_callService.state);
-      });
+      _initRenderersAndReattach();
       return;
     }
     if (widget.isIncoming && widget.callId != null && widget.remoteUserId != null) {
@@ -108,6 +105,23 @@ class _CallScreenState extends State<CallScreen> {
     } catch (e) {
       debugPrint('[CallScreen] renderer init error: $e');
     }
+  }
+
+  Future<void> _initRenderersAndReattach() async {
+    await _initRenderers();
+    if (!mounted) return;
+    final s = _callService.state;
+    if (s.remoteStream != null) {
+      _remoteRenderer.srcObject = s.remoteStream;
+    }
+    if (s.localStream != null && widget.callType == 'video') {
+      _localRenderer.srcObject = s.localStream;
+    }
+    if (s.status == CallStatus.connected) {
+      WakelockPlus.enable();
+      _startDurationTimer();
+    }
+    if (mounted) setState(() {});
   }
 
   void _onStateUpdate(CallState s) {
@@ -332,7 +346,7 @@ class _CallScreenState extends State<CallScreen> {
             ),
             const SizedBox(width: 48),
             _circleButton(
-              icon: Icons.call_rounded,
+              icon: widget.callType == 'video' ? Icons.videocam_rounded : Icons.call_rounded,
               color: _teal,
               onTap: () {
                 CallSoundService().stopAll();

@@ -1,12 +1,12 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_webrtc/flutter_webrtc.dart';
 
 import '../../../core/widgets/user_avatar_widget.dart';
 import '../screens/call_screen.dart';
 import '../../../core/services/call_service.dart';
 
-/// Payload per la PiP: conversationId, callType, remoteUserId, remoteUserName, remoteUserAvatar.
 Map<String, dynamic> pipDataFromCallScreen({
   required String conversationId,
   required String callType,
@@ -23,15 +23,11 @@ Map<String, dynamic> pipDataFromCallScreen({
   };
 }
 
-/// Manager per mostrare/rimuovere l'overlay PiP della chiamata.
 class CallPipManager {
   CallPipManager._();
-
   static OverlayEntry? _entry;
-
   static bool get isShowing => _entry != null;
 
-  /// Mostra la PiP sopra l'app. [context] deve avere accesso a Navigator e Overlay.
   static void show(BuildContext context, Map<String, dynamic> pipData) {
     if (_entry != null) {
       _entry!.remove();
@@ -74,8 +70,8 @@ class _CallPipOverlay extends StatefulWidget {
 }
 
 class _CallPipOverlayState extends State<_CallPipOverlay> {
-  static const double _pipWidth = 120;
-  static const double _pipHeight = 160;
+  static const double _pipWidth = 160;
+  static const double _pipHeight = 210;
   static const Color _teal = Color(0xFF2ABFBF);
   static const Color _endCallRed = Color(0xFFFF3B30);
   static const Color _navy = Color(0xFF1A2B4A);
@@ -84,20 +80,48 @@ class _CallPipOverlayState extends State<_CallPipOverlay> {
   Offset _position = Offset.zero;
   bool _initialized = false;
 
+  // Video renderer per la PiP video
+  RTCVideoRenderer? _remoteRenderer;
+  bool _rendererReady = false;
+
   String get _conversationId => widget.data['conversationId']?.toString() ?? '';
   String get _callType => widget.data['callType']?.toString() ?? 'audio';
   int? get _remoteUserId => widget.data['remoteUserId'] as int?;
   String get _remoteUserName => widget.data['remoteUserName']?.toString() ?? 'Utente';
   String? get _remoteUserAvatar => widget.data['remoteUserAvatar']?.toString();
 
+  bool get _isVideo => _callType == 'video';
+
   @override
   void initState() {
     super.initState();
     _stateSub = CallService().stateStream.listen((s) {
-      if (s.status == CallStatus.ended && mounted) {
+      if (!mounted) return;
+      if (s.status == CallStatus.ended) {
         widget.onRemove();
+        return;
       }
+      // Aggiorna stream video se disponibile
+      if (_rendererReady && s.remoteStream != null && _remoteRenderer != null) {
+        _remoteRenderer!.srcObject = s.remoteStream;
+      }
+      setState(() {});
     });
+
+    if (_isVideo) {
+      _initVideoRenderer();
+    }
+  }
+
+  Future<void> _initVideoRenderer() async {
+    _remoteRenderer = RTCVideoRenderer();
+    await _remoteRenderer!.initialize();
+    if (!mounted) return;
+    final remoteStream = CallService().state.remoteStream;
+    if (remoteStream != null) {
+      _remoteRenderer!.srcObject = remoteStream;
+    }
+    setState(() => _rendererReady = true);
   }
 
   @override
@@ -117,6 +141,7 @@ class _CallPipOverlayState extends State<_CallPipOverlay> {
   @override
   void dispose() {
     _stateSub?.cancel();
+    _remoteRenderer?.dispose();
     super.dispose();
   }
 
@@ -134,9 +159,7 @@ class _CallPipOverlayState extends State<_CallPipOverlay> {
           remoteUserAvatar: _remoteUserAvatar,
         ),
       ),
-    ).then((_) {
-      // Se ha minimizzato di nuovo, la PiP sarà mostrata da CallScreen
-    });
+    );
   }
 
   void _onEndCall() async {
@@ -155,8 +178,9 @@ class _CallPipOverlayState extends State<_CallPipOverlay> {
         Positioned(
           left: _position.dx.clamp(padding.left, size.width - _pipWidth - padding.right),
           top: _position.dy.clamp(padding.top, size.height - _pipHeight - padding.bottom - 80),
-          child: GestureDetector(
-            onPanUpdate: (d) {
+            child: GestureDetector(
+              onTap: _onExpand,
+              onPanUpdate: (d) {
               setState(() {
                 _position = Offset(
                   (_position.dx + d.delta.dx).clamp(padding.left, size.width - _pipWidth - padding.right),
@@ -173,50 +197,58 @@ class _CallPipOverlayState extends State<_CallPipOverlay> {
                 child: SizedBox(
                   width: _pipWidth,
                   height: _pipHeight,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
+                  child: Stack(
+                    fit: StackFit.expand,
                     children: [
-                      Expanded(
-                        child: Center(
+                      // Contenuto principale: video o avatar
+                      if (_isVideo && _rendererReady && _remoteRenderer!.srcObject != null)
+                        RTCVideoView(
+                          _remoteRenderer!,
+                          objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+                        )
+                      else
+                        Center(
                           child: UserAvatarWidget(
                             avatarUrl: _remoteUserAvatar,
                             displayName: _remoteUserName,
                             size: 56,
                           ),
                         ),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.only(left: 8, right: 8, bottom: 8),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                          children: [
-                            Material(
-                              color: _teal,
-                              shape: const CircleBorder(),
-                              clipBehavior: Clip.antiAlias,
-                              child: InkWell(
-                                onTap: _onExpand,
-                                child: const SizedBox(
-                                  width: 36,
-                                  height: 36,
-                                  child: Icon(Icons.open_in_full_rounded, color: Colors.white, size: 20),
+                      // Pulsanti in basso
+                      Positioned(
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: [
+                                Colors.transparent,
+                                Colors.black.withValues(alpha: 0.6),
+                              ],
+                            ),
+                          ),
+                          padding: const EdgeInsets.only(left: 8, right: 8, bottom: 8, top: 16),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Material(
+                                color: _endCallRed,
+                                shape: const CircleBorder(),
+                                clipBehavior: Clip.antiAlias,
+                                child: InkWell(
+                                  onTap: _onEndCall,
+                                  child: const SizedBox(
+                                    width: 40,
+                                    height: 40,
+                                    child: Icon(Icons.call_end_rounded, color: Colors.white, size: 20),
+                                  ),
                                 ),
                               ),
-                            ),
-                            Material(
-                              color: _endCallRed,
-                              shape: const CircleBorder(),
-                              clipBehavior: Clip.antiAlias,
-                              child: InkWell(
-                                onTap: _onEndCall,
-                                child: const SizedBox(
-                                  width: 36,
-                                  height: 36,
-                                  child: Icon(Icons.call_end_rounded, color: Colors.white, size: 18),
-                                ),
-                              ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
                       ),
                     ],
