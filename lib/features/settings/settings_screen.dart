@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:http/http.dart' as http;
+import 'package:package_info_plus/package_info_plus.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/services/api_service.dart';
@@ -494,6 +495,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         onTap: _logout,
                       ),
                     ]),
+                    const SizedBox(height: 32),
+                    FutureBuilder<PackageInfo>(
+                      future: PackageInfo.fromPlatform(),
+                      builder: (context, snapshot) {
+                        final version = snapshot.hasData
+                            ? '${snapshot.data!.version} (${snapshot.data!.buildNumber})'
+                            : '';
+                        return Center(
+                          child: Text(
+                            'Versione $version',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey.shade400,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 24),
                     const SizedBox(height: 100),
                   ],
                 ),

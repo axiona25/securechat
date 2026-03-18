@@ -20,6 +20,7 @@ import '../../core/services/sound_service.dart';
 import '../../core/services/chat_sound_service.dart';
 import '../../core/services/call_service.dart';
 import '../../core/services/avatar_cache_service.dart';
+import '../../core/services/conversation_cache_service.dart';
 import '../../core/services/local_notification_service.dart';
 import '../../core/services/securechat_notify_service.dart';
 import '../../core/services/device_service.dart';
@@ -95,6 +96,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
     _loadMissedCallsCount();
     _connectHomeWebSocket();
     CallService().ensureConnected();
+    CallService().startNetworkMonitoring();
     _incomingCallSub = CallService().onIncomingCall.listen((CallState callState) {
       if (!mounted || _isCallScreenOpen) return;
       if (callState.isIncoming && callState.status == CallStatus.ringing) {
@@ -184,7 +186,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
       if (mounted) _loadDataSilent();
     });
     // Aggiorna posizione device ogni 15 minuti
-    _locationTimer = Timer.periodic(const Duration(minutes: 15), (_) {
+    _locationTimer = Timer.periodic(const Duration(minutes: 2), (_) {
       DeviceService.instance.updateLocation();
     });
   }
@@ -438,6 +440,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
       _isLoading = false;
       _isFirstLoad = false;
     });
+    ConversationCacheService.instance.update(_conversations);
     _updateAppBadge();
 
     // Check se deve cambiare password
@@ -603,6 +606,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
         _currentUser = user;
         _notificationCount = results[2] as int;
       });
+      ConversationCacheService.instance.update(_conversations);
       _updateAppBadge();
     } catch (_) {}
   }
@@ -1681,21 +1685,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
                   _showGroupChatSheet(context);
                 },
               ),
-              ListTile(
-                leading: CircleAvatar(
-                  backgroundColor: teal,
-                  child: const Icon(Icons.campaign_outlined, color: Colors.white, size: 22),
-                ),
-                title: Text(
-                  l10n.t('new_broadcast_list'),
-                  style: const TextStyle(color: navy, fontSize: 16, fontWeight: FontWeight.w500),
-                ),
-                trailing: const Icon(Icons.chevron_right, color: Color(0xFF9E9E9E)),
-                onTap: () {
-                  Navigator.of(ctx).pop();
-                  _showBroadcastSheet(context);
-                },
-              ),
             ],
           ),
         ),
@@ -2448,15 +2437,18 @@ class _SingleChatSheetContentState extends State<_SingleChatSheetContent> {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(20, 16, 12, 12),
-          child: Row(
-            children: [
-              const Expanded(child: SizedBox()),
-              Text(
-                l10n.t('new_chat'),
+    return GestureDetector(
+      onTap: () => FocusScope.of(context).unfocus(),
+      behavior: HitTestBehavior.opaque,
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 16, 12, 12),
+            child: Row(
+              children: [
+                const Expanded(child: SizedBox()),
+                Text(
+                  l10n.t('new_chat'),
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: _navy),
               ),
               const Expanded(child: SizedBox()),
@@ -2484,7 +2476,6 @@ class _SingleChatSheetContentState extends State<_SingleChatSheetContent> {
                 border: InputBorder.none,
                 contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 14),
               ),
-              autofocus: true,
             ),
           ),
         ),
@@ -2511,6 +2502,7 @@ class _SingleChatSheetContentState extends State<_SingleChatSheetContent> {
                   : _buildGroupedList(),
         ),
       ],
+      ),
     );
   }
 

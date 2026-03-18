@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'api_service.dart';
 
@@ -28,6 +29,9 @@ class DeviceService {
 
   Future<Map<String, dynamic>> getDeviceInfo() async {
     final info = DeviceInfoPlugin();
+    final packageInfo = await PackageInfo.fromPlatform();
+    final appVersion = '${packageInfo.version}+${packageInfo.buildNumber}';
+
     if (Platform.isIOS) {
       final d = await info.iosInfo;
       return {
@@ -36,6 +40,7 @@ class DeviceService {
         'device_name': d.name,
         'device_model': d.model,
         'os_version': d.systemVersion,
+        'app_version': appVersion,
       };
     } else {
       final d = await info.androidInfo;
@@ -45,6 +50,7 @@ class DeviceService {
         'device_name': d.device,
         'device_model': d.model,
         'os_version': d.version.release,
+        'app_version': appVersion,
       };
     }
   }

@@ -9,6 +9,7 @@ import 'package:http/http.dart' as http;
 import '../constants/app_constants.dart';
 import 'api_service.dart';
 import 'call_service.dart';
+import 'conversation_cache_service.dart';
 import '../../features/calls/screens/call_screen.dart';
 import '../../main.dart';
 
@@ -119,7 +120,7 @@ class VoipService {
     }
   }
 
-  void _onAccept(dynamic body) {
+  void _onAccept(dynamic body) async {
     if (body == null) return;
     final callId = body.id?.toString() ?? '';
     final headers = body.headers is Map ? Map<String, dynamic>.from(body.headers as Map) : <String, dynamic>{};
@@ -128,13 +129,15 @@ class VoipService {
     final callType = headers['callType']?.toString() ?? 'audio';
     final callerName = body.nameCaller?.toString() ?? '';
 
+    String? avatarUrl = ConversationCacheService.instance.getAvatarForUser(callerUserId);
+
     CallService().ensureConnected();
     CallService().setIncomingCallContext(
       callId: callId,
       callType: callType,
       remoteUserId: callerUserId,
       remoteUserName: callerName,
-      remoteUserAvatar: null,
+      remoteUserAvatar: avatarUrl,
       conversationId: conversationId,
     );
     if (callId.isNotEmpty) {
@@ -152,7 +155,7 @@ class VoipService {
             callId: callId,
             remoteUserId: callerUserId,
             remoteUserName: callerName,
-            remoteUserAvatar: null,
+            remoteUserAvatar: avatarUrl,
             skipRingingSound: true,
           ),
         ),

@@ -102,8 +102,10 @@ class CallService {
   MediaStream? _remoteStream;
   DateTime? _callStartTime;
   StreamSubscription? _wsSubscription;
+  StreamSubscription? _connectivitySubscription;
   bool _disposed = false;
   bool _isConnected = false;
+  final Set<String> _processedEventKeys = {};
   bool _speakerDefaultApplied = false;
   Timer? _speakerTimer;
 
@@ -168,6 +170,51 @@ class CallService {
     _isConnected = false;
   }
 
+  void startNetworkMonitoring() {
+    _connectivitySubscription?.cancel();
+    _connectivitySubscription = Connectivity().onConnectivityChanged.listen((results) {
+      final hasNetwork = results.any((r) => r != ConnectivityResult.none);
+      if (!hasNetwork) return;
+      debugPrint('[CallService] Network changed — forcing WebSocket reconnect');
+      _closeChannel();
+      ensureConnected();
+
+      // Se c'è una chiamata attiva, riavvia ICE per adattarsi alla nuova rete
+      if (_peerConnection != null &&
+          (_state.status == CallStatus.connected ||
+           _state.status == CallStatus.connecting)) {
+        debugPrint('[CallService] Active call detected — restarting ICE for new network');
+        _restartIce();
+      }
+    });
+  }
+
+  Future<void> _restartIce() async {
+    if (_peerConnection == null) return;
+    try {
+      if (!_state.isIncoming) {
+        // Caller: crea nuova offer con iceRestart=true
+        final offer = await _peerConnection!.createOffer({
+          'offerToReceiveAudio': true,
+          'offerToReceiveVideo': _callType == 'video',
+          'iceRestart': true,
+        });
+        await _peerConnection!.setLocalDescription(offer);
+        await _send({
+          'action': 'offer',
+          'call_id': _callId,
+          'target_user_id': _remoteUserId,
+          'sdp': offer.toMap(),
+        });
+        debugPrint('[CallService] ICE restart offer sent');
+      }
+      // Il receiver risponderà automaticamente con answer
+    } catch (e) {
+      debugPrint('[CallService] ICE restart failed: $e');
+      // Fallback: termina e lascia all utente richiamare
+    }
+  }
+
   static bool _reconnectScheduled = false;
 
   void _scheduleReconnect() {
@@ -217,6 +264,22 @@ class CallService {
     try {
       final map = jsonDecode(text) as Map<String, dynamic>;
       final type = map['type'] as String?;
+      // Dedup: ignora eventi già processati (es. dopo riconnessione WS)
+      final callId = map['call_id']?.toString() ?? '';
+      final dedupKey = '${type}_$callId';
+      if (callId.isNotEmpty && type != null &&
+          type != 'call.ice_candidate' &&
+          type != 'call.participant_update') {
+        if (_processedEventKeys.contains(dedupKey)) {
+          debugPrint('[CallService] Duplicate event ignored: $dedupKey');
+          return;
+        }
+        _processedEventKeys.add(dedupKey);
+        // Pulisci vecchi eventi dopo 30 secondi
+        Future.delayed(const Duration(seconds: 30), () {
+          _processedEventKeys.remove(dedupKey);
+        });
+      }
       switch (type) {
         case 'call.incoming':
           _onCallIncoming(map);
@@ -638,6 +701,7 @@ class CallService {
     _iceServers = null;
     _callStartTime = null;
     _speakerDefaultApplied = false;
+    _processedEventKeys.clear();
   }
 
   /// Start an outgoing call (1-to-1). Participants are derived from conversation on the backend.

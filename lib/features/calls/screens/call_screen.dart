@@ -8,6 +8,7 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 import '../../../core/widgets/user_avatar_widget.dart';
 import '../../../core/services/call_service.dart';
 import '../../../core/services/call_sound_service.dart';
+import '../widgets/call_pip_overlay.dart';
 
 /// Single screen for outgoing and incoming audio/video calls (1-to-1).
 class CallScreen extends StatefulWidget {
@@ -20,6 +21,8 @@ class CallScreen extends StatefulWidget {
   final String? remoteUserAvatar;
   /// When true (e.g. opened after accepting from CallKit), do not start ringtone.
   final bool skipRingingSound;
+  /// When true, reattach to existing call (e.g. after expanding from PiP).
+  final bool isRejoining;
 
   const CallScreen({
     super.key,
@@ -31,6 +34,7 @@ class CallScreen extends StatefulWidget {
     this.remoteUserName,
     this.remoteUserAvatar,
     this.skipRingingSound = false,
+    this.isRejoining = false,
   });
 
   @override
@@ -53,6 +57,15 @@ class _CallScreenState extends State<CallScreen> {
   @override
   void initState() {
     super.initState();
+    if (widget.isRejoining) {
+      // Solo riattacco a stato e renderer; la chiamata è già attiva.
+      _stateSub = _callService.stateStream.listen(_onStateUpdate);
+      _initRenderers();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _renderersInitialized) _onStateUpdate(_callService.state);
+      });
+      return;
+    }
     if (widget.isIncoming && widget.callId != null && widget.remoteUserId != null) {
       _callService.setIncomingCallContext(
         callId: widget.callId!,
@@ -222,12 +235,44 @@ class _CallScreenState extends State<CallScreen> {
         child: Scaffold(
           backgroundColor: _navy,
           body: SafeArea(
-          child: _callService.state.status == CallStatus.ringing && widget.isIncoming
-              ? _buildIncomingLayout()
-              : widget.callType == 'video'
-                  ? _buildVideoLayout()
-                  : _buildAudioLayout(),
-        ),
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                _callService.state.status == CallStatus.ringing && widget.isIncoming
+                    ? _buildIncomingLayout()
+                    : widget.callType == 'video'
+                        ? _buildVideoLayout()
+                        : _buildAudioLayout(),
+                if (_callService.state.status == CallStatus.connected ||
+                    _callService.state.status == CallStatus.connecting)
+                  Positioned(
+                    top: 0,
+                    left: 0,
+                    child: Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        onTap: () {
+                          final pipData = pipDataFromCallScreen(
+                            conversationId: widget.conversationId,
+                            callType: widget.callType,
+                            remoteUserId: widget.remoteUserId,
+                            remoteUserName: widget.remoteUserName,
+                            remoteUserAvatar: widget.remoteUserAvatar,
+                          );
+                          CallPipManager.show(context, pipData);
+                          Navigator.of(context).pop('minimized');
+                        },
+                        borderRadius: BorderRadius.circular(24),
+                        child: const Padding(
+                          padding: EdgeInsets.all(12),
+                          child: Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white, size: 24),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
         ),
       ),
     );

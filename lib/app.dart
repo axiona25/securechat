@@ -33,19 +33,12 @@ class _SecureChatAppState extends State<SecureChatApp>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
-    if (state == AppLifecycleState.paused ||
-        state == AppLifecycleState.detached) {
-      _setUserOffline();
-    } else if (state == AppLifecycleState.resumed) {
+    // Non segnalare offline quando l'app va in background: l'utente resta "online"
+    // finché il WebSocket è aperto o finché non fa logout. Lo stato assente viene
+    // impostato solo al logout esplicito o quando la rete/server disconnette il WS.
+    if (state == AppLifecycleState.resumed) {
       _setUserOnline();
     }
-  }
-
-  Future<void> _setUserOffline() async {
-    if (!ApiService().isAuthenticated) return;
-    try {
-      await ApiService().post('/auth/logout/', body: {});
-    } catch (_) {}
   }
 
   Future<void> _setUserOnline() async {

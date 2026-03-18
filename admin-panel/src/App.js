@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, Fragment } from "react";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area } from "recharts";
@@ -1444,6 +1444,8 @@ function GroupsPage() {
 function MapModal({ device, onClose }) {
   const mapRef = useRef(null);
   const mapInstanceRef = useRef(null);
+  const markerRef = useRef(null);
+  const [currentDevice, setCurrentDevice] = useState(device);
   useEffect(() => {
     const ok = mapRef.current && device;
     if (!ok) return;
@@ -1452,14 +1454,42 @@ function MapModal({ device, onClose }) {
     mapInstanceRef.current = map;
     L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', { subdomains: 'abcd', maxZoom: 19 }).addTo(map);
     const nm = device.user_name.split(' ').map(function(n){ return n[0] || ''; }).join('').substring(0,2).toUpperCase();
-    const mb = 'https://axphone.it/media/';
-    const au = device.user_avatar ? (device.user_avatar.startsWith('http') ? device.user_avatar : mb + device.user_avatar) : null;
+    const mediaBase = 'https://axphone.it/media/';
+    const au = device.user_avatar
+      ? (device.user_avatar.startsWith('http')
+          ? device.user_avatar
+          : device.user_avatar.startsWith('/')
+            ? `https://axphone.it${device.user_avatar}`
+            : `${mediaBase}${device.user_avatar}`)
+      : null;
     const ah = au ? ('<img src="'+au+'" style="width:100%;height:100%;object-fit:cover;border-radius:50%;"/>') : ('<span style="color:white;font-size:18px;font-weight:800;">'+nm+'</span>');
     const pin = '<div style="display:flex;flex-direction:column;align-items:center;"><div style="width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,#2ABFBF,#1FA3A3);border:3px solid white;display:flex;align-items:center;justify-content:center;overflow:hidden;">' + ah + '</div><div style="background:white;border-radius:8px;padding:4px 10px;margin-top:5px;font-size:11px;font-weight:700;color:#1A2B3C;">' + device.user_name + '</div><div style="width:2px;height:10px;background:#2ABFBF;"></div><div style="width:8px;height:8px;border-radius:50%;background:#2ABFBF;"></div></div>';
     const icon = L.divIcon({ html: pin, className: '', iconSize: [130, 110], iconAnchor: [65, 110] });
-    L.marker([device.last_lat, device.last_lng], { icon }).addTo(map);
-    return function() { if (mapInstanceRef.current) { mapInstanceRef.current.remove(); mapInstanceRef.current = null; } };
+    const marker = L.marker([device.last_lat, device.last_lng], { icon }).addTo(map);
+    markerRef.current = marker;
+    return function() { if (mapInstanceRef.current) { mapInstanceRef.current.remove(); mapInstanceRef.current = null; } markerRef.current = null; };
   }, [device]);
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      try {
+        const res = await apiFetch(`/admin/devices/?user_id=${device.user_id}`);
+        const data = await res.json();
+        const updated = Array.isArray(data) ? data.find(d => d.id === device.id) : null;
+        console.log('[MapModal] polling result:', updated?.last_lat, updated?.last_lng);
+        if (updated && updated.last_lat && updated.last_lng) {
+          setCurrentDevice(updated);
+          if (markerRef.current && mapInstanceRef.current) {
+            console.log('[MapModal] updating marker to:', updated.last_lat, updated.last_lng);
+            markerRef.current.setLatLng([updated.last_lat, updated.last_lng]);
+            mapInstanceRef.current.panTo([updated.last_lat, updated.last_lng]);
+          } else {
+            console.log('[MapModal] markerRef or mapRef is null!');
+          }
+        }
+      } catch (e) { console.error('[MapModal] polling error:', e); }
+    }, 10000);
+    return () => clearInterval(interval);
+  }, [device.id, device.user_id]);
   if (!device) return null;
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }} onClick={onClose}>
@@ -1473,8 +1503,11 @@ function MapModal({ device, onClose }) {
         </div>
         <div ref={mapRef} style={{ width: '100%', height: 440 }} />
         <div style={{ padding: '14px 24px', borderTop: '1px solid ' + T.border, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div style={{ fontSize: 13, color: T.textMuted }}><span style={{ fontWeight: 600, color: T.text }}>GPS: </span>{device.last_lat.toFixed(6)}, {device.last_lng.toFixed(6)}</div>
-          <a href={'https://maps.google.com/?q=' + device.last_lat + ',' + device.last_lng} target='_blank' rel='noreferrer' style={{ fontSize: 13, color: T.teal, fontWeight: 600, textDecoration: 'none' }}>Google Maps</a>
+          <div style={{ fontSize: 13, color: T.textMuted }}>
+            <span style={{ fontWeight: 600, color: T.text }}>GPS: </span>
+            {currentDevice.last_lat.toFixed(6)}, {currentDevice.last_lng.toFixed(6)}
+          </div>
+          <a href={'https://maps.google.com/?q=' + currentDevice.last_lat + ',' + currentDevice.last_lng} target='_blank' rel='noreferrer' style={{ fontSize: 13, color: T.teal, fontWeight: 600, textDecoration: 'none' }}>Google Maps</a>
         </div>
       </div>
     </div>
@@ -1489,8 +1522,15 @@ function DevicesPage() {
   const [confirmAction, setConfirmAction] = useState(null);
   const [selectedDevice, setSelectedDevice] = useState(null);
   const [mapDevice, setMapDevice] = useState(null);
+  const [expandedUsers, setExpandedUsers] = useState({});
 
   useEffect(() => { loadDevices(); }, []);
+  useEffect(() => {
+    const interval = setInterval(() => {
+      loadDevices();
+    }, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
   async function loadDevices() {
     try {
@@ -1505,6 +1545,19 @@ function DevicesPage() {
     const matchSearch = (d.user_name + " " + d.user_email + " " + d.device_model + " " + d.device_name).toLowerCase().includes(searchQuery.toLowerCase());
     const matchPlatform = platformFilter === "all" || d.platform === platformFilter;
     return matchSearch && matchPlatform;
+  });
+
+  // Raggruppa dispositivi per utente, ordina per ultimo accesso
+  const groupedByUser = Object.values(
+    filtered.reduce((acc, device) => {
+      const key = device.user_email;
+      if (!acc[key]) acc[key] = [];
+      acc[key].push(device);
+      return acc;
+    }, {})
+  ).map(devices => {
+    const sorted = [...devices].sort((a, b) => new Date(b.last_seen) - new Date(a.last_seen));
+    return { primary: sorted[0], others: sorted.slice(1) };
   });
 
   const handleBlock = (device) => {
@@ -1572,64 +1625,143 @@ function DevicesPage() {
               ))}
             </div>
           </div>
-          <div style={{ fontSize: 13, color: T.textMuted }}>{filtered.length} dispositivi trovati</div>
+          <div style={{ fontSize: 13, color: T.textMuted }}>{groupedByUser.length} utenti trovati</div>
         </div>
         <div style={{ overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr style={{ borderBottom: "1px solid " + T.border }}>
-                {["Utente", "Modello", "Platform", "OS", "Ultimo Accesso", "Posizione GPS", "Stato", ""].map((h, i) => (
+                {["Utente", "Modello", "Versione", "Platform", "OS", "Ultimo Accesso", "Posizione GPS", "Stato", ""].map((h, i) => (
                   <th key={i} style={{ padding: "12px 16px", textAlign: "left", fontSize: 11, fontWeight: 600, color: T.textMuted, textTransform: "uppercase", letterSpacing: "0.5px", whiteSpace: "nowrap" }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={8} style={{ padding: 40, textAlign: "center", color: T.textMuted }}>Caricamento...</td></tr>
-              ) : filtered.length === 0 ? (
-                <tr><td colSpan={8} style={{ padding: 40, textAlign: "center", color: T.textMuted }}>Nessun dispositivo trovato</td></tr>
-              ) : filtered.map(device => (
-                <tr key={device.id} onClick={() => setSelectedDevice(device)} style={{ borderBottom: "1px solid " + T.border, cursor: "pointer", transition: "background 0.15s" }}
-                  onMouseEnter={e => e.currentTarget.style.background = T.bg}
-                  onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                  <td style={{ padding: "14px 16px" }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{device.user_name}</div>
-                    <div style={{ fontSize: 12, color: T.textMuted }}>{device.user_email}</div>
-                  </td>
-                  <td style={{ padding: "14px 16px" }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{device.device_model}</div>
-                    <div style={{ fontSize: 12, color: T.textMuted }}>{device.device_name}</div>
-                  </td>
-                  <td style={{ padding: "14px 16px" }}>
-                    <span style={{ padding: "4px 10px", borderRadius: 6, background: device.platform === "ios" ? T.blue + "15" : T.green + "15", color: device.platform === "ios" ? T.blue : T.green, fontSize: 12, fontWeight: 600 }}>
-                      {device.platform === "ios" ? "iOS" : "Android"}
-                    </span>
-                  </td>
-                  <td style={{ padding: "14px 16px", fontSize: 13, color: T.textMuted }}>{device.os_version}</td>
-                  <td style={{ padding: "14px 16px", fontSize: 13, color: T.textMuted, whiteSpace: "nowrap" }}>
-                    {new Date(device.last_seen).toLocaleString("it-IT", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}
-                  </td>
-                  <td style={{ padding: "14px 16px", fontSize: 13 }}>
-                    {device.last_lat && device.last_lng ? (<button onClick={e => { e.stopPropagation(); setMapDevice(device); }} style={{ background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 6, color: T.teal, fontWeight: 600, fontSize: 13, padding: 0, fontFamily: "inherit" }}><div style={{ width: 30, height: 30, borderRadius: 8, background: T.teal + "15", display: "flex", alignItems: "center", justifyContent: "center" }}><svg width="16" height="16" viewBox="0 0 24 24" fill={T.teal}><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg></div>Mostra</button>) : <span style={{ color: T.textMuted }}>—</span>}
-                  </td>
-                  <td style={{ padding: "14px 16px" }}>
-                    <span style={{ padding: "4px 12px", borderRadius: 20, background: device.is_blocked ? "#FFEBEE" : "#E8F5E9", color: device.is_blocked ? T.red : T.green, fontSize: 12, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 5 }}>
-                      <span style={{ width: 6, height: 6, borderRadius: "50%", background: device.is_blocked ? T.red : T.green }} />
-                      {device.is_blocked ? "Bloccato" : "Attivo"}
-                    </span>
-                  </td>
-                  <td style={{ padding: "14px 8px" }} onClick={e => e.stopPropagation()}>
-                    <div style={{ display: "flex", gap: 6 }}>
-                      <button onClick={() => handleBlock(device)} title={device.is_blocked ? "Sblocca" : "Blocca"} style={{ width: 30, height: 30, borderRadius: 8, border: "1px solid " + T.border, background: "transparent", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: device.is_blocked ? T.green : T.orange, fontFamily: "inherit" }}>
-                        <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d={device.is_blocked ? "M12 17c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm6-9h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6h1.9c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm0 12H6V10h12v10z" : "M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"}/></svg>
-                      </button>
-                      <button onClick={() => handleDelete(device)} title="Rimuovi" style={{ width: 30, height: 30, borderRadius: 8, border: "1px solid " + T.border, background: "transparent", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.red, fontFamily: "inherit" }}>
-                        <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                <tr><td colSpan={9} style={{ padding: 40, textAlign: "center", color: T.textMuted }}>Caricamento...</td></tr>
+              ) : groupedByUser.length === 0 ? (
+                <tr><td colSpan={9} style={{ padding: 40, textAlign: "center", color: T.textMuted }}>Nessun dispositivo trovato</td></tr>
+              ) : groupedByUser.map(({ primary, others }) => {
+                const isExpanded = expandedUsers[primary.user_email];
+                return (
+                  <Fragment key={primary.user_email}>
+                    <tr key={primary.id} onClick={() => setSelectedDevice(primary)} style={{ borderBottom: "1px solid " + T.border, cursor: "pointer", transition: "background 0.15s", background: isExpanded ? T.tealLight : "transparent" }}
+                      onMouseEnter={e => e.currentTarget.style.background = T.bg}
+                      onMouseLeave={e => e.currentTarget.style.background = isExpanded ? T.tealLight : "transparent"}>
+                      <td style={{ padding: "14px 16px" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          {others.length > 0 && (
+                            <button onClick={e => { e.stopPropagation(); setExpandedUsers(prev => ({ ...prev, [primary.user_email]: !prev[primary.user_email] })); }}
+                              style={{ width: 24, height: 24, borderRadius: 6, border: "1px solid " + T.border, background: "transparent", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.teal, flexShrink: 0, transition: "transform 0.2s", transform: isExpanded ? "rotate(90deg)" : "rotate(0deg)", fontFamily: "inherit" }}>
+                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+                            </button>
+                          )}
+                          {others.length === 0 && <div style={{ width: 24 }} />}
+                          <div>
+                            <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{primary.user_name}</div>
+                            <div style={{ fontSize: 12, color: T.textMuted }}>{primary.user_email}</div>
+                            {others.length > 0 && (
+                              <div style={{ fontSize: 11, color: T.teal, fontWeight: 600, marginTop: 2 }}>+{others.length} altro/i dispositivo/i</div>
+                            )}
+                          </div>
+                        </div>
+                      </td>
+                      <td style={{ padding: "14px 16px" }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{primary.device_model}</div>
+                        <div style={{ fontSize: 12, color: T.textMuted }}>{primary.device_name}</div>
+                      </td>
+                      <td style={{ padding: "14px 16px", fontSize: 13, color: T.textMuted }}>
+                        {primary.app_version ? (primary.app_version.includes('+') ? primary.app_version.replace('+', ' (') + ')' : primary.app_version) : "—"}
+                      </td>
+                      <td style={{ padding: "14px 16px" }}>
+                        <span style={{ padding: "4px 10px", borderRadius: 6, background: primary.platform === "ios" ? T.blue + "15" : T.green + "15", color: primary.platform === "ios" ? T.blue : T.green, fontSize: 12, fontWeight: 600 }}>
+                          {primary.platform === "ios" ? "iOS" : "Android"}
+                        </span>
+                      </td>
+                      <td style={{ padding: "14px 16px", fontSize: 13, color: T.textMuted }}>{primary.os_version}</td>
+                      <td style={{ padding: "14px 16px", fontSize: 13, color: T.textMuted, whiteSpace: "nowrap" }}>
+                        {new Date(primary.last_seen).toLocaleString("it-IT", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+                      </td>
+                      <td style={{ padding: "14px 16px", fontSize: 13 }}>
+                        {primary.last_lat && primary.last_lng ? (
+                          <button onClick={e => { e.stopPropagation(); setMapDevice(primary); }} style={{ background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 6, color: T.teal, fontWeight: 600, fontSize: 13, padding: 0, fontFamily: "inherit" }}>
+                            <div style={{ width: 30, height: 30, borderRadius: 8, background: T.teal + "15", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                              <svg width="16" height="16" viewBox="0 0 24 24" fill={T.teal}><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>
+                            </div>Mostra
+                          </button>
+                        ) : <span style={{ color: T.textMuted }}>—</span>}
+                      </td>
+                      <td style={{ padding: "14px 16px" }}>
+                        <span style={{ padding: "4px 12px", borderRadius: 20, background: primary.is_blocked ? "#FFEBEE" : "#E8F5E9", color: primary.is_blocked ? T.red : T.green, fontSize: 12, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 5 }}>
+                          <span style={{ width: 6, height: 6, borderRadius: "50%", background: primary.is_blocked ? T.red : T.green }} />
+                          {primary.is_blocked ? "Bloccato" : "Attivo"}
+                        </span>
+                      </td>
+                      <td style={{ padding: "14px 8px" }} onClick={e => e.stopPropagation()}>
+                        <div style={{ display: "flex", gap: 6 }}>
+                          <button onClick={() => handleBlock(primary)} title={primary.is_blocked ? "Sblocca" : "Blocca"} style={{ width: 30, height: 30, borderRadius: 8, border: "1px solid " + T.border, background: "transparent", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: primary.is_blocked ? T.green : T.orange, fontFamily: "inherit" }}>
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d={primary.is_blocked ? "M12 17c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm6-9h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6h1.9c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm0 12H6V10h12v10z" : "M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"}/></svg>
+                          </button>
+                          <button onClick={() => handleDelete(primary)} title="Rimuovi" style={{ width: 30, height: 30, borderRadius: 8, border: "1px solid " + T.border, background: "transparent", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.red, fontFamily: "inherit" }}>
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+
+                    {isExpanded && others.map(device => (
+                      <tr key={device.id} onClick={() => setSelectedDevice(device)} style={{ borderBottom: "1px solid " + T.border, cursor: "pointer", background: T.tealLight + "80", transition: "background 0.15s" }}
+                        onMouseEnter={e => e.currentTarget.style.background = T.bg}
+                        onMouseLeave={e => e.currentTarget.style.background = T.tealLight + "80"}>
+                        <td style={{ padding: "10px 16px 10px 48px" }}>
+                          <div style={{ fontSize: 12, color: T.textMuted, fontStyle: "italic" }}>↳ stesso account</div>
+                        </td>
+                        <td style={{ padding: "10px 16px" }}>
+                          <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{device.device_model}</div>
+                          <div style={{ fontSize: 12, color: T.textMuted }}>{device.device_name}</div>
+                        </td>
+                        <td style={{ padding: "10px 16px", fontSize: 13, color: T.textMuted }}>
+                          {device.app_version ? (device.app_version.includes('+') ? device.app_version.replace('+', ' (') + ')' : device.app_version) : "—"}
+                        </td>
+                        <td style={{ padding: "10px 16px" }}>
+                          <span style={{ padding: "4px 10px", borderRadius: 6, background: device.platform === "ios" ? T.blue + "15" : T.green + "15", color: device.platform === "ios" ? T.blue : T.green, fontSize: 12, fontWeight: 600 }}>
+                            {device.platform === "ios" ? "iOS" : "Android"}
+                          </span>
+                        </td>
+                        <td style={{ padding: "10px 16px", fontSize: 13, color: T.textMuted }}>{device.os_version}</td>
+                        <td style={{ padding: "10px 16px", fontSize: 13, color: T.textMuted, whiteSpace: "nowrap" }}>
+                          {new Date(device.last_seen).toLocaleString("it-IT", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+                        </td>
+                        <td style={{ padding: "10px 16px", fontSize: 13 }}>
+                          {device.last_lat && device.last_lng ? (
+                            <button onClick={e => { e.stopPropagation(); setMapDevice(device); }} style={{ background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 6, color: T.teal, fontWeight: 600, fontSize: 13, padding: 0, fontFamily: "inherit" }}>
+                              <div style={{ width: 30, height: 30, borderRadius: 8, background: T.teal + "15", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill={T.teal}><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>
+                              </div>Mostra
+                            </button>
+                          ) : <span style={{ color: T.textMuted }}>—</span>}
+                        </td>
+                        <td style={{ padding: "10px 16px" }}>
+                          <span style={{ padding: "4px 12px", borderRadius: 20, background: device.is_blocked ? "#FFEBEE" : "#E8F5E9", color: device.is_blocked ? T.red : T.green, fontSize: 12, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 5 }}>
+                            <span style={{ width: 6, height: 6, borderRadius: "50%", background: device.is_blocked ? T.red : T.green }} />
+                            {device.is_blocked ? "Bloccato" : "Attivo"}
+                          </span>
+                        </td>
+                        <td style={{ padding: "10px 8px" }} onClick={e => e.stopPropagation()}>
+                          <div style={{ display: "flex", gap: 6 }}>
+                            <button onClick={() => handleBlock(device)} title={device.is_blocked ? "Sblocca" : "Blocca"} style={{ width: 30, height: 30, borderRadius: 8, border: "1px solid " + T.border, background: "transparent", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: device.is_blocked ? T.green : T.orange, fontFamily: "inherit" }}>
+                              <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d={device.is_blocked ? "M12 17c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm6-9h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6h1.9c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm0 12H6V10h12v10z" : "M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"}/></svg>
+                            </button>
+                            <button onClick={() => handleDelete(device)} title="Rimuovi" style={{ width: 30, height: 30, borderRadius: 8, border: "1px solid " + T.border, background: "transparent", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.red, fontFamily: "inherit" }}>
+                              <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </Fragment>
+                );
+              })}
             </tbody>
           </table>
         </div>

@@ -459,6 +459,12 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     if (_messages.isNotEmpty) _scrollToBottom();
     await _ensureE2ESession();
     if (!mounted) return;
+    // Precarica sessione E2E in memoria → primo invio istantaneo
+    final otherId = _otherParticipant?.userId;
+    if (otherId != null) {
+      SessionManager().warmupSession(otherId).ignore();
+    }
+    if (!mounted) return;
     await _markAsRead();
     if (mounted) _onMarkedAsRead?.call();
     // Avvia polling DOPO il primo load
@@ -1133,23 +1139,39 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       // Controllo veloce prima della decifratura: salta decifratura e setState se nulla è cambiato
       final quickNewCount = newMessages.length;
       final quickLastId = newMessages.isNotEmpty ? newMessages.last['id']?.toString() : null;
-      final quickOldLastId = _messages.isNotEmpty ? _messages.first['id']?.toString() : null;
-      final hasNewMessages = quickNewCount != _messages.length || quickLastId != quickOldLastId;
+      // Controlla se il messaggio più recente dall'API è già presente in _messages
+      // Non usare oldLastId perché _messages può avere più di 50 messaggi (oltre la paginazione)
+      final hasNewMessages = quickLastId != null &&
+          !_messages.any((m) => m['id']?.toString() == quickLastId);
       bool statusesChanged = false;
       if (!hasNewMessages && newMessages.isNotEmpty) {
-        final newLastStatuses = jsonEncode(newMessages.last['statuses'] ?? []);
-        final oldLastStatuses = jsonEncode(_messages.isNotEmpty ? (_messages.first['statuses'] ?? []) : []);
-        statusesChanged = newLastStatuses != oldLastStatuses;
+        // Confronta solo per ID, non per indice (le due liste hanno lunghezze diverse)
+        for (final newMsg in newMessages) {
+          final id = newMsg['id']?.toString();
+          if (id == null) continue;
+          final existing = _messages.firstWhere(
+            (m) => m['id']?.toString() == id,
+            orElse: () => <String, dynamic>{},
+          );
+          if (existing.isEmpty) continue;
+          if (jsonEncode(existing['statuses'] ?? []) != jsonEncode(newMsg['statuses'] ?? [])) {
+            statusesChanged = true;
+            break;
+          }
+        }
       }
-      debugPrint('[POLL] hasNew=$hasNewMessages, statusChanged=$statusesChanged, newCount=$quickNewCount, oldCount=${_messages.length}, newLastId=$quickLastId, oldLastId=$quickOldLastId');
+      debugPrint('[POLL] hasNew=$hasNewMessages, statusChanged=$statusesChanged, newCount=$quickNewCount, oldCount=${_messages.length}, newLastId=$quickLastId');
       if (!hasNewMessages && !statusesChanged) return;
       if (!hasNewMessages && statusesChanged) {
         if (mounted) {
           setState(() {
-            for (int i = 0; i < newMessages.length; i++) {
-              final idx = _messages.length - 1 - i;
-              if (idx >= 0 && idx < _messages.length) {
-                _messages[idx]['statuses'] = newMessages[i]['statuses'];
+            // Aggiorna solo i messaggi presenti in entrambe le liste, per ID
+            for (final newMsg in newMessages) {
+              final id = newMsg['id']?.toString();
+              if (id == null) continue;
+              final idx = _messages.indexWhere((m) => m['id']?.toString() == id);
+              if (idx >= 0) {
+                _messages[idx]['statuses'] = newMsg['statuses'];
               }
             }
           });
@@ -1185,8 +1207,25 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             msg['content'] = cached;
             continue;
           }
-          // Cache miss: tenta decifratura dal MessageRecipient (self-recipient)
-          // NON continue — proseguire nel flusso di decifratura sotto
+          // Cache miss: cerca nella cache disco
+          final sendCachedSilent = prefsForCacheSilent.getString('scp_msg_cache_$messageId');
+          if (sendCachedSilent != null) {
+            msg['content'] = sendCachedSilent;
+            _sessionManager.cacheSentMessage(messageId, sendCachedSilent);
+            continue;
+          }
+          // Cache miss totale: preserva contenuto esistente in _messages se disponibile
+          final existingMsg = _messages.firstWhere(
+            (m) => m['id']?.toString() == messageId,
+            orElse: () => {},
+          );
+          final existingContent = existingMsg['content']?.toString() ?? '';
+          if (existingContent.isNotEmpty && existingContent != kMessageUndecryptablePlaceholder && existingContent != '🔒 Messaggio cifrato') {
+            msg['content'] = existingContent;
+          } else {
+            msg['content'] = kMessageUndecryptablePlaceholder;
+          }
+          continue;
         }
 
         if (currentUserId == null) {
@@ -1287,6 +1326,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           final existingIds = _messages.map((m) => m['id']?.toString()).toSet();
           final trulyNewMessages = newMessages
               .where((m) => !existingIds.contains(m['id']?.toString()))
+              .where((m) => m['content']?.toString() != kMessageUndecryptablePlaceholder)
               .toList();
 
           if (trulyNewMessages.isNotEmpty) {
@@ -1379,14 +1419,24 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
 
   /// Confronta messaggi: count, ultimo ID, poi statuses (per spunte) — evita confronto profondo.
   bool _hasChanges(List<Map<String, dynamic>> newMessages) {
-    if (newMessages.length != _messages.length) return true;
     if (newMessages.isEmpty) return false;
+    // Non confrontare i conteggi: _messages può avere temp_ e messaggi oltre la paginazione (50)
+    // Controlla solo se l'ultimo messaggio dal server è già presente
     final newLast = newMessages.last['id']?.toString();
-    final oldLast = _messages.isNotEmpty ? _messages.first['id']?.toString() : null;
+    final oldLast = _messages
+        .firstWhere((m) => !m['id'].toString().startsWith('temp_'), orElse: () => {})['id']
+        ?.toString();
     if (newLast != oldLast) return true;
-    for (int i = 0; i < newMessages.length; i++) {
-      final newS = jsonEncode(newMessages[i]['statuses'] ?? []);
-      final oldS = jsonEncode(_messages[newMessages.length - 1 - i]['statuses'] ?? []);
+    // Controlla cambiamenti di status solo sui messaggi presenti in entrambe le liste
+    for (final newMsg in newMessages) {
+      final id = newMsg['id']?.toString();
+      final existing = _messages.firstWhere(
+        (m) => m['id']?.toString() == id,
+        orElse: () => <String, dynamic>{},
+      );
+      if (existing.isEmpty) continue;
+      final newS = jsonEncode(newMsg['statuses'] ?? []);
+      final oldS = jsonEncode(existing['statuses'] ?? []);
       if (newS != oldS) return true;
     }
     return false;
@@ -1557,7 +1607,24 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       if (mounted) {
         newMessages = newMessages.reversed.toList();
         setState(() {
-          _messages = newMessages;
+          // Dedup: evita duplicati quando _messages ha già messaggi arrivati via WebSocket
+          if (_messages.isEmpty) {
+            _messages = newMessages;
+          } else {
+            final existingIds = _messages.map((m) => m['id']?.toString()).toSet();
+            final trulyNew = newMessages.where((m) => !existingIds.contains(m['id']?.toString())).toList();
+            // Aggiorna contenuto messaggi esistenti (es. decifratura)
+            for (final updated in newMessages) {
+              final id = updated['id']?.toString();
+              final idx = _messages.indexWhere((m) => m['id']?.toString() == id);
+              if (idx >= 0 && _messages[idx]['content'] != updated['content']) {
+                _messages[idx] = Map<String, dynamic>.from(updated);
+              }
+            }
+            if (trulyNew.isNotEmpty) {
+              _messages = [...trulyNew, ..._messages];
+            }
+          }
         });
         _preloadAttachmentCaptionsFromPrefs();
         _markAsRead();
@@ -1665,7 +1732,16 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             msg['content'] = cached;
             continue;
           }
-          // Cache miss: tenta decifratura dal MessageRecipient (self-recipient)
+          // Cache miss per messaggio proprio: usa il plaintext dalla cache locale del send
+          final sendCached = prefsForCache.getString('scp_msg_cache_$messageId');
+          if (sendCached != null) {
+            msg['content'] = sendCached;
+            _sessionManager.cacheSentMessage(messageId, sendCached);
+            continue;
+          }
+          // Cache miss totale: non tentare decifratura (non abbiamo sessione self-recipient)
+          msg['content'] = kMessageUndecryptablePlaceholder;
+          continue;
         }
 
         if (currentUserId == null) {
@@ -4264,59 +4340,64 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         body['content'] = savedText;
       }
 
-      // 4. POST al server
-      final response = await ApiService().post(
+      // 4. POST al server — fire and forget, non blocca invii successivi
+      ApiService().post(
         '/chat/conversations/$_conversationId/messages/',
         body: body,
-      );
-      debugPrint('=== SEND RESPONSE: $response ===');
-      if (response != null && response is Map<String, dynamic>) {
-        final messageId = response['id']?.toString();
-        if (messageId != null && body.containsKey('content_encrypted')) {
-          await _sessionManager.cacheSentMessage(messageId, savedText);
-          response['content'] = savedText;
-        }
-        // Sostituisce il messaggio temporaneo con quello reale del server
-        setState(() {
-          final tempIdx = _messages.indexWhere((m) => m['id'] == tempId);
-          if (tempIdx >= 0) {
-            _messages[tempIdx] = Map<String, dynamic>.from(response);
-          } else {
-            _messages.insert(0, Map<String, dynamic>.from(response));
+      ).then((response) async {
+        debugPrint('=== SEND RESPONSE: $response ===');
+        if (response != null && response is Map<String, dynamic>) {
+          final messageId = response['id']?.toString();
+          if (messageId != null && body.containsKey('content_encrypted')) {
+            await _sessionManager.cacheSentMessage(messageId, savedText);
+            response['content'] = savedText;
           }
+          if (!mounted) return;
+          setState(() {
+            final tempIdx = _messages.indexWhere((m) => m['id'] == tempId);
+            if (tempIdx >= 0) {
+              _messages[tempIdx] = Map<String, dynamic>.from(response);
+            } else {
+              _messages.insert(0, Map<String, dynamic>.from(response));
+            }
+          });
+          ChatSoundService().playOutgoing(messageId: messageId);
+          _saveHomePreview(_messages);
+        }
+      }).catchError((e) {
+        debugPrint('=== ERROR SENDING: $e ===');
+        if (e.toString().contains('403') || e.toString().contains('bloccato')) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Sei stato bloccato in questo gruppo. Non puoi inviare messaggi.'),
+                backgroundColor: Colors.red,
+                duration: Duration(seconds: 4),
+              ),
+            );
+          }
+          return null;
+        }
+        if (!mounted) return null;
+        setState(() {
+          _messages.removeWhere((m) => m['id'] == tempId);
         });
-        ChatSoundService().playOutgoing(messageId: messageId);
-        _saveHomePreview(_messages);
-      }
-    } catch (e) {
-      debugPrint('=== ERROR SENDING: $e ===');
-      if (e.toString().contains('403') || e.toString().contains('bloccato')) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('Sei stato bloccato in questo gruppo. Non puoi inviare messaggi.'),
+              content: Text('Invio fallito. Riprova.'),
               backgroundColor: Colors.red,
-              duration: Duration(seconds: 4),
+              duration: Duration(seconds: 3),
             ),
           );
         }
-        return;
-      }
-      // Rimuove messaggio temporaneo in caso di errore e mostra in rosso
-      setState(() {
-        _messages.removeWhere((m) => m['id'] == tempId);
+        return null;
       });
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Invio fallito. Riprova.'),
-            backgroundColor: Colors.red,
-            duration: Duration(seconds: 3),
-          ),
-        );
-      }
+    } catch (e) {
+      debugPrint('=== ERROR PRE-SEND: $e ===');
+      if (!mounted) return;
+      setState(() => _messages.removeWhere((m) => m['id'] == tempId));
       _textController.text = savedText;
-      setState(() {});
     }
   }
 

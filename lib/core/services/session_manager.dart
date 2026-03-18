@@ -152,6 +152,15 @@ class SessionManager {
     return newSession;
   }
 
+  /// Precarica la sessione in memoria per evitare delay al primo invio.
+  Future<void> warmupSession(int otherUserId) async {
+    try {
+      await _getOrCreateSession(otherUserId);
+    } catch (e) {
+      debugPrint('[SessionManager] warmupSession error for user $otherUserId: $e');
+    }
+  }
+
   /// If session has stored remote fingerprint, fetch current bundle and compare. If bundle changed, drop session and return null.
   /// Uses remoteSignedPreKeyPublic (stable) for prekey comparison, not remoteDhPublicKey (updated at each ratchet step).
   Future<_DoubleRatchetSession?> _ensureSessionMatchesRemoteBundle(int otherUserId, _DoubleRatchetSession session) async {
@@ -354,7 +363,7 @@ class SessionManager {
         await clearRehandshakeFlag(otherUserId);
       }
       final session = await _getOrCreateSession(otherUserId);
-      await _remoteLog('[Encrypt] session for peer=$otherUserId '
+      _remoteLog('[Encrypt] session for peer=$otherUserId '
           'remoteDhPub=${base64Encode(session.remoteDhPublicKey ?? Uint8List(0))}');
       final plaintextBytes = Uint8List.fromList(utf8.encode(plaintext));
       final encrypted = session.encrypt(plaintextBytes);
@@ -367,7 +376,7 @@ class SessionManager {
         ...header,
         ...ciphertext,
       ]);
-      await _saveSession(otherUserId, session);
+      _saveSession(otherUserId, session); // fire-and-forget: non blocca la cifratura
       debugPrint('[SessionManager] Message encrypted for user $otherUserId (${combined.length} bytes)');
       return combined;
     } catch (e, st) {

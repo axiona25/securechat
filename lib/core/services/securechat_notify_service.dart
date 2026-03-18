@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
@@ -22,6 +23,7 @@ class SecureChatNotifyService {
       MethodChannel('com.axphone.app/apns');
 
   WebSocketChannel? _wsChannel;
+  StreamSubscription? _connectivitySubscription;
   Timer? _reconnectTimer;
   Timer? _pollingTimer;
   Timer? _heartbeatTimer;
@@ -54,6 +56,7 @@ class SecureChatNotifyService {
     await _requestApnsPermissionsAndToken();
     await _registerDevice();
     _connectWebSocket();
+    _startNetworkMonitoring();
     _apnsChannel.setMethodCallHandler((call) async {
       if (call.method == 'notificationTapped') {
         final conversationId = call.arguments as String?;
@@ -67,6 +70,7 @@ class SecureChatNotifyService {
   Future<void> dispose() async {
     _isInitialized = false;
     _userId = null;
+    _connectivitySubscription?.cancel();
     _reconnectTimer?.cancel();
     _pollingTimer?.cancel();
     _heartbeatTimer?.cancel();
@@ -152,6 +156,22 @@ class SecureChatNotifyService {
     } catch (e) {
       debugPrint('[NotifyService] Errore deregistrazione: $e');
     }
+  }
+
+  void _startNetworkMonitoring() {
+    _connectivitySubscription?.cancel();
+    _connectivitySubscription = Connectivity().onConnectivityChanged.listen((results) {
+      final hasNetwork = results.any((r) => r != ConnectivityResult.none);
+      if (hasNetwork && _isInitialized) {
+        debugPrint('[NotifyService] Network changed — forcing WebSocket reconnect');
+        _reconnectTimer?.cancel();
+        _heartbeatTimer?.cancel();
+        _wsChannel?.sink.close();
+        _wsChannel = null;
+        _isConnected = false;
+        _connectWebSocket();
+      }
+    });
   }
 
   void _connectWebSocket() {

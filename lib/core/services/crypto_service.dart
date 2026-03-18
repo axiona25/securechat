@@ -226,9 +226,13 @@ class CryptoService {
       final prefs = await SharedPreferences.getInstance();
       final appInstalled = prefs.getBool('app_installed') ?? false;
       if (!appInstalled) {
-        // Prima esecuzione dopo installazione/reinstallazione
-        // Cancella tutto il Keychain per evitare chiavi orfane
-        await _secureStorage.deleteAll();
+        final hasKeys = await _secureStorage.read(key: _identityPrivateKey) != null;
+        if (!hasKeys) {
+          await _secureStorage.deleteAll();
+          debugPrint('[CryptoBootstrap] First install: Keychain cleared (no existing keys)');
+        } else {
+          debugPrint('[CryptoBootstrap] app_installed=false but keys already exist — skipping deleteAll');
+        }
         await prefs.setBool('app_installed', true);
       }
 
