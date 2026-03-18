@@ -755,6 +755,27 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
                   }
                   return;
                 }
+                // Decifra il messaggio in arrivo via WS prima di inserirlo
+                final encB64 = (msgData['content_encrypted_b64'] ?? msgData['content_encrypted'])?.toString() ?? '';
+                if (encB64.isNotEmpty && (msgData['content'] == null || msgData['content'].toString().isEmpty)) {
+                  final senderIdRaw = msgData['sender']?['id'] ?? msgData['sender_id'];
+                  final senderIdInt = senderIdRaw is int ? senderIdRaw : (int.tryParse(senderIdRaw?.toString() ?? '') ?? 0);
+                  final currentUserId = _effectiveCurrentUserId;
+                  if (currentUserId != null && senderIdInt.toString() != currentUserId.toString()) {
+                    try {
+                      final combined = base64Decode(encB64);
+                      final decrypted = await _sessionManager.decryptMessage(
+                        senderIdInt,
+                        Uint8List.fromList(combined),
+                        messageId: msgId,
+                      );
+                      if (decrypted.isNotEmpty) {
+                        msgData['content'] = decrypted;
+                        await _sessionManager.cacheSentMessage(msgId, decrypted);
+                      }
+                    } catch (_) {}
+                  }
+                }
                 if (_userIsScrolling) {
                   _pendingMessages.add(msgData);
                   return;
