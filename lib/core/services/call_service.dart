@@ -115,6 +115,7 @@ class CallService {
   bool _disposed = false;
   bool _isConnected = false;
   bool _isConnecting = false;
+  Completer<void>? _connectingCompleter;
   bool _isAccepting = false;
   bool _isCreatingPeerConnection = false;
   final Set<String> _processedEventKeys = {};
@@ -148,8 +149,13 @@ class CallService {
     _remoteLog('[CallService.ensureConnected] called, isConnected=$_isConnected channel=${_channel != null} isConnecting=$_isConnecting');
     if (_channel != null && _isConnected) return;
     if (_disposed) return;
-    if (_isConnecting) return;
+    if (_isConnecting) {
+      // Aspetta che la connessione in corso sia completata
+      await _connectingCompleter?.future;
+      return;
+    }
     _isConnecting = true;
+    _connectingCompleter = Completer<void>();
     try {
       if (_channel != null) {
         _wsPingTimer?.cancel();
@@ -197,6 +203,8 @@ class CallService {
       }
     } finally {
       _isConnecting = false;
+      _connectingCompleter?.complete();
+      _connectingCompleter = null;
     }
   }
 
@@ -682,6 +690,16 @@ class CallService {
 
   void _onCallEnded(Map<String, dynamic> map) {
     debugPrint('[CallService] call.ended received: callId=${map['call_id']}');
+    final wsCallId = normalizeCallId(map['call_id']?.toString());
+    if (wsCallId.isNotEmpty) {
+      try {
+        FlutterCallkitIncoming.endCall(wsCallId);
+      } catch (_) {}
+    } else if (_state.callId != null && _state.callId!.isNotEmpty) {
+      try {
+        FlutterCallkitIncoming.endCall(_state.callId!);
+      } catch (_) {}
+    }
     _isEnded = true;
     final duration = map['duration'];
     int sec = 0;
@@ -1361,7 +1379,9 @@ class CallService {
       CallKitBridge.instance.clear(endedId);
       _nativeAcceptWsSent.remove(endedId);
       // End call in plugin CallManager so next incoming does not see callsInManager=2 (stale).
-      FlutterCallkitIncoming.endCall(endedId);
+      try {
+        FlutterCallkitIncoming.endCall(endedId);
+      } catch (_) {}
     }
     _lastAcceptedCallId = null;
     final localStream = _state.localStream;

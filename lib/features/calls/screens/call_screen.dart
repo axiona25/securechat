@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_callkit_incoming/flutter_callkit_incoming.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
@@ -51,6 +52,7 @@ class _CallScreenState extends State<CallScreen> {
   final CallService _callService = CallService();
   StreamSubscription<CallState>? _stateSub;
   Timer? _durationTimer;
+  Timer? _connectingTimeoutTimer;
   final RTCVideoRenderer _localRenderer = RTCVideoRenderer();
   final RTCVideoRenderer _remoteRenderer = RTCVideoRenderer();
   bool _renderersInitialized = false;
@@ -138,6 +140,21 @@ class _CallScreenState extends State<CallScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _setLightStatusBar();
     });
+    if (!widget.isRejoining && (widget.isIncoming || widget.answeredFromCallKit)) {
+      // Timeout: incoming / CallKit — se resta in connecting o ringing oltre 15s, chiudi (no outgoing)
+      _connectingTimeoutTimer = Timer(const Duration(seconds: 15), () {
+        final status = CallService().state.status;
+        if (status == CallStatus.connecting || status == CallStatus.ringing) {
+          debugPrint('[CallScreen] timeout: call still $status after 15s, ending');
+          CallService().endCall();
+          final kitId = normalizeCallId(CallService().state.callId);
+          if (kitId.isNotEmpty) {
+            FlutterCallkitIncoming.endCall(kitId);
+          }
+          _closeScreen();
+        }
+      });
+    }
   }
 
   static const SystemUiOverlayStyle _lightStatusBarStyle = SystemUiOverlayStyle(
@@ -171,6 +188,7 @@ class _CallScreenState extends State<CallScreen> {
       _localRenderer.srcObject = s.localStream;
     }
     if (s.status == CallStatus.connected) {
+      _connectingTimeoutTimer?.cancel();
       WakelockPlus.enable();
       _startDurationTimer();
     }
@@ -183,6 +201,7 @@ class _CallScreenState extends State<CallScreen> {
       CallSoundService().playRingback();
     }
     if (s.status == CallStatus.connected) {
+      _connectingTimeoutTimer?.cancel();
       CallSoundService().stopAll();
       WakelockPlus.enable();
       _startDurationTimer();
@@ -195,6 +214,7 @@ class _CallScreenState extends State<CallScreen> {
     }
     if (s.status == CallStatus.ended) {
       debugPrint('[CallScreen] Call ended received, closing screen');
+      _connectingTimeoutTimer?.cancel();
       CallSoundService().stopAll();
       WakelockPlus.disable();
       _durationTimer?.cancel();
@@ -258,6 +278,7 @@ class _CallScreenState extends State<CallScreen> {
     ));
     CallSoundService().stopAll();
     WakelockPlus.disable();
+    _connectingTimeoutTimer?.cancel();
     _durationTimer?.cancel();
     _stateSub?.cancel();
     final cid = normalizeCallId(widget.callId);
