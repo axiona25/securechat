@@ -36,8 +36,8 @@ class HomeHeader extends StatelessWidget {
         children: [
           Image.asset(
             AppConstants.imgIcona,
-            width: 40,
-            height: 40,
+            width: 52,
+            height: 52,
             fit: BoxFit.contain,
           ),
           const SizedBox(width: 10),

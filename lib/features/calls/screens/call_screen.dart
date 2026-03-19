@@ -6,6 +6,9 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../../../core/widgets/user_avatar_widget.dart';
+import '../../../core/services/api_service.dart';
+import '../../../core/services/call_kit_bridge.dart';
+import '../../../core/utils/call_id_utils.dart';
 import '../../../core/services/call_service.dart';
 import '../../../core/services/call_sound_service.dart';
 import '../widgets/call_pip_overlay.dart';
@@ -21,6 +24,8 @@ class CallScreen extends StatefulWidget {
   final String? remoteUserAvatar;
   /// When true (e.g. opened after accepting from CallKit), do not start ringtone.
   final bool skipRingingSound;
+  /// True when this route was opened right after native CallKit accept (explicit UX / logs).
+  final bool answeredFromCallKit;
   /// When true, reattach to existing call (e.g. after expanding from PiP).
   final bool isRejoining;
 
@@ -34,6 +39,7 @@ class CallScreen extends StatefulWidget {
     this.remoteUserName,
     this.remoteUserAvatar,
     this.skipRingingSound = false,
+    this.answeredFromCallKit = false,
     this.isRejoining = false,
   });
 
@@ -49,14 +55,45 @@ class _CallScreenState extends State<CallScreen> {
   final RTCVideoRenderer _remoteRenderer = RTCVideoRenderer();
   bool _renderersInitialized = false;
   bool _hasPopped = false;
+  /// True se UI incoming ringing va soppressa (CallKit / skipRingingSound).
+  late final bool _suppressIncomingRingingUi;
+  bool _nativeAcceptFlowScheduled = false;
+  bool _speakerDebugForcedOnce = false;
 
   static const Color _teal = Color(0xFF2ABFBF);
   static const Color _endCallRed = Color(0xFFFF3B30);
   static const Color _navy = Color(0xFF1A2B4A);
 
+  void _registerCallUiWithBridge() {
+    final cid = normalizeCallId(widget.callId);
+    if (cid.isNotEmpty) {
+      CallKitBridge.instance.registerFlutterCallUi(cid);
+    }
+  }
+
   @override
   void initState() {
     super.initState();
+    _registerCallUiWithBridge();
+    final cid = normalizeCallId(widget.callId);
+    final bridgeAnswered = widget.answeredFromCallKit ||
+        (cid.isNotEmpty && CallKitBridge.instance.wasAnswered(cid));
+    _suppressIncomingRingingUi =
+        widget.skipRingingSound || bridgeAnswered;
+    debugPrint(
+      '[CallScreen.initState] isIncoming=${widget.isIncoming} skipRinging=${widget.skipRingingSound} bridgeAnswered=$bridgeAnswered answeredFromCallKit=${widget.answeredFromCallKit} callId=$cid',
+    );
+    ApiService().postLog(
+      '[REMOTE-DEBUG] [CallScreen.initState] isIncoming=${widget.isIncoming} skipRinging=${widget.skipRingingSound} bridgeAnswered=$bridgeAnswered answeredFromCallKit=${widget.answeredFromCallKit} callId=$cid status=${_callService.state.status}',
+    );
+    // Log stato audio all'apertura della schermata
+    Future.delayed(const Duration(seconds: 1), () {
+      final localTracks = _callService.state.localStream?.getAudioTracks() ?? [];
+      final remoteTracks = _callService.state.remoteStream?.getAudioTracks() ?? [];
+      ApiService().postLog(
+        '[REMOTE-DEBUG] [CallScreen] audioCheck localTracks=${localTracks.length} remoteTrack=${remoteTracks.length} localEnabled=${localTracks.map((t) => t.enabled).toList()} remoteEnabled=${remoteTracks.map((t) => t.enabled).toList()} status=${_callService.state.status} isSpeaker=${_callService.state.isSpeakerOn}',
+      );
+    });
     if (widget.isRejoining) {
       // Riattacco a stato e renderer; la chiamata è già attiva.
       _stateSub = _callService.stateStream.listen(_onStateUpdate);
@@ -64,22 +101,38 @@ class _CallScreenState extends State<CallScreen> {
       return;
     }
     if (widget.isIncoming && widget.callId != null && widget.remoteUserId != null) {
-      _callService.setIncomingCallContext(
-        callId: widget.callId!,
-        callType: widget.callType,
-        remoteUserId: widget.remoteUserId!,
-        remoteUserName: widget.remoteUserName,
-        remoteUserAvatar: widget.remoteUserAvatar,
-        conversationId: widget.conversationId,
-      );
-      if (!widget.skipRingingSound) CallSoundService().playRingtone();
+      if (!_suppressIncomingRingingUi) {
+        _callService.setIncomingCallContext(
+          callId: widget.callId!,
+          callType: widget.callType,
+          remoteUserId: widget.remoteUserId!,
+          remoteUserName: widget.remoteUserName,
+          remoteUserAvatar: widget.remoteUserAvatar,
+          conversationId: widget.conversationId,
+        );
+        CallSoundService().playRingtone();
+      }
     } else if (!widget.isIncoming) {
       _callService.initiateCall(widget.conversationId, widget.callType);
-    } else if (widget.isIncoming && !widget.skipRingingSound) {
+    } else if (widget.isIncoming && !_suppressIncomingRingingUi) {
       CallSoundService().playRingtone();
     }
     _stateSub = _callService.stateStream.listen(_onStateUpdate);
-    _initRenderers();
+    if (_suppressIncomingRingingUi && cid.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || _nativeAcceptFlowScheduled) return;
+        _nativeAcceptFlowScheduled = true;
+        ApiService().postLog(
+          '[REMOTE-DEBUG] [CallScreen] entering native-accepted flow callId=$cid',
+        );
+        CallService().onAcceptedFromNative(cid);
+      });
+    }
+    if (_suppressIncomingRingingUi) {
+      _initRenderersAndReattach();
+    } else {
+      _initRenderers();
+    }
     // Status bar con icone bianche su sfondo scuro (chiamata audio/video)
     _setLightStatusBar();
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -207,6 +260,10 @@ class _CallScreenState extends State<CallScreen> {
     WakelockPlus.disable();
     _durationTimer?.cancel();
     _stateSub?.cancel();
+    final cid = normalizeCallId(widget.callId);
+    if (cid.isNotEmpty) {
+      CallKitBridge.instance.unregisterFlutterCallUi(cid);
+    }
     _localRenderer.dispose();
     _remoteRenderer.dispose();
     super.dispose();
@@ -252,7 +309,9 @@ class _CallScreenState extends State<CallScreen> {
             child: Stack(
               fit: StackFit.expand,
               children: [
-                _callService.state.status == CallStatus.ringing && widget.isIncoming
+                _callService.state.status == CallStatus.ringing &&
+                        widget.isIncoming &&
+                        !_suppressIncomingRingingUi
                     ? _buildIncomingLayout()
                     : widget.callType == 'video'
                         ? _buildVideoLayout()

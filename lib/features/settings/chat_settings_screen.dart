@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/services/api_service.dart';
+import '../../core/services/profile_cache_service.dart';
 
 class ChatSettingsScreen extends StatefulWidget {
   const ChatSettingsScreen({super.key});
@@ -29,20 +30,37 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
   }
 
   Future<void> _loadProfile() async {
+    // Carica dalla cache immediatamente
+    final cached = await ProfileCacheService.instance.load();
+    if (cached != null && _profile == null && mounted) {
+      final prefs = await SharedPreferences.getInstance();
+      setState(() {
+        _profile = cached;
+        _theme = _profile?['theme']?.toString() ?? 'light';
+        _notificationsEnabled = _profile?['notifications_enabled'] ?? true;
+        _fontSize = prefs.getDouble(_fontSizeKey) ?? 14.0;
+        _loading = false;
+      });
+    }
+
+    // Poi prova a caricare dal server
     try {
       final response = await ApiService().get('/auth/profile/');
       final prefs = await SharedPreferences.getInstance();
-      if (mounted) {
+      if (response != null && response is Map<String, dynamic> && mounted) {
         setState(() {
-          _profile = response is Map<String, dynamic> ? response : null;
+          _profile = response;
           _theme = _profile?['theme']?.toString() ?? 'light';
           _notificationsEnabled = _profile?['notifications_enabled'] ?? true;
           _fontSize = prefs.getDouble(_fontSizeKey) ?? 14.0;
           _loading = false;
         });
+        await ProfileCacheService.instance.save(response);
+      } else if (mounted) {
+        setState(() => _loading = false);
       }
     } catch (e) {
-      debugPrint('Errore caricamento profilo: $e');
+      debugPrint('Errore caricamento profilo (keeping cached data): $e');
       if (mounted) setState(() => _loading = false);
     }
   }
@@ -75,7 +93,13 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
               onTap: () async {
                 Navigator.pop(ctx);
                 await ApiService().patch('/auth/profile/', body: {'theme': 'light'});
-                if (mounted) setState(() => _theme = 'light');
+                if (mounted) {
+                  setState(() => _theme = 'light');
+                  if (_profile != null) {
+                    _profile!['theme'] = 'light';
+                    await ProfileCacheService.instance.save(_profile!);
+                  }
+                }
               },
             ),
             ListTile(
@@ -84,7 +108,13 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
               onTap: () async {
                 Navigator.pop(ctx);
                 await ApiService().patch('/auth/profile/', body: {'theme': 'dark'});
-                if (mounted) setState(() => _theme = 'dark');
+                if (mounted) {
+                  setState(() => _theme = 'dark');
+                  if (_profile != null) {
+                    _profile!['theme'] = 'dark';
+                    await ProfileCacheService.instance.save(_profile!);
+                  }
+                }
               },
             ),
           ],
@@ -242,6 +272,10 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
                               body: {'notifications_enabled': value},
                             );
                             if (mounted) {
+                              if (_profile != null) {
+                                _profile!['notifications_enabled'] = value;
+                                await ProfileCacheService.instance.save(_profile!);
+                              }
                               ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(
                                   content: const Text('Impostazione aggiornata'),

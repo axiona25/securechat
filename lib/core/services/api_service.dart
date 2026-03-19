@@ -42,6 +42,17 @@ class ApiService {
   String? get refreshToken => _refreshToken;
   bool get isAuthenticated => _accessToken != null;
 
+  /// Log remoto per debug (POST /encryption/debug/log/). Non lancia eccezioni.
+  Future<void> postLog(String message) async {
+    try {
+      await post('/encryption/debug/log/', body: {'message': message}, requiresAuth: true);
+    } catch (_) {
+      try {
+        await post('/encryption/debug/log/', body: {'message': message}, requiresAuth: false);
+      } catch (_) {}
+    }
+  }
+
   /// Estrae il messaggio di errore dal body JSON (Django: non_field_errors, error, detail, email, password).
   static String _extractErrorMessage(Map<String, dynamic> data, {String fallback = 'Request failed'}) {
     if (data['non_field_errors'] != null && data['non_field_errors'] is List && (data['non_field_errors'] as List).isNotEmpty) {

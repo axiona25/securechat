@@ -9,6 +9,7 @@ import 'package:flutter_callkit_incoming/flutter_callkit_incoming.dart';
 import 'core/services/local_notification_service.dart';
 import 'core/services/securechat_notify_service.dart';
 import 'core/services/voip_service.dart';
+import 'core/utils/call_id_utils.dart';
 
 /// Global navigator key for navigation from outside the widget tree (e.g. incoming call).
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
@@ -73,7 +74,7 @@ void _handleOpenFromPush(Map<String, dynamic>? data) {
 }
 
 Future<void> _showCallKitFromPushData(Map<String, dynamic> data) async {
-  final callId = data['callId']?.toString() ?? '';
+  final callId = normalizeCallId(data['callId']?.toString());
   final callerName = data['callerName']?.toString() ?? '';
   final callType = data['callType']?.toString() ?? 'audio';
   final callerUserId = data['callerUserId']?.toString() ?? '';
@@ -89,6 +90,12 @@ Future<void> _showCallKitFromPushData(Map<String, dynamic> data) async {
     textAccept: 'Accetta',
     textDecline: 'Rifiuta',
     duration: 45000,
+    // Stesso ramo incoming: niente configureAudioSession nel plugin; handoff in didActivate (AppDelegate).
+    ios: const IOSParams(
+      iconName: 'CallKitLogo',
+      configureAudioSession: false,
+      audioSessionActive: false,
+    ),
     headers: <String, dynamic>{
       'callerUserId': callerUserId,
       'callId': callId,
@@ -107,6 +114,9 @@ Future<void> initNotifyService(int userId) async {
     if (messageId != null) _shownMessageIds.add(messageId);
   };
   SecureChatNotifyService().onCall = (data) {
+    debugPrint(
+      '[NotifyService] onCall callback triggered (should only happen on Android): ${data['call_id'] ?? 'unknown'}',
+    );
     _showCallKitFromPushData(data);
   };
 }

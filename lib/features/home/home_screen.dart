@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert' show jsonDecode, jsonEncode;
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
@@ -23,6 +24,9 @@ import '../../core/services/avatar_cache_service.dart';
 import '../../core/services/conversation_cache_service.dart';
 import '../../core/services/local_notification_service.dart';
 import '../../core/services/securechat_notify_service.dart';
+import '../../core/services/voip_service.dart';
+import '../../core/services/call_kit_bridge.dart';
+import '../../core/utils/call_id_utils.dart';
 import '../../core/services/device_service.dart';
 import '../../core/routes/app_router.dart';
 import '../../core/widgets/bottom_nav_bar.dart';
@@ -35,6 +39,7 @@ import 'widgets/chat_list_view.dart';
 import 'package:flutter_app_badger/flutter_app_badger.dart';
 import '../settings/settings_screen.dart';
 import '../auth/widgets/change_password_modal.dart';
+import 'package:flutter_callkit_incoming/flutter_callkit_incoming.dart';
 import '../calls/screens/call_screen.dart';
 import '../calls/screens/calls_history_screen.dart';
 import '../security/security_screen.dart';
@@ -73,6 +78,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
   final Set<String> _notifiedMessageIds = {};
   StreamSubscription<CallState>? _incomingCallSub;
   bool _isCallScreenOpen = false;
+  /// Evita doppio postFrameCallback per lo stesso [callId] da `call.incoming`.
+  String? _scheduledIncomingPushForCallId;
   int _missedCallsCount = 0;
   final GlobalKey<CallsHistoryScreenState> _callsHistoryKey = GlobalKey<CallsHistoryScreenState>();
   bool _e2eNeedsManualRecovery = false;
@@ -97,40 +104,163 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
     _connectHomeWebSocket();
     CallService().ensureConnected();
     CallService().startNetworkMonitoring();
-    _incomingCallSub = CallService().onIncomingCall.listen((CallState callState) {
+    // Controlla chiamata pendente da CallKit (cold start)
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await Future.delayed(const Duration(milliseconds: 800));
+
+      // 1. Controlla chiamata pendente da _pendingAcceptedCall
+      final pending = VoipService.getPendingAcceptedCall();
+      await ApiService().postLog('[HomeScreen.initState] pending=$pending nav=${navigatorKey.currentState != null}');
+      if (pending != null && mounted) {
+        await _navigateToCallScreen(pending);
+        return;
+      }
+
+      // 2. Controlla chiamate attive da flutter_callkit_incoming (cold start)
+      try {
+        final activeCalls = await FlutterCallkitIncoming.activeCalls();
+        await ApiService().postLog('[HomeScreen.initState] activeCalls=$activeCalls');
+        if (activeCalls is List && activeCalls.isNotEmpty && mounted) {
+          // Recupera dati chiamata da SharedPreferences
+          final prefs = await SharedPreferences.getInstance();
+          final callDataStr = prefs.getString('pending_call_data');
+          await ApiService().postLog('[HomeScreen.initState] callDataStr=$callDataStr');
+          if (callDataStr != null) {
+            final callData = jsonDecode(callDataStr) as Map<String, dynamic>;
+            await prefs.remove('pending_call_data');
+            await _navigateToCallScreen({
+              'callId': normalizeCallId(callData['callId'] as String?),
+              'callType': callData['callType'] as String? ?? 'audio',
+              'callerUserId': int.tryParse(callData['callerUserId']?.toString() ?? '') ?? 0,
+              'conversationId': callData['conversationId'] as String? ?? '',
+              'callerName': callData['callerName'] as String? ?? '',
+              'avatarUrl': null,
+            });
+          }
+        }
+      } catch (e) {
+        await ApiService().postLog('[HomeScreen.initState] activeCalls error: $e');
+      }
+    });
+    _incomingCallSub = CallService().onIncomingCall.listen((CallState callState) async {
+      final wsCallId = normalizeCallId(callState.callId);
+      if (wsCallId.isNotEmpty && CallKitBridge.instance.wasPresented(wsCallId)) {
+        await ApiService().postLog(
+          '[REMOTE-DEBUG] [HomeScreen._incomingCallSub] skip incoming UI, CallKit already presented callId=$wsCallId',
+        );
+        return;
+      }
+      if (wsCallId.isNotEmpty && CallKitBridge.instance.wasAnswered(wsCallId)) {
+        await ApiService().postLog(
+          '[REMOTE-DEBUG] [HomeScreen._incomingCallSub] skip ringing UI, already answered by CallKit callId=$wsCallId',
+        );
+        return;
+      }
+      if (wsCallId.isNotEmpty && CallKitBridge.instance.wasNavigated(wsCallId)) {
+        await ApiService().postLog(
+          '[REMOTE-DEBUG] [HomeScreen._incomingCallSub] skip, bridge already navigated callId=$wsCallId',
+        );
+        return;
+      }
+      await ApiService().postLog(
+        '[HomeScreen._incomingCallSub] callId=${callState.callId} isCallScreenOpen=$_isCallScreenOpen scheduled=$_scheduledIncomingPushForCallId',
+      );
       if (!mounted || _isCallScreenOpen) return;
       if (callState.isIncoming && callState.status == CallStatus.ringing) {
+        if (wsCallId.isNotEmpty && _scheduledIncomingPushForCallId == wsCallId) {
+          return;
+        }
+        if (wsCallId.isNotEmpty) {
+          _scheduledIncomingPushForCallId = wsCallId;
+        }
         debugPrint('[Home] Incoming call received: callId=${callState.callId}, from=${callState.remoteUserName}');
-        _isCallScreenOpen = true;
 
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!mounted) {
-            _isCallScreenOpen = false;
-            return;
+        WidgetsBinding.instance.addPostFrameCallback((_) async {
+          try {
+            if (!mounted) return;
+
+            final nav = navigatorKey.currentState;
+            if (nav == null) {
+              debugPrint('[Home] ERROR: navigatorKey.currentState is null');
+              return;
+            }
+
+            final cid = normalizeCallId(callState.callId);
+            if (cid.isNotEmpty &&
+                CallKitBridge.instance.isCallUiHandledFor(
+                  cid,
+                  includeNativeAnswered: true,
+                )) {
+              await ApiService().postLog(
+                '[REMOTE-DEBUG] [HomeScreen._incomingCallSub] abort scheduled push, call already handled by CallKit callId=$cid',
+              );
+              return;
+            }
+
+            // iOS: non chiamare setCallConnected — nel plugin mappa a CXAnswerCallAction (secondo accept / errori transaction).
+            // Android: aggiorna stato notifica CallKit senza quel side-effect.
+            try {
+              if (kIsWeb || !Platform.isIOS) {
+                final activeCalls = await FlutterCallkitIncoming.activeCalls();
+                if (activeCalls is List && activeCalls.isNotEmpty) {
+                  for (final call in activeCalls) {
+                    if (call is Map) {
+                      final nid = normalizeCallId(call['id']?.toString());
+                      if (nid.isNotEmpty) {
+                        await ApiService().postLog(
+                          '[REMOTE-DEBUG] [HomeScreen] setCallConnected normalizedId=$nid (foreground Flutter call UI)',
+                        );
+                        await FlutterCallkitIncoming.setCallConnected(nid);
+                      }
+                    }
+                  }
+                }
+              } else {
+                debugPrint(
+                  '[CallKit-iOS] skip setCallConnected on iOS path context=HomeScreen._incomingCallSub callId=$cid',
+                );
+                await ApiService().postLog(
+                  '[CallKit-iOS] skip Home setCallConnected loop (incoming WS+Flutter UI; evita duplicate CXAnswerCallAction)',
+                );
+              }
+            } catch (_) {}
+
+            if (!mounted) return;
+            if (cid.isNotEmpty &&
+                CallKitBridge.instance.isCallUiHandledFor(
+                  cid,
+                  includeNativeAnswered: true,
+                )) {
+              await ApiService().postLog(
+                '[REMOTE-DEBUG] [HomeScreen._incomingCallSub] abort scheduled push, call already handled by CallKit callId=$cid',
+              );
+              return;
+            }
+
+            _isCallScreenOpen = true;
+            // Il Future di push completa al pop: non await; reset flag sul .then
+            nav
+                .push(
+                  MaterialPageRoute(
+                    builder: (_) => CallScreen(
+                      conversationId: callState.conversationId ?? '',
+                      callType: callState.callType ?? 'audio',
+                      isIncoming: true,
+                      callId: callState.callId,
+                      remoteUserId: callState.remoteUserId,
+                      remoteUserName: callState.remoteUserName,
+                      remoteUserAvatar: callState.remoteUserAvatar,
+                    ),
+                  ),
+                )
+                .then((_) {
+                  if (mounted) _isCallScreenOpen = false;
+                });
+          } finally {
+            if (wsCallId.isNotEmpty && _scheduledIncomingPushForCallId == wsCallId) {
+              _scheduledIncomingPushForCallId = null;
+            }
           }
-
-          final nav = navigatorKey.currentState;
-          if (nav == null) {
-            debugPrint('[Home] ERROR: navigatorKey.currentState is null');
-            _isCallScreenOpen = false;
-            return;
-          }
-
-          nav.push(
-            MaterialPageRoute(
-              builder: (_) => CallScreen(
-                conversationId: callState.conversationId ?? '',
-                callType: callState.callType ?? 'audio',
-                isIncoming: true,
-                callId: callState.callId,
-                remoteUserId: callState.remoteUserId,
-                remoteUserName: callState.remoteUserName,
-                remoteUserAvatar: callState.remoteUserAvatar,
-              ),
-            ),
-          ).then((_) {
-            _isCallScreenOpen = false;
-          });
         });
       }
     });
@@ -191,9 +321,126 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
     });
   }
 
+  Future<void> _navigateToCallScreen(Map<String, dynamic> pending) async {
+    final nav = navigatorKey.currentState;
+    if (nav == null || !mounted) return;
+
+    final callId = normalizeCallId(pending['callId'] as String?);
+    final callType = pending['callType'] as String? ?? 'audio';
+    final callerUserId = pending['callerUserId'] as int? ?? 0;
+    final conversationId = pending['conversationId'] as String? ?? '';
+    final callerName = pending['callerName'] as String? ?? '';
+    final avatarUrl = pending['avatarUrl'] as String?;
+
+    if (callId.isEmpty) {
+      await ApiService().postLog('[HomeScreen._navigateToCallScreen] abort empty callId');
+      return;
+    }
+
+    CallService().setIncomingCallContext(
+      callId: callId,
+      callType: callType,
+      remoteUserId: callerUserId,
+      remoteUserName: callerName,
+      remoteUserAvatar: avatarUrl,
+      conversationId: conversationId,
+    );
+    await CallService().onAcceptedFromNative(callId);
+
+    if (callId.isNotEmpty &&
+        CallKitBridge.instance.isCallUiHandledFor(
+          callId,
+          includeNativeAnswered: false,
+        )) {
+      await ApiService().postLog(
+        '[REMOTE-DEBUG] [HomeScreen._navigateToCallScreen] skip push, call UI already handled callId=$callId',
+      );
+      return;
+    }
+
+    nav.push(
+      MaterialPageRoute(
+        builder: (_) => CallScreen(
+          conversationId: conversationId,
+          callType: callType,
+          isIncoming: true,
+          callId: callId,
+          remoteUserId: callerUserId,
+          remoteUserName: callerName,
+          remoteUserAvatar: avatarUrl,
+          skipRingingSound: true,
+          answeredFromCallKit: true,
+        ),
+      ),
+    );
+    if (callId.isNotEmpty) {
+      CallKitBridge.instance.markNavigated(callId);
+    }
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
     if (state == AppLifecycleState.resumed) {
+      // Controlla chiamata pendente da CallKit ogni volta che l'app torna in foreground
+      Future.delayed(const Duration(milliseconds: 300), () async {
+        final pending = VoipService.getPendingAcceptedCall();
+        await ApiService().postLog('[HomeScreen.resumed] pending=$pending nav=${navigatorKey.currentState != null}');
+        if (pending != null && mounted) {
+          await _navigateToCallScreen(Map<String, dynamic>.from(pending));
+        }
+        // Gate per-callId: avvia polling solo se c'è un callId in prefs già answered da CallKit (niente flag globale).
+        final prefs = await SharedPreferences.getInstance();
+        final callDataStr = prefs.getString('pending_call_data');
+        if (callDataStr == null || !mounted) return;
+        try {
+          final callData = jsonDecode(callDataStr) as Map<String, dynamic>;
+          final callId = normalizeCallId(callData['callId'] as String?);
+          if (callId.isEmpty || !CallKitBridge.instance.wasAnswered(callId)) return;
+          await ApiService().postLog('[HomeScreen.resumed] starting prefs-polling for callId=$callId (wasAnswered per-callId)');
+          int attempts = 0;
+          Timer.periodic(const Duration(milliseconds: 300), (timer) async {
+            attempts++;
+            if (attempts > 33) {
+              timer.cancel();
+              return;
+            }
+
+            final prefsLoop = await SharedPreferences.getInstance();
+            final callDataStrLoop = prefsLoop.getString('pending_call_data');
+            if (callDataStrLoop == null) return;
+
+            try {
+              final activeCalls = await FlutterCallkitIncoming.activeCalls();
+              if (activeCalls is! List || activeCalls.isEmpty) {
+                timer.cancel();
+                await prefsLoop.remove('pending_call_data');
+                return;
+              }
+            } catch (_) {}
+
+            final status = CallService().state.status;
+            if (status == CallStatus.connecting || status == CallStatus.connected) {
+              timer.cancel();
+              return;
+            }
+
+            timer.cancel();
+            final callDataLoop = jsonDecode(callDataStrLoop) as Map<String, dynamic>;
+            await prefsLoop.remove('pending_call_data');
+            if (mounted) {
+              await _navigateToCallScreen({
+                'callId': normalizeCallId(callDataLoop['callId'] as String?),
+                'callType': callDataLoop['callType'] as String? ?? 'audio',
+                'callerUserId': int.tryParse(callDataLoop['callerUserId']?.toString() ?? '') ?? 0,
+                'conversationId': callDataLoop['conversationId'] as String? ?? '',
+                'callerName': callDataLoop['callerName'] as String? ?? '',
+                'avatarUrl': null,
+              });
+            }
+          });
+        } catch (_) {}
+      });
       CallService().ensureConnected();
       if (mounted) _loadData();
       _pollingTimer?.cancel();
@@ -360,6 +607,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
                           isMuted: conv.isMuted,
                           isLocked: conv.isLocked,
                           isFavorite: conv.isFavorite,
+                          createdById: conv.createdById,
                           createdAt: conv.createdAt,
                         );
                       }
@@ -383,97 +631,109 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
       setState(() => _isLoading = true);
     }
 
-    final results = await Future.wait([
-      _chatService.getConversations(),
-      _chatService.getCurrentUser(),
-      _chatService.getNotificationBadgeCount(),
-    ]);
+    try {
+      final results = await Future.wait([
+        _chatService.getConversations(),
+        _chatService.getCurrentUser(),
+        _chatService.getNotificationBadgeCount(),
+      ]);
 
-    if (!mounted) return;
+      if (!mounted) return;
 
-    final user = results[1] as UserModel?;
-    if (user != null) {
-      await AuthService.setCurrentUserId(user.id);
-    }
-    final conversations = results[0] as List<ConversationModel>;
-    // E2E: encrypted last message preview — use home preview only if timestamp matches last message
-    final prefs = await SharedPreferences.getInstance();
-    for (final conv in conversations) {
-      if (conv.lastMessage == null) {
-        await prefs.remove('scp_home_preview_${conv.id}');
+      final user = results[1] as UserModel?;
+      if (user != null) {
+        await AuthService.setCurrentUserId(user.id);
       }
-      final wasCleared = prefs.getBool('scp_chat_cleared_${conv.id}') ?? false;
-      if (wasCleared && conv.lastMessage != null) {
-        conv.lastMessage!.content = '';
-        await prefs.remove('scp_chat_cleared_${conv.id}');
-      }
-      final lm = conv.lastMessage;
-      if (lm != null &&
-          lm.contentEncryptedB64 != null &&
-          lm.contentEncryptedB64!.isNotEmpty) {
-        final lastMsgTs = lm.createdAt?.toIso8601String();
-        final raw = prefs.getString('scp_home_preview_${conv.id}');
-        if (raw != null && lastMsgTs != null) {
-          try {
-            final decoded = jsonDecode(raw) as Map<String, dynamic>?;
-            final savedTs = decoded?['ts']?.toString();
-            final content = decoded?['content']?.toString();
-            final cleanContent = (content ?? '').replaceAll('🔒 ', '').replaceAll('🔒', '');
-            if (savedTs == lastMsgTs && cleanContent.isNotEmpty) {
-              lm.content = cleanContent;
-            } else {
+      final conversations = results[0] as List<ConversationModel>;
+      // E2E: encrypted last message preview — use home preview only if timestamp matches last message
+      final prefs = await SharedPreferences.getInstance();
+      for (final conv in conversations) {
+        if (conv.lastMessage == null) {
+          await prefs.remove('scp_home_preview_${conv.id}');
+        }
+        final wasCleared = prefs.getBool('scp_chat_cleared_${conv.id}') ?? false;
+        if (wasCleared && conv.lastMessage != null) {
+          conv.lastMessage!.content = '';
+          await prefs.remove('scp_chat_cleared_${conv.id}');
+        }
+        final lm = conv.lastMessage;
+        if (lm != null &&
+            lm.contentEncryptedB64 != null &&
+            lm.contentEncryptedB64!.isNotEmpty) {
+          final lastMsgTs = lm.createdAt?.toIso8601String();
+          final raw = prefs.getString('scp_home_preview_${conv.id}');
+          if (raw != null && lastMsgTs != null) {
+            try {
+              final decoded = jsonDecode(raw) as Map<String, dynamic>?;
+              final savedTs = decoded?['ts']?.toString();
+              final content = decoded?['content']?.toString();
+              final cleanContent = (content ?? '').replaceAll('🔒 ', '').replaceAll('🔒', '');
+              if (savedTs == lastMsgTs && cleanContent.isNotEmpty) {
+                lm.content = cleanContent;
+              } else {
+                lm.content = '🔒 Messaggio cifrato';
+              }
+            } catch (_) {
               lm.content = '🔒 Messaggio cifrato';
             }
-          } catch (_) {
-            lm.content = '🔒 Messaggio cifrato';
+          } else {
+            lm.content = '';
           }
-        } else {
-          lm.content = '';
         }
       }
-    }
-    if (!mounted) return;
-    setState(() {
-      _conversations = conversations;
-      _currentUser = user;
-      _notificationCount = results[2] as int;
-      _isLoading = false;
-      _isFirstLoad = false;
-    });
-    ConversationCacheService.instance.update(_conversations);
-    _updateAppBadge();
+      if (!mounted) return;
+      setState(() {
+        _conversations = conversations;
+        _currentUser = user;
+        _notificationCount = results[2] as int;
+        _isLoading = false;
+        _isFirstLoad = false;
+      });
+      ConversationCacheService.instance.update(_conversations);
+      _updateAppBadge();
 
-    // Check se deve cambiare password
-    if (_currentUser != null) {
-      try {
-        final token = ApiService().accessToken;
-        final response = await http.get(
-          Uri.parse('${AppConstants.baseUrl}/auth/profile/'),
-          headers: {'Authorization': 'Bearer $token'},
-        );
-        if (response.statusCode == 200) {
-          final profileData = jsonDecode(response.body) as Map<String, dynamic>;
-          if (profileData['must_change_password'] == true && mounted) {
-            showDialog(
-              context: context,
-              barrierDismissible: false,
-              builder: (ctx) => ChangePasswordModal(
-                onPasswordChanged: () {
-                  Navigator.of(ctx).pop();
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Password aggiornata con successo!'),
-                      backgroundColor: Color(0xFF2ABFBF),
-                    ),
-                  );
-                },
-              ),
-            );
+      // Check se deve cambiare password
+      if (_currentUser != null) {
+        try {
+          final token = ApiService().accessToken;
+          final response = await http.get(
+            Uri.parse('${AppConstants.baseUrl}/auth/profile/'),
+            headers: {'Authorization': 'Bearer $token'},
+          );
+          if (response.statusCode == 200) {
+            final profileData = jsonDecode(response.body) as Map<String, dynamic>;
+            if (profileData['must_change_password'] == true && mounted) {
+              showDialog(
+                context: context,
+                barrierDismissible: false,
+                builder: (ctx) => ChangePasswordModal(
+                  onPasswordChanged: () {
+                    Navigator.of(ctx).pop();
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Password aggiornata con successo!'),
+                        backgroundColor: Color(0xFF2ABFBF),
+                      ),
+                    );
+                  },
+                ),
+              );
+            }
           }
+        } catch (e) {
+          debugPrint('Error checking must_change_password: $e');
         }
-      } catch (e) {
-        debugPrint('Error checking must_change_password: $e');
       }
+    } catch (e) {
+      // Network error: mantieni i dati esistenti in memoria
+      debugPrint('[Home] _loadData error (keeping cached data): $e');
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _isFirstLoad = false;
+        });
+      }
+      return;
     }
   }
 
@@ -598,6 +858,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
           isLocked: newConv.isLocked,
           isFavorite: newConv.isFavorite,
           createdAt: newConv.createdAt,
+          createdById: newConv.createdById,
         );
       }).toList();
       bool conversationsChanged = true;
@@ -608,7 +869,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
       });
       ConversationCacheService.instance.update(_conversations);
       _updateAppBadge();
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('[Home] _loadDataSilent error (keeping cached data): $e');
+    }
   }
 
   void _updateAppBadge() {
@@ -1304,6 +1567,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
                           isLocked: conv.isLocked,
                           isFavorite: conv.isFavorite,
                           createdAt: conv.createdAt,
+                          createdById: conv.createdById,
                         );
                         _conversations = List.from(_conversations)..[i] = updated;
                       }
@@ -1345,6 +1609,17 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
                 await _toggleFavorite(conv);
               },
             ),
+            if (conv.isGroup && conv.createdById != _currentUser?.id)
+              _moreActionTile(
+                ctx,
+                Icons.exit_to_app_rounded,
+                'Abbandona Gruppo',
+                Colors.deepOrange,
+                () async {
+                  Navigator.pop(ctx);
+                  _leaveGroup(conv);
+                },
+              ),
             _moreActionTile(
               ctx,
               Icons.delete_forever_outlined,
@@ -1391,6 +1666,47 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
               }
             },
             child: Text(l10n.t('delete')),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _leaveGroup(ConversationModel conv) {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text('Abbandona Gruppo', style: TextStyle(fontWeight: FontWeight.w700)),
+        content: const Text(
+          'Vuoi abbandonare questa chat di gruppo? Non riceverai più messaggi e non potrai rientrare autonomamente.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text(l10n.t('cancel')),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.deepOrange,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            onPressed: () async {
+              Navigator.pop(ctx);
+              setState(() => _conversations.removeWhere((c) => c.id == conv.id));
+              try {
+                await ApiService().post('/chat/conversations/${conv.id}/leave/', body: {});
+              } catch (_) {
+                if (mounted) {
+                  setState(() => _conversations.insert(0, conv));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Errore durante l\'abbandono del gruppo')),
+                  );
+                }
+              }
+            },
+            child: const Text('Abbandona'),
           ),
         ],
       ),
@@ -1533,6 +1849,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
             isLocked: isLocked,
             isFavorite: conv.isFavorite,
             createdAt: conv.createdAt,
+            createdById: conv.createdById,
           );
           _conversations = List.from(_conversations)..[idx] = updated;
         });
@@ -1560,6 +1877,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
             isLocked: conv.isLocked,
             isFavorite: isFavorite,
             createdAt: conv.createdAt,
+            createdById: conv.createdById,
           );
           _conversations = List.from(_conversations)..[idx] = updated;
         });

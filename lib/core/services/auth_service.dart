@@ -9,8 +9,10 @@ import '../constants/app_constants.dart';
 import 'api_service.dart';
 import 'crypto_service.dart';
 import 'device_service.dart';
+import 'profile_cache_service.dart';
 import 'securechat_notify_service.dart';
 import 'session_manager.dart';
+import 'voip_service.dart';
 
 const String _keyCurrentUserId = 'current_user_id';
 
@@ -122,6 +124,7 @@ class AuthService {
         } catch (e) {
           print('[Auth] clearAllSessions check failed: $e');
         }
+        await VoipService.instance.retryVoipTokenRegistration();
         return AuthResult(
           success: true,
           accessToken: access,
@@ -236,6 +239,7 @@ class AuthService {
     _api.clearTokens();
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_keyCurrentUserId);
+    await ProfileCacheService.instance.clear();
   }
 
   /// Refresh access token using refresh token. Call before authenticated requests

@@ -18,6 +18,7 @@ urlpatterns = [
     path('settings/', views.AdminSettingsView.as_view(), name='admin-settings'),
     path('backup/', views.AdminBackupView.as_view(), name='admin-backup'),
     path('test-email/', views.AdminTestEmailView.as_view(), name='admin-test-email'),
+    path('reset-e2e-keys/', views.AdminResetE2EKeysView.as_view(), name='admin-reset-e2e-keys'),
     # E2E check endpoints (conversations, calls, key-bundles)
     path('conversations/', e2e_views.AdminPanelConversationsView.as_view(), name='admin-panel-conversations'),
     path('conversations/<uuid:conversation_id>/messages/', e2e_views.AdminPanelConversationMessagesView.as_view(), name='admin-panel-conversation-messages'),

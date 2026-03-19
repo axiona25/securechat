@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, Fragment } from "react";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area } from "recharts";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, PieChart, Pie, Cell, AreaChart, Area } from "recharts";
 
 const API_BASE = "https://axphone.it/api";
 
@@ -26,6 +26,35 @@ async function apiFetch(path, options = {}) {
   return res;
 }
 
+/** POST stesso endpoint sotto /admin-panel/ o /admin/ (stesso backend Django; alcuni proxy espongono solo uno). */
+async function apiPostAdminEither(relPath, body) {
+  const opts = { method: "POST", body: JSON.stringify(body) };
+  let res = await apiFetch(`/admin-panel/${relPath}`, opts);
+  if (res.status === 404) {
+    res = await apiFetch(`/admin/${relPath}`, opts);
+  }
+  return res;
+}
+
+/** Evita ResponsiveContainer (Recharts 3 può loggare width/height -1 se il parent non è ancora misurato). */
+function useObservedChartWidth(fixedHeight) {
+  const ref = useRef(null);
+  const [width, setWidth] = useState(0);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const measure = () => {
+      const w = el.getBoundingClientRect().width;
+      setWidth(w > 0 ? Math.max(1, Math.floor(w)) : 0);
+    };
+    measure();
+    const ro = new ResizeObserver(() => measure());
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [fixedHeight]);
+  return [ref, width];
+}
+
 const T = {
   teal: "#2ABFBF", tealDark: "#1FA3A3", tealLight: "#E8F8F8",
   navy: "#1A2B3C", navyLight: "#2C3E50", bg: "#F4F7FA",
@@ -37,6 +66,47 @@ const T = {
   shadowHover: "0 4px 20px rgba(42,191,191,0.15)",
   radius: "16px", radiusSm: "12px",
 };
+
+function DashboardMessageTypesPie({ msgData, total }) {
+  const [wrapRef, w] = useObservedChartWidth(240);
+  if (msgData.length === 0) {
+    return (
+      <div style={{ height: 240, display: "flex", alignItems: "center", justifyContent: "center", color: T.textMuted, fontSize: 14 }}>
+        Nessun dato sui tipi di messaggio
+      </div>
+    );
+  }
+  return (
+    <div
+      ref={wrapRef}
+      style={{ width: "100%", minWidth: 0, minHeight: 240, display: "flex", justifyContent: "center", alignItems: "center" }}
+    >
+      {w > 0 ? (
+        <PieChart width={w} height={240}>
+          <Pie
+            data={msgData}
+            cx={w / 2}
+            cy={120}
+            innerRadius={70}
+            outerRadius={110}
+            paddingAngle={4}
+            dataKey="value"
+            stroke="none"
+          >
+            {msgData.map((entry, i) => (
+              <Cell key={i} fill={entry.color} />
+            ))}
+          </Pie>
+          <Tooltip
+            formatter={(v) => [`${v} (${total > 0 ? Math.round((v * 100) / total) : 0}%)`, ""]}
+            contentStyle={{ background: T.navy, border: "none", borderRadius: 10, color: "#fff", fontSize: 13 }}
+            itemStyle={{ color: "#fff" }}
+          />
+        </PieChart>
+      ) : null}
+    </div>
+  );
+}
 
 const messageData = [
   { name: "Lun", messages: 245, encrypted: 230 },
@@ -290,6 +360,7 @@ const groupStatusConfig = {
 function DashboardPage() {
   const [stats, setStats] = useState({ users: 0, groups: 0, chats: 0, calls: 0 });
   const [loading, setLoading] = useState(true);
+  const [areaRef, areaW] = useObservedChartWidth(280);
 
   useEffect(() => {
     async function loadStats() {
@@ -333,9 +404,9 @@ function DashboardPage() {
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 24 }}>
         <ChartCard title="Messaggi nel Tempo" delay={500}>
-          <div style={{ height: 280 }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={messageData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+          <div ref={areaRef} style={{ width: "100%", minWidth: 0, height: 280, minHeight: 280 }}>
+            {areaW > 0 ? (
+              <AreaChart width={areaW} height={280} data={messageData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
                 <defs>
                   <linearGradient id="tealGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={T.teal} stopOpacity={0.3}/><stop offset="95%" stopColor={T.teal} stopOpacity={0}/></linearGradient>
                   <linearGradient id="purpleGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={T.purple} stopOpacity={0.2}/><stop offset="95%" stopColor={T.purple} stopOpacity={0}/></linearGradient>
@@ -347,7 +418,7 @@ function DashboardPage() {
                 <Area type="monotone" dataKey="messages" stroke={T.teal} strokeWidth={2.5} fill="url(#tealGrad)" name="Totali" dot={false} activeDot={{ r: 6, fill: T.teal, stroke: "#fff", strokeWidth: 2 }} />
                 <Area type="monotone" dataKey="encrypted" stroke={T.purple} strokeWidth={2} fill="url(#purpleGrad)" name="Cifrati" dot={false} activeDot={{ r: 5, fill: T.purple, stroke: "#fff", strokeWidth: 2 }} />
               </AreaChart>
-            </ResponsiveContainer>
+            ) : null}
           </div>
           <div style={{ display: "flex", gap: 20, marginTop: 8, justifyContent: "center" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: T.textMuted }}><div style={{ width: 10, height: 10, borderRadius: "50%", background: T.teal }} /> Totali</div>
@@ -373,16 +444,7 @@ function DashboardPage() {
             const total = msgData.reduce((s, d) => s + d.value, 0);
             return (
               <>
-                <div style={{ display: "flex", justifyContent: "center" }}>
-                  <ResponsiveContainer width="100%" height={240}>
-                    <PieChart>
-                      <Pie data={msgData} cx="50%" cy="50%" innerRadius={70} outerRadius={110} paddingAngle={4} dataKey="value" stroke="none">
-                        {msgData.map((entry, i) => <Cell key={i} fill={entry.color} />)}
-                      </Pie>
-                      <Tooltip formatter={(v) => [`${v} (${total > 0 ? Math.round(v*100/total) : 0}%)`, ""]} contentStyle={{ background: T.navy, border: "none", borderRadius: 10, color: "#fff", fontSize: 13 }} itemStyle={{ color: "#fff" }} />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
+                <DashboardMessageTypesPie msgData={msgData} total={total} />
                 <div style={{ display: "flex", gap: 12, justifyContent: "center", marginTop: 4, flexWrap: "wrap" }}>
                   {msgData.map((d, i) => <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12 }}><div style={{ width: 10, height: 10, borderRadius: "50%", background: d.color }} /><span style={{ color: T.textMuted, fontWeight: 500 }}>{d.name}</span><span style={{ color: T.text, fontWeight: 700 }}>{d.value}</span></div>)}
                 </div>
@@ -1833,6 +1895,12 @@ function SettingsPage() {
   const [wipeConfirmText, setWipeConfirmText] = useState("");
   const [wipeResult, setWipeResult] = useState(null);
   const [wipeLoading, setWipeLoading] = useState(false);
+  const [resetKeysLoading, setResetKeysLoading] = useState(false);
+  const [resetKeysResult, setResetKeysResult] = useState(null);
+  const [resetKeysModalOpen, setResetKeysModalOpen] = useState(false);
+  const [resetKeysUsers, setResetKeysUsers] = useState([]);
+  const [resetKeysSelectedUsers, setResetKeysSelectedUsers] = useState(new Set());
+  const [resetKeysLoadingUsers, setResetKeysLoadingUsers] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -1918,6 +1986,67 @@ function SettingsPage() {
       setWipeResult({ ok: false, message: e.message || "Errore di rete" });
     }
     setWipeLoading(false);
+  };
+
+  const handleResetKeys = () => {
+    setResetKeysModalOpen(true);
+    loadResetKeysUsers();
+  };
+
+  const loadResetKeysUsers = async () => {
+    setResetKeysLoadingUsers(true);
+    try {
+      const res = await apiFetch("/admin/users/");
+      const data = await res.json();
+      const usersList = Array.isArray(data) ? data : data.results || [];
+      setResetKeysUsers(usersList);
+    } catch (e) {
+      console.error("Error loading users:", e);
+      setResetKeysUsers([]);
+    }
+    setResetKeysLoadingUsers(false);
+  };
+
+  const handleConfirmResetKeys = async () => {
+    if (resetKeysSelectedUsers.size === 0) {
+      setResetKeysResult({ ok: false, message: "Seleziona almeno un utente" });
+      return;
+    }
+    setResetKeysLoading(true);
+    setResetKeysResult(null);
+    setResetKeysModalOpen(false);
+    try {
+      const userIds = Array.from(resetKeysSelectedUsers);
+      const res = await apiPostAdminEither("reset-e2e-keys/", { user_ids: userIds });
+      const data = await res.json().catch(() => ({}));
+      setResetKeysResult(
+        res.ok
+          ? { ok: true, message: data.message || `Chiavi E2E resettate per ${userIds.length} utente/i` }
+          : { ok: false, message: data.detail || data.error || "Errore" }
+      );
+      setResetKeysSelectedUsers(new Set());
+    } catch (e) {
+      setResetKeysResult({ ok: false, message: e.message || "Errore di rete" });
+    }
+    setResetKeysLoading(false);
+  };
+
+  const toggleSelectAllUsers = () => {
+    if (resetKeysSelectedUsers.size === resetKeysUsers.length) {
+      setResetKeysSelectedUsers(new Set());
+    } else {
+      setResetKeysSelectedUsers(new Set(resetKeysUsers.map(u => u.id)));
+    }
+  };
+
+  const toggleSelectUser = (userId) => {
+    const newSelected = new Set(resetKeysSelectedUsers);
+    if (newSelected.has(userId)) {
+      newSelected.delete(userId);
+    } else {
+      newSelected.add(userId);
+    }
+    setResetKeysSelectedUsers(newSelected);
   };
 
   if (loading) {
@@ -2030,34 +2159,136 @@ function SettingsPage() {
         </ChartCard>
       </div>
 
-      {/* GESTIONE DATABASE */}
+      {/* GESTIONE DATABASE - grid 3 colonne */}
       <div style={{ fontSize: 16, fontWeight: 700, color: T.text, marginBottom: 16 }}>Gestione Database</div>
-      <div style={{ background: T.card, borderRadius: T.radius, padding: 24, boxShadow: T.shadow, border: `2px solid ${T.orange}`, marginBottom: 24 }}>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}>
-          <div>
-            <div style={{ fontSize: 14, fontWeight: 700, color: T.text, marginBottom: 12 }}>Backup Database</div>
-            <button onClick={handleBackup} disabled={backupLoading} style={{ padding: "10px 20px", borderRadius: T.radiusSm, border: `1px solid ${T.teal}`, background: T.teal + "10", color: T.teal, fontSize: 13, fontWeight: 600, cursor: backupLoading ? "wait" : "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", gap: 8 }}>
-              {backupLoading ? <span style={{ width: 16, height: 16, border: "2px solid transparent", borderTopColor: T.teal, borderRadius: "50%", animation: "spin 0.8s linear infinite" }} /> : null}
-              Avvia Backup
-            </button>
-            {backupResult && (
-              <div style={{ marginTop: 12, fontSize: 12, color: backupResult.ok ? T.text : T.red }}>
-                {backupResult.ok ? `File: ${backupResult.file || "—"} · ${backupResult.size_kb != null ? backupResult.size_kb + " KB" : ""} · ${backupResult.timestamp || ""}` : backupResult.message}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 20, marginBottom: 32 }}>
+        <ChartCard title="Backup Database" delay={0}>
+          <div style={{ fontSize: 12, color: T.textMuted, marginBottom: 12 }}>Crea un backup completo del database. Il file verrà salvato e potrà essere utilizzato per ripristinare i dati in caso di necessità.</div>
+          <button onClick={handleBackup} disabled={backupLoading} style={{ padding: "10px 20px", borderRadius: T.radiusSm, border: `1px solid ${T.teal}`, background: T.teal + "10", color: T.teal, fontSize: 13, fontWeight: 600, cursor: backupLoading ? "wait" : "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", gap: 8 }}>
+            {backupLoading ? <span style={{ width: 16, height: 16, border: "2px solid transparent", borderTopColor: T.teal, borderRadius: "50%", animation: "spin 0.8s linear infinite" }} /> : null}
+            Avvia Backup
+          </button>
+          {backupResult && (
+            <div style={{ marginTop: 12, fontSize: 12, color: backupResult.ok ? T.text : T.red }}>
+              {backupResult.ok ? `File: ${backupResult.file || "—"} · ${backupResult.size_kb != null ? backupResult.size_kb + " KB" : ""} · ${backupResult.timestamp || ""}` : backupResult.message}
+            </div>
+          )}
+        </ChartCard>
+
+        <ChartCard title="Wipe Database" delay={0}>
+          <div style={{ fontSize: 12, color: T.textMuted, marginBottom: 12 }}>Questa operazione elimina TUTTI i messaggi, le conversazioni e le chiavi E2E. Azione irreversibile.</div>
+          <input type="text" value={wipeConfirmText} onChange={e => setWipeConfirmText(e.target.value)} placeholder='Digita "ELIMINA TUTTO"' style={{ width: "100%", maxWidth: 280, padding: "8px 12px", borderRadius: 8, border: `1px solid ${T.border}`, fontSize: 13, marginBottom: 10, fontFamily: "inherit", boxSizing: "border-box" }} />
+          <button onClick={handleWipe} disabled={wipeConfirmText !== "ELIMINA TUTTO" || wipeLoading} style={{ padding: "10px 20px", borderRadius: T.radiusSm, border: "none", background: wipeConfirmText === "ELIMINA TUTTO" ? T.red : T.border, color: "#fff", fontSize: 13, fontWeight: 600, cursor: wipeConfirmText === "ELIMINA TUTTO" && !wipeLoading ? "pointer" : "not-allowed", fontFamily: "inherit", display: "flex", alignItems: "center", gap: 8 }}>
+            {wipeLoading ? <span style={{ width: 16, height: 16, border: "2px solid rgba(255,255,255,0.3)", borderTopColor: "#fff", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} /> : null}
+            Svuota Database
+          </button>
+          {wipeResult && <div style={{ marginTop: 12, fontSize: 12, color: wipeResult.ok ? T.green : T.red }}>{wipeResult.message}</div>}
+        </ChartCard>
+
+        <ChartCard title="Reset Chiavi E2E" delay={0}>
+          <div style={{ fontSize: 12, color: T.textMuted, marginBottom: 12 }}>Resetta le chiavi di crittografia E2E per utenti specifici o tutti. Gli utenti dovranno rigenerare le loro chiavi al prossimo accesso.</div>
+          <button onClick={handleResetKeys} disabled={resetKeysLoading} style={{ padding: "10px 20px", borderRadius: T.radiusSm, border: `1px solid ${T.orange}`, background: T.orange + "10", color: T.orange, fontSize: 13, fontWeight: 600, cursor: resetKeysLoading ? "wait" : "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", gap: 8 }}>
+            {resetKeysLoading ? <span style={{ width: 16, height: 16, border: "2px solid transparent", borderTopColor: T.orange, borderRadius: "50%", animation: "spin 0.8s linear infinite" }} /> : null}
+            Reset Chiavi
+          </button>
+          {resetKeysResult && <div style={{ marginTop: 12, fontSize: 12, color: resetKeysResult.ok ? T.green : T.red }}>{resetKeysResult.message}</div>}
+        </ChartCard>
+      </div>
+
+      {/* Modale Reset Chiavi E2E */}
+      {resetKeysModalOpen && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2000 }} onClick={() => setResetKeysModalOpen(false)}>
+          <div style={{ background: T.card, borderRadius: 20, padding: 0, width: 600, maxHeight: "80vh", boxShadow: "0 20px 60px rgba(0,0,0,0.2)", animation: "modalIn 0.2s ease", display: "flex", flexDirection: "column" }} onClick={e => e.stopPropagation()}>
+            <div style={{ padding: "28px 28px 0", flexShrink: 0 }}>
+              <div style={{ fontSize: 18, fontWeight: 800, color: T.text, marginBottom: 8 }}>Reset Chiavi E2E</div>
+              <div style={{ fontSize: 14, color: T.textMuted, lineHeight: 1.5, marginBottom: 16 }}>Seleziona gli utenti per cui resettare le chiavi di crittografia E2E. Gli utenti selezionati dovranno rigenerare le loro chiavi al prossimo accesso.</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16, padding: "12px 16px", background: T.bg, borderRadius: 10 }}>
+                <input
+                  type="checkbox"
+                  checked={resetKeysSelectedUsers.size === resetKeysUsers.length && resetKeysUsers.length > 0}
+                  onChange={toggleSelectAllUsers}
+                  style={{ width: 18, height: 18, cursor: "pointer" }}
+                />
+                <label style={{ fontSize: 14, fontWeight: 600, color: T.text, cursor: "pointer", flex: 1 }} onClick={toggleSelectAllUsers}>
+                  Seleziona tutti ({resetKeysSelectedUsers.size} / {resetKeysUsers.length})
+                </label>
               </div>
-            )}
-          </div>
-          <div style={{ background: T.red + "12", borderRadius: T.radiusSm, padding: 16, border: `1px solid ${T.red}40` }}>
-            <div style={{ fontSize: 14, fontWeight: 700, color: T.text, marginBottom: 8 }}>Wipe Database</div>
-            <div style={{ fontSize: 12, color: T.textMuted, marginBottom: 12 }}>Questa operazione elimina TUTTI i messaggi, le conversazioni e le chiavi E2E. Azione irreversibile.</div>
-            <input type="text" value={wipeConfirmText} onChange={e => setWipeConfirmText(e.target.value)} placeholder='Digita "ELIMINA TUTTO"' style={{ width: "100%", maxWidth: 280, padding: "8px 12px", borderRadius: 8, border: `1px solid ${T.border}`, fontSize: 13, marginBottom: 10, fontFamily: "inherit", boxSizing: "border-box" }} />
-            <button onClick={handleWipe} disabled={wipeConfirmText !== "ELIMINA TUTTO" || wipeLoading} style={{ padding: "10px 20px", borderRadius: T.radiusSm, border: "none", background: wipeConfirmText === "ELIMINA TUTTO" ? T.red : T.border, color: "#fff", fontSize: 13, fontWeight: 600, cursor: wipeConfirmText === "ELIMINA TUTTO" && !wipeLoading ? "pointer" : "not-allowed", fontFamily: "inherit", display: "flex", alignItems: "center", gap: 8 }}>
-              {wipeLoading ? <span style={{ width: 16, height: 16, border: "2px solid rgba(255,255,255,0.3)", borderTopColor: "#fff", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} /> : null}
-              Svuota Database
-            </button>
-            {wipeResult && <div style={{ marginTop: 12, fontSize: 12, color: wipeResult.ok ? T.green : T.red }}>{wipeResult.message}</div>}
+            </div>
+            <div style={{ flex: 1, overflowY: "auto", padding: "0 28px", maxHeight: "50vh" }}>
+              {resetKeysLoadingUsers ? (
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "40px 0", color: T.textMuted }}>
+                  <span style={{ width: 24, height: 24, border: "3px solid " + T.border, borderTopColor: T.orange, borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+                </div>
+              ) : resetKeysUsers.length === 0 ? (
+                <div style={{ padding: "40px 0", textAlign: "center", color: T.textMuted, fontSize: 14 }}>Nessun utente trovato</div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {resetKeysUsers.map((user) => (
+                    <div
+                      key={user.id}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 12,
+                        padding: "12px 16px",
+                        borderRadius: 10,
+                        background: resetKeysSelectedUsers.has(user.id) ? T.orange + "08" : "transparent",
+                        border: `1px solid ${resetKeysSelectedUsers.has(user.id) ? T.orange + "30" : T.border}`,
+                        cursor: "pointer",
+                      }}
+                      onClick={() => toggleSelectUser(user.id)}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={resetKeysSelectedUsers.has(user.id)}
+                        onChange={() => toggleSelectUser(user.id)}
+                        onClick={e => e.stopPropagation()}
+                        style={{ width: 18, height: 18, cursor: "pointer" }}
+                      />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 14, fontWeight: 600, color: T.text, marginBottom: 2 }}>
+                          {user.first_name || user.username} {user.last_name || ""}
+                        </div>
+                        <div style={{ fontSize: 12, color: T.textMuted }}>{user.email}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div style={{ padding: "20px 28px 24px", display: "flex", justifyContent: "flex-end", gap: 10, flexShrink: 0, borderTop: `1px solid ${T.border}` }}>
+              <button
+                onClick={() => {
+                  setResetKeysModalOpen(false);
+                  setResetKeysSelectedUsers(new Set());
+                }}
+                style={{ padding: "10px 20px", borderRadius: 10, border: `1px solid ${T.border}`, background: "transparent", color: T.textMuted, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}
+              >
+                Annulla
+              </button>
+              <button
+                onClick={handleConfirmResetKeys}
+                disabled={resetKeysSelectedUsers.size === 0 || resetKeysLoading}
+                style={{
+                  padding: "10px 24px",
+                  borderRadius: 10,
+                  border: "none",
+                  background: resetKeysSelectedUsers.size === 0 ? T.border : T.orange,
+                  color: resetKeysSelectedUsers.size === 0 ? T.textMuted : "#fff",
+                  fontSize: 14,
+                  fontWeight: 700,
+                  cursor: resetKeysSelectedUsers.size === 0 || resetKeysLoading ? "not-allowed" : "pointer",
+                  fontFamily: "inherit",
+                  boxShadow: resetKeysSelectedUsers.size > 0 ? `0 4px 12px ${T.orange}40` : "none",
+                  opacity: resetKeysSelectedUsers.size === 0 ? 0.5 : 1,
+                }}
+              >
+                {resetKeysLoading ? "Reset in corso..." : `Reset Chiavi (${resetKeysSelectedUsers.size})`}
+              </button>
+            </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

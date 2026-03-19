@@ -125,17 +125,8 @@ class CallSignalingConsumer(AsyncJsonWebsocketConsumer):
                     'group_name': call_data.get('group_name'),
                 })
                 
-                # Send push notification for call
-                try:
-                    from notifications.tasks import send_call_notification
-                    send_call_notification.delay(
-                        recipient_id=participant_id,
-                        caller_id=self.user.id,
-                        call_id=call_data['call_id'],
-                        call_type=call_type,
-                    )
-                except ImportError:
-                    pass
+                # Push notification for calls disabled — VoIP push (PushKit/CallKit)
+                # handles iOS; Android uses _send_android_call_data_for_user above.
         
         # Confirm to caller
         await self.send_json({

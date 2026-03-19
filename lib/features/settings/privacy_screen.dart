@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/services/api_service.dart';
+import '../../core/services/profile_cache_service.dart';
 
 class PrivacyScreen extends StatefulWidget {
   const PrivacyScreen({super.key});
@@ -26,21 +27,33 @@ class _PrivacyScreenState extends State<PrivacyScreen> {
   }
 
   Future<void> _loadProfile() async {
+    // Carica dalla cache immediatamente
+    final cached = await ProfileCacheService.instance.load();
+    if (cached != null && _profile == null && mounted) {
+      setState(() {
+        _profile = cached;
+        _isOnline = cached['is_online'] ?? true;
+        _lastSeenVisible = cached['last_seen_visible'] ?? true;
+        _loading = false;
+      });
+    }
+
+    // Poi prova a caricare dal server
     try {
       final response = await ApiService().get('/auth/profile/');
-      if (response != null && mounted) {
-        final data = response is Map<String, dynamic> ? response : null;
+      if (response != null && response is Map<String, dynamic> && mounted) {
         setState(() {
-          _profile = data;
-          _isOnline = data?['is_online'] ?? true;
-          _lastSeenVisible = data?['last_seen_visible'] ?? true;
+          _profile = response;
+          _isOnline = response['is_online'] ?? true;
+          _lastSeenVisible = response['last_seen_visible'] ?? true;
           _loading = false;
         });
+        await ProfileCacheService.instance.save(response);
       } else if (mounted) {
         setState(() => _loading = false);
       }
     } catch (e) {
-      debugPrint('Errore caricamento profilo: $e');
+      debugPrint('Errore caricamento profilo (keeping cached data): $e');
       if (mounted) setState(() => _loading = false);
     }
   }
@@ -49,6 +62,10 @@ class _PrivacyScreenState extends State<PrivacyScreen> {
     try {
       await ApiService().patch('/auth/profile/', body: {key: value});
       if (mounted) {
+        if (_profile != null) {
+          _profile![key] = value;
+          await ProfileCacheService.instance.save(_profile!);
+        }
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: const Text('Impostazione aggiornata'),

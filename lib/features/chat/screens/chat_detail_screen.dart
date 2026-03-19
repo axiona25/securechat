@@ -2084,7 +2084,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     // Per messaggi di testo, posizione, contatti: condividi come testo
     if (messageType == 'text' || messageType == 'location' || messageType == 'contact') {
       await SharePlus.instance.share(
-        ShareParams(text: content, subject: 'SecureChat'),
+        ShareParams(text: content, subject: 'AXPhone'),
       );
       return;
     }
@@ -2093,7 +2093,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     final attachments = message['attachments'] as List? ?? [];
     if (attachments.isEmpty) {
       await SharePlus.instance.share(
-        ShareParams(text: content, subject: 'SecureChat'),
+        ShareParams(text: content, subject: 'AXPhone'),
       );
       return;
     }
@@ -2133,19 +2133,19 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           ShareParams(
             files: [XFile(fileToShare.path)],
             text: content.isNotEmpty && content != '🔒 Messaggio cifrato' && content != kMessageUndecryptablePlaceholder ? content : null,
-            subject: 'SecureChat',
+            subject: 'AXPhone',
           ),
         );
       } else {
         // Fallback: condividi come testo
         await SharePlus.instance.share(
-          ShareParams(text: content, subject: 'SecureChat'),
+          ShareParams(text: content, subject: 'AXPhone'),
         );
       }
     } catch (e) {
       debugPrint('Share external error: $e');
       await SharePlus.instance.share(
-        ShareParams(text: content, subject: 'SecureChat'),
+        ShareParams(text: content, subject: 'AXPhone'),
       );
     }
   }

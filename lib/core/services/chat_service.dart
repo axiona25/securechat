@@ -14,16 +14,10 @@ class ChatService {
 
   /// GET /api/chat/conversations/ — il backend restituisce una lista JSON diretta [{...}, {...}].
   Future<List<ConversationModel>> getConversations() async {
-    try {
-      final list = await _api.getList('/chat/conversations/');
-      return list
-          .map((e) => ConversationModel.fromJson(e as Map<String, dynamic>))
-          .toList();
-    } on ApiException {
-      return [];
-    } catch (e) {
-      return [];
-    }
+    final list = await _api.getList('/chat/conversations/');
+    return list
+        .map((e) => ConversationModel.fromJson(e as Map<String, dynamic>))
+        .toList();
   }
 
   /// Get a single conversation by id.

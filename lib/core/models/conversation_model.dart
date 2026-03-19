@@ -68,6 +68,7 @@ class ConversationModel {
   final bool isLocked;
   final bool isFavorite;
   final DateTime? createdAt;
+  final int? createdById;
 
   ConversationModel({
     required this.id,
@@ -81,6 +82,7 @@ class ConversationModel {
     this.isLocked = false,
     this.isFavorite = false,
     this.createdAt,
+    this.createdById,
   });
 
   bool get isGroup => convType == 'group';
@@ -256,6 +258,7 @@ class ConversationModel {
       createdAt: json['created_at'] != null
           ? DateTime.tryParse(json['created_at'].toString())
           : null,
+      createdById: json['created_by_id'] as int?,
     );
   }
 }

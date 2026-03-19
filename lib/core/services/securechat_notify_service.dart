@@ -213,7 +213,17 @@ class SecureChatNotifyService {
           _handleMessageNotification(data);
           break;
         case 'call':
-          onCall?.call(data);
+          // Su iOS le chiamate arrivano via VoIP Push / PushKit → CallKit.
+          // Ignorare il path WebSocket per evitare notifiche/CallKit duplicati.
+          final nestedCallId = data['data'] is Map
+              ? (data['data'] as Map)['call_id']
+              : null;
+          debugPrint(
+            '[NotifyService] WS call event ignored on iOS (handled by PushKit/CallKit): callId=${data['call_id'] ?? nestedCallId ?? 'unknown'}',
+          );
+          if (!Platform.isIOS) {
+            onCall?.call(data);
+          }
           break;
         case 'call_event':
         case 'call_status':

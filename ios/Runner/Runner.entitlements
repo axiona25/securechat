@@ -2,11 +2,11 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>aps-environment</key>
-	<string>development</string>
-	<key>keychain-access-groups</key>
-	<array>
-		<string>F28CW3467A.com.axphone.app.e2e</string>
-	</array>
+    <key>aps-environment</key>
+    <string>development</string>
+    <key>keychain-access-groups</key>
+    <array>
+        <string>F28CW3467A.com.axphone.app.e2e</string>
+    </array>
 </dict>
 </plist>

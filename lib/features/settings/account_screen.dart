@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../core/constants/app_constants.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/services/api_service.dart';
+import '../../core/services/profile_cache_service.dart';
 import '../auth/widgets/change_password_modal.dart';
 
 class AccountScreen extends StatefulWidget {
@@ -25,18 +26,29 @@ class _AccountScreenState extends State<AccountScreen> {
   }
 
   Future<void> _loadProfile() async {
+    // Carica dalla cache immediatamente
+    final cached = await ProfileCacheService.instance.load();
+    if (cached != null && _profile == null && mounted) {
+      setState(() {
+        _profile = cached;
+        _loading = false;
+      });
+    }
+
+    // Poi prova a caricare dal server
     try {
       final response = await ApiService().get('/auth/profile/');
-      if (response != null && mounted) {
+      if (response != null && response is Map<String, dynamic> && mounted) {
         setState(() {
-          _profile = response is Map<String, dynamic> ? response : null;
+          _profile = response;
           _loading = false;
         });
+        await ProfileCacheService.instance.save(response);
       } else if (mounted) {
         setState(() => _loading = false);
       }
     } catch (e) {
-      debugPrint('Errore caricamento profilo: $e');
+      debugPrint('Errore caricamento profilo (keeping cached data): $e');
       if (mounted) setState(() => _loading = false);
     }
   }
@@ -75,6 +87,9 @@ class _AccountScreenState extends State<AccountScreen> {
       await ApiService().patch('/auth/profile/', body: {key: result});
       if (mounted) {
         setState(() => _profile = {...?_profile, key: result});
+        if (_profile != null) {
+          await ProfileCacheService.instance.save(_profile!);
+        }
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('$label aggiornato'),

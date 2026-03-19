@@ -111,6 +111,7 @@ class Device:
     websocket: Optional[WebSocket] = None
     ws_conn_id: Optional[str] = None  # OBSERVABILITY: WebSocket connection ID
     device_id_hash: Optional[str] = None  # OBSERVABILITY: Opaque device identifier (SHA256[:16])
+    voip_token: Optional[str] = None  # PushKit VoIP token (iOS only)
 
 @dataclass
 class Notification:
@@ -584,6 +585,63 @@ def _send_apns_sync(
         print(f"   • Tipo eccezione: {type(exc).__name__}")
         stack = traceback.format_exc()
         print(f"   • Stack trace:\n{stack}")
+        return False
+
+
+def _send_voip_apns_httpx(device, call_payload: dict, use_sandbox: bool = True) -> bool:
+    """
+    Invia un VoIP push PushKit con apns-push-type: voip.
+    Questo è l'unico tipo di push che sveglia l'app iOS da stato terminato per le chiamate.
+    Topic: com.axphone.app.voip  (bundle_id + '.voip')
+    """
+    voip_token = getattr(device, 'voip_token', None)
+    if not voip_token:
+        print(f"[VoIP] Nessun voip_token per user={device.user_id}, skip VoIP push")
+        return False
+    import os as _os
+    key_path = _os.getenv('APNS_AUTH_KEY_PATH')
+    key_id   = _os.getenv('APNS_KEY_ID')
+    team_id  = _os.getenv('APNS_TEAM_ID')
+    base_topic = device.apns_topic or _os.getenv('APNS_TOPIC', 'com.axphone.app')
+    voip_topic = base_topic + '.voip'
+    if not all([key_path, key_id, team_id]):
+        print('[VoIP] Credenziali APNS mancanti per VoIP push')
+        return False
+    try:
+        private_key = _load_pem(open(key_path, 'rb').read(), password=None)
+        jwt_token = _pyjwt.encode(
+            {'iss': team_id, 'iat': int(_time_mod.time())},
+            private_key,
+            algorithm='ES256',
+            headers={'kid': key_id},
+        )
+        token = sanitize_apns_token(voip_token)
+        host  = 'api.sandbox.push.apple.com' if use_sandbox else 'api.push.apple.com'
+        hdrs  = {
+            'authorization': 'bearer ' + jwt_token,
+            'apns-topic':    voip_topic,
+            'apns-push-type': 'voip',
+            'apns-priority': '10',
+        }
+        with _httpx.Client(http2=True) as c:
+            r = c.post(
+                'https://' + host + '/3/device/' + token,
+                json=call_payload,
+                headers=hdrs,
+                timeout=10,
+            )
+        if r.status_code == 200:
+            print(f'[VoIP] Push inviato OK user={device.user_id} topic={voip_topic}')
+            return True
+        reason = (r.json().get('reason', '?') if r.content else '?')
+        print(f'[VoIP] Push FAIL status={r.status_code} reason={reason}')
+        if reason == 'BadDeviceToken' and use_sandbox:
+            return _send_voip_apns_httpx(device, call_payload, False)
+        return False
+    except Exception as e:
+        import traceback
+        print(f'[VoIP] Push EXC {e}')
+        traceback.print_exc()
         return False
 
 
@@ -1704,6 +1762,43 @@ async def unregister_device(unregister_data: DeviceUnregister, request: Request)
         print(f"❌ Errore nella disattivazione dispositivo: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
+class VoipTokenRequest(BaseModel):
+    user_id: str
+    device_token: str
+    voip_token: str
+
+
+@app.post("/voip-token")
+async def register_voip_token(data: VoipTokenRequest, request: Request):
+    """Salva il VoIP PushKit token per un dispositivo iOS."""
+    verify_service_key(request)
+    user_id    = str(data.user_id)
+    voip_token = data.voip_token.strip()
+    if not voip_token:
+        raise HTTPException(status_code=400, detail="voip_token vuoto")
+    try:
+        conn   = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE notify_devices SET voip_token=%s, updated_at=CURRENT_TIMESTAMP "
+            "WHERE device_token=%s AND user_id=%s",
+            (voip_token, data.device_token, user_id),
+        )
+        conn.commit()
+        cursor.close()
+        conn.close()
+        # Aggiorna anche la cache in memoria
+        device = devices.get(data.device_token)
+        if device:
+            device.voip_token = voip_token
+        print(f"[VoIP] Token salvato user={user_id} voip={voip_token[:20]}...")
+        return {"status": "ok"}
+    except Exception as e:
+        print(f"[VoIP] Errore salvataggio voip_token: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/cleanup")
 async def cleanup_inactive_devices(request: Request):
     """T2: Cleanup dispositivi inattivi (last_seen più vecchio di N giorni)"""
@@ -2494,6 +2589,10 @@ async def send_notification(notification_data: NotificationRequest, request: Req
         for device in recipient_devices:
             if device.platform.lower() != "ios":
                 continue
+            # Skip APNs for call notifications on iOS — calls use VoIP Push (PushKit/CallKit)
+            if notification_data.notification_type in (NotificationType.CALL, NotificationType.VIDEO_CALL):
+                print(f"📞 APNs skip: call notification for iOS user {device.user_id} — handled by VoIP Push/CallKit")
+                continue
             # FIX_QG5_P0: Invia APNs anche se WebSocket è attivo
             # Questo garantisce notifiche quando l'app è in background o terminated
             # WebSocket funziona solo in foreground, APNs funziona sempre
@@ -2531,6 +2630,35 @@ async def send_notification(notification_data: NotificationRequest, request: Req
             print("")
             notification.data["delivered_via_apns"] = True
             notification.data.setdefault("apns_environment", device.apns_environment)
+            # --- VoIP push per chiamate in arrivo ---
+            # Invia VoIP push (PushKit) se è una chiamata in arrivo.
+            # Il VoIP push è l'unico modo per svegliare l'app da stato terminato.
+            _is_incoming_call = (
+                notification_data.notification_type in (NotificationType.CALL, NotificationType.VIDEO_CALL)
+                and isinstance(notification_data.data, dict)
+                and notification_data.data.get('type') == 'call'
+            )
+            if _is_incoming_call and getattr(device, 'voip_token', None):
+                _d = notification_data.data
+                _voip_payload = {
+                    'callId':         _d.get('call_id', ''),
+                    'callType':       _d.get('call_type', 'audio'),
+                    'callerName':     _d.get('caller_name', ''),
+                    'callerUserId':   str(_d.get('caller_id', '')),
+                    'conversationId': str(_d.get('conversation_id', '')),
+                    'handle':         _d.get('caller_name', ''),
+                }
+                _env_sb = (device.apns_environment or '').lower() in ('sandbox', 'development')
+                _voip_sent = await asyncio.get_running_loop().run_in_executor(
+                    None,
+                    lambda d=device, p=_voip_payload, s=_env_sb: _send_voip_apns_httpx(d, p, s),
+                )
+                if _voip_sent:
+                    print(f"[VoIP] Push consegnato a user={device.user_id}, skip APNs normale")
+                    sent_stats["ios"] += 1
+                    apns_sent_any = True
+                    continue  # VoIP push inviato, salta APNs alert per questa chiamata
+            # --- fine VoIP push ---
             apns_sent = await push_via_apns(device, notification)
             if apns_sent:
                 apns_sent_any = True

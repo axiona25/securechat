@@ -8,6 +8,7 @@ import '../../core/theme/app_colors.dart';
 import '../../core/services/api_service.dart';
 import '../../core/services/auth_service.dart';
 import '../../core/services/avatar_cache_service.dart';
+import '../../core/services/profile_cache_service.dart';
 import '../../core/widgets/user_avatar_widget.dart';
 import '../../core/l10n/app_localizations.dart';
 import '../../core/l10n/locale_provider.dart';
@@ -42,19 +43,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _loadProfile() async {
+    // Carica dalla cache immediatamente
+    final cached = await ProfileCacheService.instance.load();
+    if (cached != null && _profile == null && mounted) {
+      setState(() {
+        _profile = cached;
+        _loading = false;
+      });
+    }
+
+    // Poi prova a caricare dal server
     try {
       final response = await ApiService().get('/auth/profile/');
-      if (response != null) {
+      if (response != null && response is Map<String, dynamic> && mounted) {
         setState(() {
-          _profile = response is Map<String, dynamic> ? response : null;
+          _profile = response;
           _loading = false;
         });
-      } else {
+        await ProfileCacheService.instance.save(response);
+      } else if (mounted) {
         setState(() => _loading = false);
       }
     } catch (e) {
-      debugPrint('Errore caricamento profilo: $e');
-      setState(() => _loading = false);
+      debugPrint('Errore caricamento profilo (keeping cached data): $e');
+      if (mounted) setState(() => _loading = false);
     }
   }
 

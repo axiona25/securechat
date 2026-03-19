@@ -20,7 +20,7 @@ class AppConstants {
   // Assets
   static const String imgSfondo = 'assets/images/sfondo.png';
   static const String imgIcona = 'assets/images/icona.png';
-  static const String imgTestoLogo = 'assets/images/testo_logo.png';
+  static const String imgTestoLogo = 'media/LogoAxphone_Testo.png';
   static const String imgGoogleIcon = 'assets/images/google_icon.png';
   static const String imgAppleIcon = 'assets/images/apple_icon.png';
 
@@ -28,6 +28,6 @@ class AppConstants {
   static const int splashDurationMs = 4000;
 
   // App
-  static const String appName = 'SecureChat';
+  static const String appName = 'AXPhone';
   static const String appTagline = 'Private & Secure Messaging';
 }

@@ -22,6 +22,8 @@ class _SecureChatAppState extends State<SecureChatApp>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // Chiamata pendente da CallKit: gestita da HomeScreen._navigateToCallScreen
+    // (setIncomingCallContext + acceptCall), evitando race con getPendingAcceptedCall.
   }
 
   @override
