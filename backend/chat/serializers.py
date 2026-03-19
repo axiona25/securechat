@@ -147,6 +147,7 @@ class ConversationListSerializer(serializers.ModelSerializer):
     is_favorite = serializers.SerializerMethodField()
     group_name = serializers.SerializerMethodField()
     group_avatar = serializers.SerializerMethodField()
+    created_by_id = serializers.SerializerMethodField()
 
     class Meta:
         model = Conversation
@@ -154,7 +155,7 @@ class ConversationListSerializer(serializers.ModelSerializer):
             'id', 'conv_type', 'last_message', 'participants_info',
             'unread_count', 'is_pinned', 'is_muted', 'is_locked', 'is_favorite',
             'group_name', 'group_avatar',
-            'created_at', 'updated_at',
+            'created_at', 'updated_at', 'created_by_id',
         ]
 
     def get_last_message(self, obj):
@@ -236,6 +237,15 @@ class ConversationListSerializer(serializers.ModelSerializer):
                     return request.build_absolute_uri(group.avatar.url)
                 # Fallback: restituisci URL con dominio hardcoded o solo il path
                 return group.avatar.url
+            return None
+        except Exception:
+            return None
+
+    def get_created_by_id(self, obj):
+        try:
+            group = obj.group_info
+            if group and group.created_by_id:
+                return group.created_by_id
             return None
         except Exception:
             return None

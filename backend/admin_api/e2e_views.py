@@ -326,3 +326,34 @@ class AdminPanelKeyBundlesView(APIView):
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=str(e)
             )
+
+
+class AdminResetE2EKeysView(APIView):
+    """Admin endpoint to reset E2E keys for specific users or all users."""
+    permission_classes = [IsAdminUser]
+
+    def post(self, request):
+        user_ids = request.data.get('user_ids', [])  # empty = all users
+        from encryption.models import UserKeyBundle, OneTimePreKey, E2EKeyBackup, SessionKey
+        from django.contrib.auth import get_user_model
+        User = get_user_model()
+
+        if not user_ids:
+            # Reset all non-staff users
+            users = User.objects.filter(is_staff=False)
+        else:
+            users = User.objects.filter(id__in=user_ids, is_staff=False)
+
+        results = []
+        for user in users:
+            try:
+                bundle_del, _ = UserKeyBundle.objects.filter(user=user).delete()
+                otp_del = OneTimePreKey.objects.filter(user=user).delete()[0]
+                E2EKeyBackup.objects.filter(user=user).delete()
+                SessionKey.objects.filter(user=user).delete()
+                SessionKey.objects.filter(peer=user).delete()
+                results.append({'user_id': user.id, 'username': user.get_full_name() or user.email, 'status': 'ok', 'bundles': bundle_del, 'prekeys': otp_del})
+            except Exception as e:
+                results.append({'user_id': user.id, 'username': user.get_full_name() or user.email, 'status': 'error', 'message': str(e)})
+
+        return Response({'reset_count': len([r for r in results if r['status'] == 'ok']), 'results': results})

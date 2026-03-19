@@ -2,9 +2,10 @@ from django.db.models import Q
 from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
+from django.utils import timezone
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.pagination import CursorPagination
-from .models import Call, CallParticipant, ICEServer
+from .models import Call, CallParticipant, CallParticipant, ICEServer
 from .serializers import CallSerializer, CallLogSerializer
 
 
@@ -21,11 +22,19 @@ class CallLogView(APIView):
         Get call history for current user.
         Filters: ?type=audio|video, ?status=missed|received|made, ?search=name
         """
+        # Exclude calls cleared by this user (cleared_at means hide all calls up to that moment)
+        cleared_at = CallParticipant.objects.filter(
+            user=request.user, cleared_at__isnull=False
+        ).values_list('cleared_at', flat=True).order_by('-cleared_at').first()
+
         calls = Call.objects.filter(
             Q(initiated_by=request.user) | Q(participants__user=request.user)
         ).select_related('initiated_by').prefetch_related(
             'participants__user'
         ).distinct().order_by('-created_at')
+
+        if cleared_at:
+            calls = calls.filter(created_at__gt=cleared_at)
 
         # Filters
         call_type = request.query_params.get('type')
@@ -46,13 +55,10 @@ class CallLogView(APIView):
         return paginator.get_paginated_response(serializer.data)
 
     def delete(self, request):
-        """Elimina tutta la cronologia chiamate dell'utente corrente (stesso effetto di POST log/clear/)."""
-        calls = Call.objects.filter(
-            Q(initiated_by=request.user) | Q(participants__user=request.user)
-        ).distinct()
-        count = calls.count()
-        calls.delete()
-        return Response({'deleted': count})
+        """Nasconde la cronologia chiamate per l'utente corrente (non cancella i record)."""
+        now = timezone.now()
+        count = CallParticipant.objects.filter(user=request.user).update(cleared_at=now)
+        return Response({'cleared': count})
 
 
 class CallDetailView(APIView):
@@ -110,9 +116,6 @@ class CallLogClearView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        calls = Call.objects.filter(
-            Q(initiated_by=request.user) | Q(participants__user=request.user)
-        ).distinct()
-        count = calls.count()
-        calls.delete()
-        return Response({'deleted': count})
+        now = timezone.now()
+        count = CallParticipant.objects.filter(user=request.user).update(cleared_at=now)
+        return Response({'cleared': count})

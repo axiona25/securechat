@@ -60,6 +60,7 @@ class CallParticipant(models.Model):
     is_muted = models.BooleanField(default=False)
     is_video_off = models.BooleanField(default=False)
     is_speaker_on = models.BooleanField(default=False)
+    cleared_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = 'call_participants'

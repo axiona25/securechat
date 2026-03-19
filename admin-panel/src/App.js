@@ -2017,7 +2017,7 @@ function SettingsPage() {
     setResetKeysModalOpen(false);
     try {
       const userIds = Array.from(resetKeysSelectedUsers);
-      const res = await apiPostAdminEither("reset-e2e-keys/", { user_ids: userIds });
+      const res = await apiPostAdminEither("reset-e2e/", { user_ids: userIds });
       const data = await res.json().catch(() => ({}));
       setResetKeysResult(
         res.ok
