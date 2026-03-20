@@ -455,28 +455,11 @@ import flutter_callkit_incoming
     }
   }
 
-  // Mostra notifica anche in foreground (tranne messaggi chat: Flutter/polling)
   override func userNotificationCenter(
     _ center: UNUserNotificationCenter,
     willPresent notification: UNNotification,
     withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
   ) {
-    let ui = notification.request.content.userInfo
-    print("[NATIVE-PUSH] standard APNs received context=willPresent(foreground) payload=\(String(describing: ui))")
-    print("[APNs willPresent] userInfo: \(ui)")
-    print("[APNs willPresent] identifier: \(notification.request.identifier)")
-    let userInfo = notification.request.content.userInfo
-    let isMessageNotification = userInfo["conversation_id"] != nil
-        || (userInfo["type"] as? String) == "message"
-
-    if isMessageNotification {
-      // Notifica di chat: Flutter gestisce il banner tramite polling
-      // Non mostrare il banner APNs in foreground per evitare duplicati
-      completionHandler([.badge])
-      return
-    }
-
-    // Altre notifiche (chiamate, sistema): mostra normalmente
     if #available(iOS 14.0, *) {
       completionHandler([.banner, .badge, .sound])
     } else {

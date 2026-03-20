@@ -49,6 +49,17 @@ class SecureChatNotifyService {
   }
 
   Future<void> init({required int userId}) async {
+    // Guard: se già inizializzato per lo stesso utente, skip
+    if (_isInitialized && _userId == userId) return;
+    // Se inizializzato per un utente diverso, chiudi il WS esistente
+    if (_isInitialized) {
+      _wsChannel?.sink.close();
+      _wsChannel = null;
+      _isConnected = false;
+      _reconnectTimer?.cancel();
+      _heartbeatTimer?.cancel();
+      _pollingTimer?.cancel();
+    }
     _userId = userId;
     _isInitialized = true;
     debugPrint('[NotifyService] Inizializzazione per user $userId');

@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'app.dart';
 import 'core/routes/app_router.dart';
 import 'package:flutter_app_badger/flutter_app_badger.dart';
 import 'package:flutter_callkit_incoming/entities/entities.dart';
 import 'package:flutter_callkit_incoming/flutter_callkit_incoming.dart';
+import 'core/services/api_service.dart';
+import 'core/services/auth_service.dart';
 import 'core/services/local_notification_service.dart';
 import 'core/services/securechat_notify_service.dart';
 import 'core/services/voip_service.dart';
@@ -108,10 +111,22 @@ Future<void> _showCallKitFromPushData(Map<String, dynamic> data) async {
 
 Future<void> initNotifyService(int userId) async {
   await SecureChatNotifyService().init(userId: userId);
+  // Registra APNs token al backend Django per push messaggi
+  try {
+    final apnsToken = await AuthService().getApnsToken();
+    if (apnsToken != null) {
+      await ApiService().post('/auth/apns-token/', body: {'apns_token': apnsToken});
+      debugPrint('[Main] APNs token registrato al backend');
+    }
+  } catch (e) {
+    debugPrint('[Main] APNs token registration at startup failed: $e');
+  }
   SecureChatNotifyService().onMessage = (data) {
+    ApiService().postLog('[Main.onMessage] received: title=${data['title']} body=${data['body']} type=${data['type']} keys=${data.keys.toList()}');
     final messageId = data['message_id']?.toString();
     if (messageId != null && _shownMessageIds.contains(messageId)) return;
     if (messageId != null) _shownMessageIds.add(messageId);
+    // Banner gestito da APNs push di sistema — no LocalNotificationService
   };
   SecureChatNotifyService().onCall = (data) {
     debugPrint(
@@ -129,6 +144,18 @@ void main() async {
 
   // VoIP / CallKit for incoming calls (iOS PushKit, Android)
   await VoipService.instance.init();
+
+  // Init SecureChatNotifyService se utente già loggato
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    final userId = prefs.getInt('current_user_id');
+    if (userId != null) {
+      await initNotifyService(userId);
+      debugPrint('[Main] NotifyService inizializzato per user $userId');
+    }
+  } catch (e) {
+    debugPrint('[Main] NotifyService init failed: $e');
+  }
 
   // Badge: non azzerare qui; Home lo sincronizzerà al primo caricamento
 

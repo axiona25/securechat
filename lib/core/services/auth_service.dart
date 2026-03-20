@@ -1,6 +1,8 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -125,6 +127,16 @@ class AuthService {
           print('[Auth] clearAllSessions check failed: $e');
         }
         await VoipService.instance.retryVoipTokenRegistration();
+        // Registra APNs token per push messaggi
+        try {
+          final apnsToken = await getApnsToken();
+          if (apnsToken != null) {
+            await _api.post('/auth/apns-token/', body: {'apns_token': apnsToken});
+            print('[Auth] APNs token registrato');
+          }
+        } catch (e) {
+          print('[Auth] APNs token registration failed: $e');
+        }
         return AuthResult(
           success: true,
           accessToken: access,
@@ -299,5 +311,17 @@ class AuthService {
     } catch (_) {
       return false;
     }
+  }
+
+  Future<String?> getApnsToken() async {
+    if (!Platform.isIOS) return null;
+    try {
+      const apnsChannel = MethodChannel('com.axphone.app/apns');
+      final token = await apnsChannel.invokeMethod<String>('getApnsToken');
+      return token;
+    } catch (e) {
+      print('[Auth] getAPNSToken error: $e');
+    }
+    return null;
   }
 }
