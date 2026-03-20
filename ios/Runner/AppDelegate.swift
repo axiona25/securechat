@@ -14,6 +14,7 @@ import flutter_callkit_incoming
 /// `didActivateAudioSession` non viene mai invocato (solo la notifica duplicata).
 @main
 @objc class AppDelegate: FlutterAppDelegate, PKPushRegistryDelegate, CallkitIncomingAppDelegate {
+  static var activeConversationId: String? = nil
   var ringtoneTimer: Timer?
   var voipChannel: FlutterMethodChannel?
   var apnsChannel: FlutterMethodChannel?
@@ -215,6 +216,23 @@ import flutter_callkit_incoming
       case "playSystemRingtone": self?.playSystemRingtone(); result(nil)
       case "stopSystemRingtone": self?.stopSystemRingtone(); result(nil)
       default: result(FlutterMethodNotImplemented)
+      }
+    }
+
+    let chatChannel = FlutterMethodChannel(
+      name: "com.axphone.app/chat",
+      binaryMessenger: messenger
+    )
+    chatChannel.setMethodCallHandler { (call, result) in
+      switch call.method {
+      case "setActiveConversation":
+        AppDelegate.activeConversationId = call.arguments as? String
+        result(nil)
+      case "clearActiveConversation":
+        AppDelegate.activeConversationId = nil
+        result(nil)
+      default:
+        result(FlutterMethodNotImplemented)
       }
     }
 
@@ -460,6 +478,14 @@ import flutter_callkit_incoming
     willPresent notification: UNNotification,
     withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
   ) {
+    let userInfo = notification.request.content.userInfo
+    let conversationId = userInfo["conversation_id"] as? String
+    if let activeId = AppDelegate.activeConversationId, let msgConvId = conversationId, activeId == msgConvId {
+      // Utente è nella stessa chat — mostra solo badge, no banner
+      completionHandler([.badge])
+      return
+    }
+    // Altre schermate — mostra banner + badge + sound
     if #available(iOS 14.0, *) {
       completionHandler([.banner, .badge, .sound])
     } else {

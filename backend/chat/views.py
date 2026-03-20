@@ -1,4 +1,5 @@
 import os
+import json
 import re
 import subprocess
 import uuid
@@ -507,7 +508,7 @@ class MessageListView(APIView):
         if not has_legacy_attachment:
             try:
                 channel_layer = get_channel_layer()
-                message_data = MessageSerializer(message, context={'request': request}).data
+                message_data = json.loads(json.dumps(MessageSerializer(message, context={'request': request}).data, default=str))
                 if channel_layer and recipients_encrypted and isinstance(recipients_encrypted, dict):
                     # E2E gruppo: invia a ogni partecipante il suo payload cifrato
                     conversation = message.conversation
@@ -559,6 +560,16 @@ class MessageListView(APIView):
                 'message_type': message_type or 'text',
             }
             send_push_to_conversation_participants(conversation, request.user, push_title, push_body, push_data)
+
+            # APNs push diretto per messaggi (banner di sistema iOS)
+            try:
+                from chat.apns_push import send_message_push
+                participants = conversation.participants.exclude(id=request.user.id)
+                for recipient in participants:
+                    send_message_push(recipient, push_title, push_body, push_data)
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).error("APNs direct push error: %s", e)
         except Exception as e:
             import logging
             logging.getLogger(__name__).error('Push notification error: %s', e)

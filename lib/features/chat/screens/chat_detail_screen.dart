@@ -106,7 +106,8 @@ class ChatDetailScreen extends StatefulWidget {
   State<ChatDetailScreen> createState() => _ChatDetailScreenState();
 }
 
-class _ChatDetailScreenState extends State<ChatDetailScreen> {
+class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBindingObserver {
+  static const _chatChannel = MethodChannel('com.axphone.app/chat');
   final ChatService _chatService = ChatService();
   final TextEditingController _textController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
@@ -197,6 +198,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _sessionManager = SessionManager();
     _scrollController.addListener(_onScrollForScrollToBottomButton);
     _textController.addListener(_onTextChanged);
@@ -217,6 +219,17 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
+      _chatChannel.invokeMethod('clearActiveConversation');
+    } else if (state == AppLifecycleState.resumed) {
+      if (_conversationId != null) {
+        _chatChannel.invokeMethod('setActiveConversation', _conversationId);
+      }
+    }
+  }
+
+  @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (_conversationId == null) {
@@ -231,6 +244,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       _onMarkedAsRead = onMarked is VoidCallback ? onMarked : null;
       if (_conversationId != null) {
         ChatDetailScreen.currentOpenConversationId = _conversationId;
+        _chatChannel.invokeMethod('setActiveConversation', _conversationId);
         _loadConversationAndMessages();
       } else {
         setState(() => _loading = false);
@@ -4187,7 +4201,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     ChatDetailScreen.currentOpenConversationId = null;
+    _chatChannel.invokeMethod('clearActiveConversation');
     // Pulisci future cache per file non più su disco
     _decryptFutureCache.removeWhere((key, _) {
       final cached = ChatDetailScreen._staticDecryptedFileCache[key];

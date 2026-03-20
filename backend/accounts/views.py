@@ -10,7 +10,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework_simplejwt.tokens import RefreshToken
-from PIL import Image
+from PIL import Image, ImageOps
 from io import BytesIO
 from django.core.files.uploadedfile import InMemoryUploadedFile
 import sys
@@ -333,6 +333,7 @@ class AvatarUploadView(APIView):
         try:
             # Resize image
             img = Image.open(avatar_file)
+            img = ImageOps.exif_transpose(img)
             img = img.convert('RGB')
             img.thumbnail((500, 500), Image.LANCZOS)
 
@@ -342,7 +343,8 @@ class AvatarUploadView(APIView):
             buffer.seek(0)
 
             # Create InMemoryUploadedFile
-            file_name = f'avatar_{request.user.id}.jpg'
+            import time
+            file_name = f'avatar_{request.user.id}_{int(time.time())}.jpg'
             resized = InMemoryUploadedFile(
                 buffer, 'avatar', file_name, 'image/jpeg', sys.getsizeof(buffer), None
             )
@@ -364,6 +366,18 @@ class AvatarUploadView(APIView):
         except Exception as e:
             logger.error(f'Avatar upload error: {e}')
             return Response({'error': 'Errore durante il caricamento.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    def delete(self, request):
+        try:
+            if request.user.avatar:
+                request.user.avatar.delete(save=False)
+                request.user.avatar = None
+                request.user.save(update_fields=['avatar'])
+                return Response({'message': 'Avatar rimosso.'}, status=status.HTTP_200_OK)
+            return Response({'message': 'Nessun avatar da rimuovere.'}, status=status.HTTP_200_OK)
+        except Exception as e:
+            logger.error(f'Avatar delete error: {e}')
+            return Response({'error': 'Errore durante la rimozione.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 class ChangePasswordView(APIView):
@@ -458,6 +472,19 @@ class FCMTokenView(APIView):
         return Response({'registered': True}, status=status.HTTP_200_OK)
 
 
+class ApnsTokenView(APIView):
+    """Registra il token APNs per push notifiche messaggi su iOS."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        token = request.data.get("apns_token")
+        if not token:
+            return Response({"error": "apns_token richiesto"}, status=status.HTTP_400_BAD_REQUEST)
+        request.user.apns_token = token
+        request.user.save(update_fields=["apns_token"])
+        return Response({"registered": True}, status=status.HTTP_200_OK)
+
+
 class VoipTokenView(APIView):
     """Registra il token VoIP (PushKit) per chiamate in arrivo su iOS."""
     permission_classes = [IsAuthenticated]
@@ -491,6 +518,7 @@ class DeviceRegisterView(APIView):
                 'device_name': data.get('device_name', ''),
                 'device_model': data.get('device_model', ''),
                 'os_version': data.get('os_version', ''),
+                'app_version': data.get('app_version', ''),
                 'last_lat': data.get('last_lat'),
                 'last_lng': data.get('last_lng'),
             }
@@ -511,6 +539,7 @@ class DeviceListView(APIView):
             'device_name': d.device_name,
             'device_model': d.device_model,
             'os_version': d.os_version,
+            'app_version': d.app_version,
             'last_seen': d.last_seen.isoformat(),
             'last_lat': d.last_lat,
             'last_lng': d.last_lng,

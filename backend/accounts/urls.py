@@ -19,5 +19,9 @@ urlpatterns = [
     path('avatar/', views.AvatarUploadView.as_view(), name='avatar-upload'),
     path('change-password/', views.ChangePasswordView.as_view(), name='change-password'),
     path('fcm-token/', views.FCMTokenView.as_view(), name='fcm-token'),
+    path('apns-token/', views.ApnsTokenView.as_view(), name='apns-token'),
     path('voip-token/', views.VoipTokenView.as_view(), name='voip-token'),
+    path('devices/register/', views.DeviceRegisterView.as_view(), name='device-register'),
+    path('devices/', views.DeviceListView.as_view(), name='device-list'),
+    path('devices/<str:device_id>/', views.DeviceDetailView.as_view(), name='device-detail'),
 ]

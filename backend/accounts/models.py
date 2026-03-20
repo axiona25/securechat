@@ -38,6 +38,7 @@ class User(AbstractUser):
     firebase_token = models.CharField(max_length=500, blank=True, default='')
     fcm_token = models.CharField(max_length=500, null=True, blank=True)
     voip_token = models.CharField(max_length=255, blank=True, null=True)
+    apns_token = models.CharField(max_length=255, blank=True, null=True)
     public_key = models.TextField(blank=True, default='')
 
     # Settings
@@ -104,3 +105,26 @@ class PasswordResetToken(models.Model):
 
     def __str__(self):
         return f'Reset for {self.user.email} - {self.token}'
+
+
+class UserDevice(models.Model):
+    PLATFORM_CHOICES = [('ios', 'iOS'), ('android', 'Android')]
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='devices')
+    device_id = models.CharField(max_length=255)
+    platform = models.CharField(max_length=10, choices=PLATFORM_CHOICES)
+    device_name = models.CharField(max_length=255, blank=True, default='')
+    device_model = models.CharField(max_length=255, blank=True, default='')
+    app_version = models.CharField(max_length=50, default='')
+    os_version = models.CharField(max_length=50, blank=True, default='')
+    last_seen = models.DateTimeField(auto_now=True)
+    last_lat = models.FloatField(null=True, blank=True)
+    last_lng = models.FloatField(null=True, blank=True)
+    is_blocked = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('user', 'device_id')
+
+    def __str__(self):
+        return f'{self.user.email} — {self.platform} {self.device_model} ({self.device_id[:8]}...)'

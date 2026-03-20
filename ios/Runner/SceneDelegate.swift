@@ -85,6 +85,22 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
           result(FlutterMethodNotImplemented)
         }
       }
+      let chatChannel = FlutterMethodChannel(
+        name: "com.axphone.app/chat",
+        binaryMessenger: engine.binaryMessenger
+      )
+      chatChannel.setMethodCallHandler { (call, result) in
+        switch call.method {
+        case "setActiveConversation":
+          AppDelegate.activeConversationId = call.arguments as? String
+          result(nil)
+        case "clearActiveConversation":
+          AppDelegate.activeConversationId = nil
+          result(nil)
+        default:
+          result(FlutterMethodNotImplemented)
+        }
+      }
     }
 
     let vc = FlutterViewController(engine: engine, nibName: nil, bundle: nil)
