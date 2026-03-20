@@ -2355,8 +2355,8 @@ async def send_notification(notification_data: NotificationRequest, request: Req
         # 🔔 CORREZIONE: Verifica se il messaggio è già stato letto PRIMA di inviare via WebSocket
         # Questo evita di mostrare toast per messaggi già letti anche quando la notifica arriva via WebSocket
         should_send_websocket = True
-        if notification_data.notification_type == NotificationType.MESSAGE:
-            message_data = notification_data.data if isinstance(notification_data.data, dict) else {}
+        if notification.notification_type == NotificationType.MESSAGE:
+            message_data = notification_data if isinstance(notification_data, dict) else (notification_data.data if hasattr(notification_data, "data") and isinstance(notification_data.data, dict) else {})
             message_id = message_data.get('message_id')
             chat_id = message_data.get('chat_id')
             
@@ -2404,7 +2404,7 @@ async def send_notification(notification_data: NotificationRequest, request: Req
         # Invia anche tramite WebSocket se disponibile E se il messaggio non è già letto
         if should_send_websocket:
             notification_data_ws = {
-                "type": "notification" if notification_data.notification_type != NotificationType.CHAT_DELETED else "chat_deleted",
+                "type": "notification" if notification.notification_type != NotificationType.CHAT_DELETED else "chat_deleted",
                 "id": notification.id,
                 "title": notification.title,
                 "body": notification.body,
@@ -2481,7 +2481,7 @@ async def send_notification(notification_data: NotificationRequest, request: Req
             
             # FIX_QG5_P0: Decisione chiara su come inviare la notifica
             # Il Notify Server è l'unica source of truth per stato WebSocket
-            notification_type_str = notification_data.notification_type.value if hasattr(notification_data.notification_type, 'value') else str(notification_data.notification_type)
+            notification_type_str = notification.notification_type.value if hasattr(notification.notification_type, "value") else str(notification.notification_type)
             
             print("")
             print("=" * 80)
@@ -2578,6 +2578,12 @@ async def send_notification(notification_data: NotificationRequest, request: Req
         # - WS non attivo → DECISION: APNS_NO_WS (solo APNs)
         # Nota: Non possiamo sapere con certezza se l'app è in foreground/background,
         # quindi inviamo sempre APNs se disponibile per garantire copertura completa
+        # ============================================================
+        # APNs push ora gestito da Django (chat/apns_push.py)
+        # Notify server gestisce solo WebSocket real-time
+        # Skip intero blocco APNs/FCM
+        # ============================================================
+        return {"status": "success", "delivered_ws": locals().get("delivered_ws", False), "apns_skipped": True, "reason": "APNs handled by Django"}
         notification.data["delivered_via_apns"] = False
         apns_sent_any = False
         missing_apns: List[str] = []
@@ -2590,7 +2596,7 @@ async def send_notification(notification_data: NotificationRequest, request: Req
             if device.platform.lower() != "ios":
                 continue
             # Skip APNs for call notifications on iOS — calls use VoIP Push (PushKit/CallKit)
-            if notification_data.notification_type in (NotificationType.CALL, NotificationType.VIDEO_CALL):
+            if notification.notification_type in (NotificationType.CALL, NotificationType.VIDEO_CALL):
                 print(f"📞 APNs skip: call notification for iOS user {device.user_id} — handled by VoIP Push/CallKit")
                 continue
             # FIX_QG5_P0: Invia APNs anche se WebSocket è attivo
@@ -2634,7 +2640,7 @@ async def send_notification(notification_data: NotificationRequest, request: Req
             # Invia VoIP push (PushKit) se è una chiamata in arrivo.
             # Il VoIP push è l'unico modo per svegliare l'app da stato terminato.
             _is_incoming_call = (
-                notification_data.notification_type in (NotificationType.CALL, NotificationType.VIDEO_CALL)
+                notification.notification_type in (NotificationType.CALL, NotificationType.VIDEO_CALL)
                 and isinstance(notification_data.data, dict)
                 and notification_data.data.get('type') == 'call'
             )
@@ -2702,7 +2708,6 @@ async def send_notification(notification_data: NotificationRequest, request: Req
                 )
                 log_debug(f"APNs fallito per device {device.device_token[:12]}... user {device.user_id}")
 
-        if not apns_sent_any:
             notification.data["delivered_via_apns"] = False
         if missing_apns:
             print(f"⚠️ APNs - {len(missing_apns)} dispositivi iOS senza token (es. {missing_apns[0]}...), push saltata")
@@ -2792,9 +2797,9 @@ async def send_notification(notification_data: NotificationRequest, request: Req
         if missing_fcm:
             print(f"⚠️ FCM - {len(missing_fcm)} dispositivi Android senza token (es. {missing_fcm[0]}...), push saltata")
         
-        print(f"📤 Notifica inviata a {notification_data.recipient_id}: {notification_data.title}")
-        print(f"📤 Tipo: {notification_data.notification_type}")
-        print(f"📤 Contenuto: {notification_data.body}")
+        print(f"📤 Notifica inviata a {notification.recipient_id}: {notification.title}")
+        print(f"📤 Tipo: {notification.notification_type}")
+        print(f"📤 Contenuto: {notification.body}")
         log_debug(f"Invio completato per {recipient_user_id}: badge={badge_count}, websocket_active={websocket_active}, apns_sent={apns_sent_any}")
         
         # Pulisci notifiche vecchie
@@ -2810,7 +2815,7 @@ async def send_notification(notification_data: NotificationRequest, request: Req
         }
         
     except Exception as e:
-        print(f"❌ Errore nell'invio notifica: {e}")
+        import traceback; print(f"❌ Errore nell'invio notifica: {e}"); traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 
