@@ -68,6 +68,7 @@ services:
 
   redis:
     image: redis:7-alpine
+    command: redis-server --save "" --appendonly no
     container_name: securechat_redis
     ports:
       - "6379:6379"
@@ -90,6 +91,8 @@ services:
       - ./nginx/conf.d:/etc/nginx/conf.d
       - static_data:/app/staticfiles
       - media_data:/app/media
+      - ./admin-panel/build:/opt/axphone/admin-panel/build:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
     depends_on:
       - web
       - notify-server
@@ -112,6 +115,7 @@ services:
       APNS_TEAM_ID: F28CW3467A
       APNS_TOPIC: com.axphone.app
       APNS_USE_SANDBOX: "false"
+      VOIP_USE_SANDBOX: "false"
 
       # FCM — Android
       FCM_CREDENTIALS_PATH: /app/secrets/firebase-service-account.json

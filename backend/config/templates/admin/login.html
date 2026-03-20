@@ -1,0 +1,11 @@
+{% extends "admin/login.html" %}
+{% load static %}
+
+{% block branding %}
+<h1 id="site-name">
+    <a href="{% url 'admin:index' %}">
+        <img src="{% static 'admin/img/logo.png' %}" alt="AXPHONE" style="height: 40px; margin-right: 10px; vertical-align: middle;" />
+        <span style="vertical-align: middle;">AXPHONE Admin</span>
+    </a>
+</h1>
+{% endblock %}
