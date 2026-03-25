@@ -77,3 +77,4 @@ voip_pushkit.p12
 voip_pushkit.pem
 voip_services.cer
 voip_csr.csr
+android/build/
