@@ -704,19 +704,44 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
             }
             if (type == 'message.edited') {
               final editedMsgId = map['message_id']?.toString();
-              final editedContent = map['content']?.toString();
+              final editedContentB64 = map['content_encrypted_b64']?.toString();
+              final editedContentPlain = map['content']?.toString();
               final editedAt = map['edited_at']?.toString();
               if (editedMsgId != null && editedMsgId.isNotEmpty && mounted) {
                 final idx = _messages.indexWhere((m) => m['id']?.toString() == editedMsgId);
                 if (idx >= 0) {
-                  setState(() {
-                    _messages[idx] = {
-                      ..._messages[idx],
-                      if (editedContent != null) 'content': editedContent,
-                      'is_edited': true,
-                      if (editedAt != null) 'edited_at': editedAt,
-                    };
-                  });
+                  // Prova a decifrare il contenuto cifrato
+                  String? decryptedContent;
+                  if (editedContentB64 != null && editedContentB64.isNotEmpty) {
+                    try {
+                      final otherUser = _getOtherUserId();
+                      if (otherUser != null) {
+                        final encrypted = base64Decode(editedContentB64);
+                        decryptedContent = await _sessionManager.decryptMessage(
+                          otherUser,
+                          encrypted,
+                        );
+                      } else {
+                        decryptedContent = editedContentPlain;
+                      }
+                    } catch (e) {
+                      debugPrint('[E2E-Edit] Decrypt failed: $e');
+                      decryptedContent = editedContentPlain;
+                    }
+                  } else {
+                    decryptedContent = editedContentPlain;
+                  }
+                  if (mounted) {
+                    setState(() {
+                      _messages[idx] = {
+                        ..._messages[idx],
+                        if (decryptedContent != null) 'content': decryptedContent,
+                        'is_edited': true,
+                        if (editedAt != null) 'edited_at': editedAt,
+                        if (editedContentB64 != null) 'content_encrypted_b64': editedContentB64,
+                      };
+                    });
+                  }
                 }
               }
             }
@@ -2046,6 +2071,17 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
     FocusScope.of(context).requestFocus(_messageFocusNode);
   }
 
+  bool _canEditMessage(Map<String, dynamic> message) {
+    final createdAt = message['created_at']?.toString();
+    if (createdAt == null) return false;
+    try {
+      final created = DateTime.parse(createdAt).toLocal();
+      return DateTime.now().difference(created).inMinutes < 15;
+    } catch (_) {
+      return false;
+    }
+  }
+
   Future<void> _deleteMessage(Map<String, dynamic> message, {required bool forAll}) async {
     final messageId = message['id']?.toString();
     if (messageId == null) return;
@@ -2400,7 +2436,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
                   _forwardMessage(message);
                 },
               ),
-              if (isMe && messageText.isNotEmpty)
+              if (isMe && messageText.isNotEmpty && _canEditMessage(message))
                 _actionTile(
                   icon: Icons.edit_rounded,
                   color: const Color(0xFFFF9800),
@@ -4373,9 +4409,22 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
 
     if (_editingMessageId != null) {
       try {
+        final Map<String, dynamic> patchBody = {'content': savedText};
+
+        // Cifra il testo modificato per il destinatario (solo chat private)
+        final otherUser = _getOtherUserId();
+        if (otherUser != null && !(_conversation?.isGroup ?? false)) {
+          try {
+            final encrypted = await _sessionManager.encryptMessage(otherUser, savedText);
+            patchBody['content_encrypted_b64'] = base64Encode(encrypted);
+          } catch (e) {
+            debugPrint('[E2E-Edit] Encryption failed: $e');
+          }
+        }
+
         await ApiService().patch(
           '/chat/messages/$_editingMessageId/',
-          body: {'content': savedText},
+          body: patchBody,
         );
         setState(() {
           final idx = _messages.indexWhere((m) => m['id']?.toString() == _editingMessageId);
@@ -4385,6 +4434,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
               'content': savedText,
               'is_edited': true,
               'edited_at': DateTime.now().toIso8601String(),
+              if (patchBody.containsKey('content_encrypted_b64'))
+                'content_encrypted_b64': patchBody['content_encrypted_b64'],
             };
           }
           _editingMessageId = null;
@@ -4393,6 +4444,18 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
         });
       } catch (e) {
         debugPrint('Error editing message: $e');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Non puoi modificare questo messaggio dopo 15 minuti'),
+              duration: Duration(seconds: 3),
+            ),
+          );
+        }
+        setState(() {
+          _editingMessageId = null;
+          _textController.clear();
+        });
       }
       return;
     }

@@ -577,10 +577,14 @@ class CallSignalingConsumer(AsyncJsonWebsocketConsumer):
     @database_sync_to_async
     def _is_user_busy(self, user_id):
         from .models import Call, CallParticipant
+        from django.utils import timezone
+        from datetime import timedelta
+        cutoff = timezone.now() - timedelta(hours=4)
         return CallParticipant.objects.filter(
             user_id=user_id,
             left_at__isnull=True,
             call__status='ongoing',
+            call__started_at__gte=cutoff,
         ).exists()
 
     @database_sync_to_async
