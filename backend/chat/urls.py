@@ -32,6 +32,7 @@ urlpatterns = [
     path('convert/<uuid:attachment_id>/', views.OfficeConvertView.as_view(), name='office-convert'),
     # Messages
     path('messages/<uuid:message_id>/react/', views.ReactionView.as_view(), name='message-react'),
+    path('messages/<uuid:message_id>/', views.MessageEditView.as_view(), name='message-edit'),
     path('link-preview/', views.LinkPreviewView.as_view(), name='link-preview'),
     # Groups
     path('groups/', views.CreateGroupView.as_view(), name='create-group'),

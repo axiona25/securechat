@@ -47,8 +47,9 @@ class CallSignalingConsumer(AsyncJsonWebsocketConsumer):
     async def disconnect(self, close_code):
         if hasattr(self, 'user') and self.user:
             # End any active calls on disconnect
-            for call_id in list(self.active_calls):
-                await self._handle_end_call({'call_id': str(call_id)})
+            # FIX: do not auto-end calls on WS disconnect (reconnects cause false ends)
+            # for call_id in list(self.active_calls):
+                # await self._handle_end_call({"call_id": str(call_id)})
             
             await self.channel_layer.group_discard(self.user_group, self.channel_name)
             logger.info(f'Call WS disconnected: {self.user.email}')
@@ -112,6 +113,17 @@ class CallSignalingConsumer(AsyncJsonWebsocketConsumer):
         # Notify all other participants in the conversation
         for participant_id in call_data['participant_ids']:
             if participant_id != self.user.id:
+                # Check if participant is already in an ongoing call
+                if await self._is_user_busy(participant_id):
+                    logger.info('Call busy: user_%s is already in a call, sending busy to caller', participant_id)
+                    await self._reject_call(call_data['call_id'], 'busy')
+                    await self.send_json({
+                        'type': 'call.rejected',
+                        'call_id': call_data['call_id'],
+                        'reason': 'busy',
+                    })
+                    self.active_calls.discard(call_data['call_id'])
+                    return
                 logger.info('Call incoming: sending to user_%s (call_id=%s)', participant_id, call_data['call_id'])
                 await self.channel_layer.group_send(f'user_{participant_id}', {
                     'type': 'call.incoming',
@@ -560,6 +572,16 @@ class CallSignalingConsumer(AsyncJsonWebsocketConsumer):
             return {'duration': call.duration, 'other_participant_ids': other_ids}
         except Call.DoesNotExist:
             return None
+
+
+    @database_sync_to_async
+    def _is_user_busy(self, user_id):
+        from .models import Call, CallParticipant
+        return CallParticipant.objects.filter(
+            user_id=user_id,
+            left_at__isnull=True,
+            call__status='ongoing',
+        ).exists()
 
     @database_sync_to_async
     def _update_participant_state(self, call_id, field, value):

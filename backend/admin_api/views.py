@@ -650,6 +650,7 @@ class AdminDevicesListView(APIView):
             'device_name': d.device_name,
             'device_model': d.device_model,
             'os_version': d.os_version,
+            'app_version': getattr(d, 'app_version', ''),
             'last_seen': d.last_seen.isoformat(),
             'last_lat': d.last_lat,
             'last_lng': d.last_lng,
@@ -699,7 +700,8 @@ class AdminDevicesListView(APIView):
         user_filter = request.GET.get('user_id')
         if user_filter:
             devices = devices.filter(user_id=user_filter)
-        data = [{'id': d.id, 'user_id': d.user.id, 'user_name': (d.user.first_name + ' ' + d.user.last_name).strip() or d.user.username, 'user_email': d.user.email, 'user_avatar': d.user.avatar.name if d.user.avatar else None, 'device_id': d.device_id, 'platform': d.platform, 'device_name': d.device_name, 'device_model': d.device_model, 'os_version': d.os_version, 'last_seen': d.last_seen.isoformat(), 'last_lat': d.last_lat, 'last_lng': d.last_lng, 'is_blocked': d.is_blocked, 'created_at': d.created_at.isoformat()} for d in devices]
+        data = [{'id': d.id, 'user_id': d.user.id, 'user_name': (d.user.first_name + ' ' + d.user.last_name).strip() or d.user.username, 'user_email': d.user.email, 'user_avatar': d.user.avatar.name if d.user.avatar else None, 'device_id': d.device_id, 'platform': d.platform, 'device_name': d.device_name, 'device_model': d.device_model, 'os_version': d.os_version,
+            'app_version': getattr(d, 'app_version', ''), 'last_seen': d.last_seen.isoformat(), 'last_lat': d.last_lat, 'last_lng': d.last_lng, 'is_blocked': d.is_blocked, 'created_at': d.created_at.isoformat()} for d in devices]
         return Response(data)
 
 class AdminDeviceDetailView(APIView):
@@ -894,50 +896,3 @@ class AdminTestEmailView(APIView):
             return Response({'success': True, 'to': to_email})
         except Exception as e:
             return Response({'success': False, 'error': str(e)}, status=500)
-
-
-class AdminResetE2EKeysView(APIView):
-    authentication_classes = ADMIN_AUTH
-    permission_classes = [IsAdminUser]
-
-    def post(self, request):
-        from encryption.models import UserKeyBundle, SessionKey, OneTimePreKey
-        
-        user_ids = request.data.get('user_ids', [])
-        if not user_ids:
-            return Response({'error': 'Nessun utente selezionato'}, status=status.HTTP_400_BAD_REQUEST)
-        
-        try:
-            users = User.objects.filter(id__in=user_ids)
-            reset_count = 0
-            
-            for user in users:
-                # Elimina UserKeyBundle se esiste
-                try:
-                    UserKeyBundle.objects.filter(user=user).delete()
-                except Exception as e:
-                    logger.warning(f'Error deleting UserKeyBundle for user {user.id}: {e}')
-                
-                # Elimina SessionKey se esiste
-                try:
-                    SessionKey.objects.filter(user=user).delete()
-                except Exception as e:
-                    logger.warning(f'Error deleting SessionKey for user {user.id}: {e}')
-                
-                # Elimina OneTimePreKey se esiste
-                try:
-                    OneTimePreKey.objects.filter(user=user).delete()
-                except Exception as e:
-                    logger.warning(f'Error deleting OneTimePreKey for user {user.id}: {e}')
-                
-                reset_count += 1
-            
-            logger.info(f'Admin {request.user.email} reset E2E keys for {reset_count} users: {user_ids}')
-            return Response({
-                'success': True,
-                'message': f'Chiavi E2E resettate per {reset_count} utente/i',
-                'reset_count': reset_count
-            })
-        except Exception as e:
-            logger.error(f'Error resetting E2E keys: {e}')
-            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

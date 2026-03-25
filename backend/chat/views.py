@@ -1557,3 +1557,56 @@ class GroupJoinView(APIView):
 
         serializer = ConversationDetailSerializer(group.conversation, context={'request': request})
         return Response(serializer.data)
+
+
+class MessageEditView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request, message_id):
+        try:
+            message = Message.objects.get(id=message_id, sender=request.user)
+        except Message.DoesNotExist:
+            return Response({'error': 'Messaggio non trovato.'}, status=status.HTTP_404_NOT_FOUND)
+
+        if not message.can_edit():
+            return Response({'error': 'Messaggio non modificabile dopo 15 minuti.'}, status=status.HTTP_403_FORBIDDEN)
+
+        content = request.data.get('content', '').strip()
+        if not content:
+            return Response({'error': 'Contenuto vuoto.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        content_encrypted_b64 = request.data.get('content_encrypted_b64')
+
+        message.content_for_translation = content
+        message.is_edited = True
+        message.edited_at = timezone.now()
+        if content_encrypted_b64:
+            import base64
+            message.content_encrypted = base64.b64decode(content_encrypted_b64)
+        message.save(update_fields=['content_for_translation', 'is_edited', 'edited_at', 'content_encrypted'])
+
+        # Notifica via WebSocket agli altri partecipanti
+        from channels.layers import get_channel_layer
+        from asgiref.sync import async_to_sync
+        channel_layer = get_channel_layer()
+        participants = ConversationParticipant.objects.filter(
+            conversation=message.conversation
+        ).exclude(user=request.user).values_list('user_id', flat=True)
+        for pid in participants:
+            async_to_sync(channel_layer.group_send)(
+                f'user_{pid}',
+                {
+                    'type': 'chat.message_edited',
+                    'message_id': str(message.id),
+                    'content': content,
+                    'content_encrypted_b64': content_encrypted_b64,
+                    'edited_at': message.edited_at.isoformat(),
+                }
+            )
+
+        return Response({
+            'id': str(message.id),
+            'content': content,
+            'is_edited': True,
+            'edited_at': message.edited_at.isoformat(),
+        })

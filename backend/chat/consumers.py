@@ -96,7 +96,7 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
 
     async def receive_json(self, content):
         """Route incoming messages to handlers"""
-        action = content.get('action')
+        action = content.get('action') or content.get('type')
         
         handlers = {
             'send_message': self._handle_send_message,
@@ -108,6 +108,7 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
             'delete_message': self._handle_delete_message,
             'attachment_ready': self._handle_attachment_ready,
             'react': self._handle_reaction,
+            'ping': lambda d: self.send_json({'type': 'pong'}),
         }
         
         handler = handlers.get(action)
@@ -349,7 +350,8 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
         await self.send_json({
             'type': 'message.edited',
             'message_id': event['message_id'],
-            'content_encrypted': event['content_encrypted'],
+            'content': event.get('content', ''),
+            'content_encrypted_b64': event.get('content_encrypted_b64'),
             'edited_at': event['edited_at'],
         })
 
