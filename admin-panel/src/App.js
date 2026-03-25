@@ -2337,9 +2337,9 @@ function LoginPage({ onLogin }) {
   return (
     <div style={{ minHeight: "100vh", background: T.bg, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'DM Sans', -apple-system, sans-serif" }}>
       <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&display=swap" rel="stylesheet" />
-      <div style={{ background: T.card, borderRadius: 20, padding: 40, width: 400, boxShadow: "0 20px 60px rgba(0,0,0,0.1)" }}>
+      <div style={{ background: T.card, borderRadius: 20, padding: 40, width: 440, maxWidth: "calc(100vw - 32px)", boxShadow: "0 20px 60px rgba(0,0,0,0.1)" }}>
         <div style={{ textAlign: "center", marginBottom: 32 }}>
-          <img src="/admin-panel/LogoAxphone.png" alt="SecureChat" style={{ height: 60, display: "block", margin: "0 auto 16px" }} />
+          <img src={`${process.env.PUBLIC_URL || ""}/LogoAxphone.png`} alt="AXPhone" style={{ display: "block", margin: "0 auto 20px", maxHeight: 140, width: "auto", maxWidth: "100%", objectFit: "contain" }} />
           <div style={{ fontSize: 13, color: T.textMuted }}>Admin Panel</div>
         </div>
         {error && <div style={{ background: "#FFEBEE", color: T.red, padding: "10px 14px", borderRadius: 10, fontSize: 13, marginBottom: 16, fontWeight: 500 }}>{error}</div>}

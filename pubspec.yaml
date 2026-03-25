@@ -81,6 +81,7 @@ dependencies:
   web_socket_channel: ^2.4.0
   connectivity_plus: ^6.0.3
   device_info_plus: ^12.3.0
+  local_auth: ^3.0.1
 
 dev_dependencies:
   flutter_test:

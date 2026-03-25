@@ -188,6 +188,7 @@
   "apple_signin_soon": "Logowanie przez Apple — wkrótce",
   "original_message": "Oryginalna wiadomość",
   "encryption_error": "Nie można zaszyfrować wiadomości. Spróbuj ponownie lub uruchom czat ponownie.",
+  "encryption_error_peer_no_keys": "The recipient has no E2E keys on this server. They must open the app connected to the same backend after signing in.",
   "download_model_title": "Pobierz model językowy",
   "download_model_desc": "Aby bezpiecznie tłumaczyć wiadomości na urządzeniu, należy pobrać model językowy (~30MB). Pobieranie jednorazowe.",
   "download": "Pobierz",

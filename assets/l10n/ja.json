@@ -188,6 +188,7 @@
   "apple_signin_soon": "Appleでログイン — 近日公開",
   "original_message": "元のメッセージ",
   "encryption_error": "メッセージを暗号化できません。もう一度お試しいただくか、チャットを再起動してください。",
+  "encryption_error_peer_no_keys": "The recipient has no E2E keys on this server. They must open the app connected to the same backend after signing in.",
   "download_model_title": "言語モデルをダウンロード",
   "download_model_desc": "デバイスでメッセージを安全に翻訳するには、言語モデル（約30MB）のダウンロードが必要です。1回限りのダウンロードです。",
   "download": "ダウンロード",

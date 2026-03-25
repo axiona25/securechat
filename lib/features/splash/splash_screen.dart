@@ -12,6 +12,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'widgets/animated_feature_icon.dart';
 import 'widgets/dashed_line_painter.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import '../../core/services/biometric_service.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -225,6 +226,24 @@ class _SplashScreenState extends State<SplashScreen>
           return;
         }
         // Access token ancora valido — continua normalmente
+      }
+
+      // Controllo biometrico se abilitato
+      final biometricEnabled = await BiometricService.instance.isEnabled();
+      if (biometricEnabled) {
+        final biometricAvailable = await BiometricService.instance.isAvailable();
+        if (biometricAvailable) {
+          final authenticated = await BiometricService.instance.authenticate();
+          if (!authenticated) {
+            // Autenticazione fallita o annullata — rimani sulla splash o vai al login
+            await prefs.remove('access_token');
+            await prefs.remove('refresh_token');
+            ApiService().clearTokens();
+            if (!mounted) return;
+            Navigator.of(context).pushReplacementNamed(AppRouter.login);
+            return;
+          }
+        }
       }
 
       final deviceOk = await DeviceService.instance.registerDevice();

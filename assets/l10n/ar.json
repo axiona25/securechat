@@ -188,6 +188,7 @@
   "apple_signin_soon": "تسجيل الدخول عبر Apple — قريباً",
   "original_message": "الرسالة الأصلية",
   "encryption_error": "تعذر تشفير الرسالة. يرجى المحاولة مرة أخرى أو إعادة تشغيل المحادثة.",
+  "encryption_error_peer_no_keys": "The recipient has no E2E keys on this server. They must open the app connected to the same backend after signing in.",
   "download_model_title": "تحميل نموذج اللغة",
   "download_model_desc": "لترجمة الرسائل بأمان على جهازك، يجب تحميل نموذج اللغة (~30 ميجابايت). تحميل لمرة واحدة.",
   "download": "تحميل",

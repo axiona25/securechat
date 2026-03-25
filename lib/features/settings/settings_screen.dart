@@ -16,6 +16,7 @@ import '../splash/splash_screen.dart';
 import 'account_screen.dart';
 import 'privacy_screen.dart';
 import 'chat_settings_screen.dart';
+import '../../core/services/biometric_service.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key, this.onBack});
@@ -30,6 +31,8 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   Map<String, dynamic>? _profile;
   bool _loading = true;
+  bool _biometricAvailable = false;
+  bool _biometricEnabled = false;
   // (rimosso: cache buster locale sostituito da AvatarCacheService globale)
 
   static const Color _teal = Color(0xFF2ABFBF);
@@ -40,6 +43,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void initState() {
     super.initState();
     _loadProfile();
+    _loadBiometricState();
   }
 
   Future<void> _loadProfile() async {
@@ -67,6 +71,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
     } catch (e) {
       debugPrint('Errore caricamento profilo (keeping cached data): $e');
       if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _loadBiometricState() async {
+    final available = await BiometricService.instance.isAvailable();
+    final enabled = await BiometricService.instance.isEnabled();
+    if (mounted) {
+      setState(() {
+        _biometricAvailable = available;
+        _biometricEnabled = enabled;
+      });
     }
   }
 
@@ -493,6 +508,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         trailing: Text(_currentLanguageName, style: TextStyle(color: Colors.grey[400], fontSize: 14)),
                         onTap: () => _showLanguageSelector(context),
                       ),
+                      if (_biometricAvailable) ...[
+                        _buildDivider(),
+                        _buildBiometricTile(),
+                      ],
                     ]),
                     const SizedBox(height: 16),
 
@@ -601,6 +620,50 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return Padding(
       padding: const EdgeInsets.only(left: 66),
       child: Divider(height: 1, color: Colors.grey[200]),
+    );
+  }
+
+  Widget _buildBiometricTile() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      child: Row(
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: _teal.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(Icons.fingerprint_rounded, color: _teal, size: 20),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Text(
+              'Sblocco biometrico',
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w500,
+                color: Color(0xFF1A2B4A),
+              ),
+            ),
+          ),
+          Switch(
+            value: _biometricEnabled,
+            activeColor: _teal,
+            onChanged: (value) async {
+              if (value) {
+                final ok = await BiometricService.instance.authenticate(
+                  reason: 'Conferma la tua identità per abilitare lo sblocco biometrico',
+                );
+                if (!ok) return;
+              }
+              await BiometricService.instance.setEnabled(value);
+              if (mounted) setState(() => _biometricEnabled = value);
+            },
+          ),
+        ],
+      ),
     );
   }
 

@@ -188,6 +188,7 @@
   "apple_signin_soon": "Inloggen met Apple — binnenkort",
   "original_message": "Origineel bericht",
   "encryption_error": "Kan bericht niet versleutelen. Probeer opnieuw of start de chat opnieuw.",
+  "encryption_error_peer_no_keys": "The recipient has no E2E keys on this server. They must open the app connected to the same backend after signing in.",
   "download_model_title": "Taalmodel downloaden",
   "download_model_desc": "Om berichten veilig op uw apparaat te vertalen, moet het taalmodel (~30MB) worden gedownload. Eenmalige download.",
   "download": "Downloaden",

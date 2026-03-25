@@ -188,6 +188,7 @@
   "apple_signin_soon": "Apple ile giriş — yakında",
   "original_message": "Orijinal mesaj",
   "encryption_error": "Mesaj şifrelenemedi. Lütfen tekrar deneyin veya sohbeti yeniden başlatın.",
+  "encryption_error_peer_no_keys": "The recipient has no E2E keys on this server. They must open the app connected to the same backend after signing in.",
   "download_model_title": "Dil Modelini İndir",
   "download_model_desc": "Cihazınızda mesajları güvenle çevirmek için dil modelinin (~30MB) indirilmesi gerekir. Tek seferlik indirmedir.",
   "download": "İndir",

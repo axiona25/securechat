@@ -188,6 +188,7 @@
   "apple_signin_soon": "Início de sessão com Apple em breve",
   "original_message": "Mensagem original",
   "encryption_error": "Não foi possível cifrar a mensagem. Tente novamente ou reinicie a conversa.",
+  "encryption_error_peer_no_keys": "The recipient has no E2E keys on this server. They must open the app connected to the same backend after signing in.",
   "download_model_title": "Descarregar Modelo de Idioma",
   "download_model_desc": "Para traduzir mensagens em segurança no dispositivo, é necessário descarregar o modelo (~30MB). Descarregamento único.",
   "download": "Descarregar",

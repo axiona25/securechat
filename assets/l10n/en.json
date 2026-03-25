@@ -199,6 +199,7 @@
   "apple_signin_soon": "Apple Sign-In coming soon",
   "original_message": "Original message",
   "encryption_error": "Unable to encrypt message. Please try again or restart the chat.",
+  "encryption_error_peer_no_keys": "The recipient has no E2E keys on this server. They must open the app connected to the same backend after signing in.",
   "download_model_title": "Download Language Model",
   "download_model_desc": "To securely translate messages on your device, the language model needs to be downloaded (~30MB). This is a one-time download.",
   "download": "Download",

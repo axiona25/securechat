@@ -45,6 +45,40 @@ import 'group_info_screen.dart';
 /// Placeholder mostrato per messaggi storici non decifrabili su questo dispositivo (chiavi perse).
 const String kMessageUndecryptablePlaceholder = 'Messaggio storico non decifrabile su questo dispositivo';
 
+bool _looksLikeEmojiGrapheme(String g) {
+  if (g.isEmpty) return false;
+  for (final r in g.runes) {
+    final ok = (r >= 0x1F300 && r <= 0x1FAFF) ||
+        (r >= 0x2600 && r <= 0x26FF) ||
+        (r >= 0x2700 && r <= 0x27BF) ||
+        (r >= 0x1F000 && r <= 0x1F9FF) ||
+        (r >= 0xFE00 && r <= 0xFE0F) ||
+        r == 0x200D ||
+        r == 0x20E3 ||
+        (r >= 0x1F1E6 && r <= 0x1F1FF) ||
+        (r >= 0x1F3FB && r <= 0x1F3FF) ||
+        (r >= 0x2300 && r <= 0x23FF) ||
+        (r >= 0x2B50 && r <= 0x2B55) ||
+        (r >= 0x3030 && r <= 0x303F) ||
+        (r >= 0x3297 && r <= 0x3299);
+    if (ok) continue;
+    if (r >= 0x30 && r <= 0x39) continue;
+    return false;
+  }
+  return true;
+}
+
+bool _isOnlyEmojiMessage(String raw) {
+  final t = raw.trim();
+  if (t.isEmpty) return false;
+  final collapsed = t.replaceAll(RegExp(r'\s+'), '');
+  if (collapsed.isEmpty) return false;
+  for (final g in collapsed.characters) {
+    if (!_looksLikeEmojiGrapheme(g)) return false;
+  }
+  return true;
+}
+
 class ChatDetailScreen extends StatefulWidget {
   const ChatDetailScreen({super.key});
 
@@ -666,6 +700,24 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
                     ],
                   ),
                 );
+              }
+            }
+            if (type == 'message.edited') {
+              final editedMsgId = map['message_id']?.toString();
+              final editedContent = map['content']?.toString();
+              final editedAt = map['edited_at']?.toString();
+              if (editedMsgId != null && editedMsgId.isNotEmpty && mounted) {
+                final idx = _messages.indexWhere((m) => m['id']?.toString() == editedMsgId);
+                if (idx >= 0) {
+                  setState(() {
+                    _messages[idx] = {
+                      ..._messages[idx],
+                      if (editedContent != null) 'content': editedContent,
+                      'is_edited': true,
+                      if (editedAt != null) 'edited_at': editedAt,
+                    };
+                  });
+                }
               }
             }
             if (type == 'message.deleted') {
@@ -2316,7 +2368,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
                   }).toList(),
                 ),
               ),
-              const Divider(height: 1),
+              Divider(height: 1, indent: 16, endIndent: 16, color: Colors.grey[100]),
               _actionTile(
                 icon: Icons.reply_rounded,
                 color: const Color(0xFF2ABFBF),
@@ -3005,25 +3057,56 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
   Widget _buildReactionsRow(Map<String, dynamic> message, bool isMe) {
     final reactions = message['reactions'] as List?;
     if (reactions == null || reactions.isEmpty) return const SizedBox.shrink();
+    final grouped = _groupReactions(reactions);
+    final singleType = grouped.length == 1;
+    final emojiFont = singleType ? 38.0 : 19.0;
+    final countFont = singleType ? 15.0 : 12.5;
     return Padding(
       padding: const EdgeInsets.only(top: 2),
       child: Align(
         alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+          padding: EdgeInsets.symmetric(
+            horizontal: singleType ? 10 : 7,
+            vertical: singleType ? 5 : 3,
+          ),
           decoration: BoxDecoration(
             color: Colors.white,
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(14),
             boxShadow: [
               BoxShadow(color: Colors.black.withValues(alpha: 0.08), blurRadius: 4),
             ],
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
-            children: _groupReactions(reactions).entries.map((e) {
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            children: grouped.entries.map((e) {
               return Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 2),
-                child: Text('${e.key} ${e.value}', style: const TextStyle(fontSize: 13)),
+                padding: EdgeInsets.symmetric(horizontal: singleType ? 4 : 3),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.baseline,
+                  textBaseline: TextBaseline.alphabetic,
+                  children: [
+                    Text(
+                      e.key,
+                      style: TextStyle(
+                        fontSize: emojiFont,
+                        height: 1.05,
+                      ),
+                    ),
+                    Text(
+                      ' ${e.value}',
+                      style: TextStyle(
+                        fontSize: countFont,
+                        fontWeight: FontWeight.w600,
+                        color: const Color(0xFF1A2B4A),
+                        height: 1.05,
+                      ),
+                    ),
+                  ],
+                ),
               );
             }).toList(),
           ),
@@ -3791,12 +3874,54 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
         ? messageText
         : (encryptedB64.isNotEmpty ? '🔒 Messaggio cifrato' : '(messaggio vuoto)');
 
-    return Text(
-      baseText,
-      style: TextStyle(
-        color: isMe ? Colors.white : const Color(0xFF1A2B4A),
-        fontSize: 15,
-      ),
+    const baseFont = 15.0;
+    const emojiFont = 20.0;
+
+    if (messageText.isNotEmpty && _isOnlyEmojiMessage(messageText)) {
+      final collapsed = messageText.replaceAll(RegExp(r'\s+'), '');
+      final n = collapsed.characters.length;
+      final onlyEmojiSize = n <= 1 ? baseFont * 2.2 : baseFont * 1.55;
+      return Text(
+        baseText,
+        style: TextStyle(
+          color: isMe ? Colors.white : const Color(0xFF1A2B4A),
+          fontSize: onlyEmojiSize,
+          height: 1.25,
+        ),
+      );
+    }
+
+    // Testo misto: splitta in span testo normale ed emoji
+    final spans = <InlineSpan>[];
+    final baseColor = isMe ? Colors.white : const Color(0xFF1A2B4A);
+    final buffer = StringBuffer();
+
+    for (final g in baseText.characters) {
+      if (_looksLikeEmojiGrapheme(g)) {
+        if (buffer.isNotEmpty) {
+          spans.add(TextSpan(
+            text: buffer.toString(),
+            style: TextStyle(color: baseColor, fontSize: baseFont, height: 1.25),
+          ));
+          buffer.clear();
+        }
+        spans.add(TextSpan(
+          text: g,
+          style: TextStyle(fontSize: emojiFont, height: 1.1),
+        ));
+      } else {
+        buffer.write(g);
+      }
+    }
+    if (buffer.isNotEmpty) {
+      spans.add(TextSpan(
+        text: buffer.toString(),
+        style: TextStyle(color: baseColor, fontSize: baseFont, height: 1.25),
+      ));
+    }
+
+    return RichText(
+      text: TextSpan(children: spans),
     );
   }
 
@@ -4255,7 +4380,12 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
         setState(() {
           final idx = _messages.indexWhere((m) => m['id']?.toString() == _editingMessageId);
           if (idx >= 0) {
-            _messages[idx] = {..._messages[idx], 'content': savedText};
+            _messages[idx] = {
+              ..._messages[idx],
+              'content': savedText,
+              'is_edited': true,
+              'edited_at': DateTime.now().toIso8601String(),
+            };
           }
           _editingMessageId = null;
           _replyToMessage = null;
@@ -4321,16 +4451,21 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
         } catch (e) {
           debugPrint('[E2E] Encryption failed: $e');
           debugPrint('[E2E] Encryption failed details: ${e.toString()} stack: ${StackTrace.current}');
+          final st = StackTrace.current.toString();
+          final stShort = st.length <= 200 ? st : st.substring(0, 200);
           await _sessionManager.remoteLog(
-            '[EncryptFail] error=${e.toString()} stack=${StackTrace.current.toString().substring(0, 200)}',
+            '[EncryptFail] error=${e.toString()} stack=$stShort',
           );
           setState(() => _messages.removeWhere((m) => m['id'] == tempId));
           if (mounted) {
+            final errMsg = (e is ApiException && e.statusCode == 404)
+                ? l10n.t('encryption_error_peer_no_keys')
+                : l10n.t('encryption_error');
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: Text(l10n.t('encryption_error')),
+                content: Text(errMsg),
                 backgroundColor: Colors.red,
-                duration: const Duration(seconds: 4),
+                duration: const Duration(seconds: 5),
               ),
             );
           }
@@ -5716,6 +5851,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
                         focusNode: _messageFocusNode,
                         maxLines: 4,
                         minLines: 1,
+                        textCapitalization: TextCapitalization.sentences,
+                        autocorrect: true,
+                        enableSuggestions: true,
                         decoration: InputDecoration(
                           hintText: l10n.t('type_message'),
                           hintStyle: TextStyle(color: Color(0xFF9E9E9E), fontSize: 15),

@@ -188,6 +188,7 @@
   "apple_signin_soon": "Conectare cu Apple — în curând",
   "original_message": "Mesaj original",
   "encryption_error": "Nu s-a putut cripta mesajul. Încercați din nou sau reporniți conversația.",
+  "encryption_error_peer_no_keys": "The recipient has no E2E keys on this server. They must open the app connected to the same backend after signing in.",
   "download_model_title": "Descarcă Modelul de Limbă",
   "download_model_desc": "Pentru a traduce mesajele în siguranță pe dispozitiv, trebuie descărcat modelul de limbă (~30MB). Descărcare unică.",
   "download": "Descarcă",

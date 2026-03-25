@@ -14,7 +14,7 @@ import 'api_service.dart';
 import 'call_kit_bridge.dart';
 import 'call_sound_service.dart';
 
-enum CallStatus { idle, ringing, connecting, connected, ended }
+enum CallStatus { idle, ringing, connecting, connected, ended, busy }
 
 class CallState {
   final CallStatus status;
@@ -571,9 +571,11 @@ class CallService {
     final reason = map['reason']?.toString();
     if (reason == 'busy') {
       CallSoundService().playBusy();
+      _emit(_state.copyWith(status: CallStatus.busy));
+    } else {
+      _emit(_state.copyWith(status: CallStatus.ended));
+      _cleanup();
     }
-    _emit(_state.copyWith(status: CallStatus.ended));
-    _cleanup();
   }
 
   Future<void> _onCallOffer(Map<String, dynamic> map) async {

@@ -188,6 +188,7 @@
   "apple_signin_soon": "Вход через Apple — скоро",
   "original_message": "Исходное сообщение",
   "encryption_error": "Не удалось зашифровать сообщение. Попробуйте снова или перезапустите чат.",
+  "encryption_error_peer_no_keys": "The recipient has no E2E keys on this server. They must open the app connected to the same backend after signing in.",
   "download_model_title": "Скачать языковую модель",
   "download_model_desc": "Для безопасного перевода сообщений на устройстве необходимо скачать языковую модель (~30МБ). Скачивание выполняется один раз.",
   "download": "Скачать",

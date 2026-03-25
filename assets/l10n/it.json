@@ -199,6 +199,7 @@
   "apple_signin_soon": "Accesso con Apple in arrivo",
   "original_message": "Messaggio originale",
   "encryption_error": "Impossibile cifrare il messaggio. Riprova o riavvia la chat.",
+  "encryption_error_peer_no_keys": "Il destinatario non ha chiavi E2E su questo server. Deve aprire l'app collegata allo stesso backend dopo il login.",
   "download_model_title": "Scarica Modello Lingua",
   "download_model_desc": "Per tradurre i messaggi in modo sicuro sul dispositivo è necessario scaricare il modello linguistico (~30MB). Il download avviene una sola volta.",
   "download": "Scarica",

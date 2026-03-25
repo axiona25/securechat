@@ -222,6 +222,18 @@ class _CallScreenState extends State<CallScreen> {
       _closeScreen();
       return;
     }
+    if (s.status == CallStatus.busy) {
+      debugPrint('[CallScreen] Remote user busy, closing screen after delay');
+      _connectingTimeoutTimer?.cancel();
+      WakelockPlus.disable();
+      setState(() {});
+      Future.delayed(const Duration(seconds: 3), () {
+        CallSoundService().stopAll();
+        CallService().endCall();
+        _closeScreen();
+      });
+      return;
+    }
     setState(() {});
   }
 
@@ -257,6 +269,8 @@ class _CallScreenState extends State<CallScreen> {
         return 'In collegamento...';
       case CallStatus.ended:
         return 'Chiamata terminata';
+      case CallStatus.busy:
+        return 'Utente occupato';
       default:
         return '';
     }

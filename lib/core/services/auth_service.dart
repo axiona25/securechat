@@ -248,8 +248,10 @@ class AuthService {
     } catch (_) {
       // Procedi comunque con clear locale (es. offline)
     }
-    _api.clearTokens();
     final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('access_token');
+    await prefs.remove('refresh_token');
+    _api.clearTokens();
     await prefs.remove(_keyCurrentUserId);
     await ProfileCacheService.instance.clear();
   }
@@ -272,7 +274,12 @@ class AuthService {
       final access = data?['access'] as String?;
       if (access == null || access.isEmpty) return false;
       final newRefresh = data?['refresh'] as String?;
-      _api.setTokens(access: access, refresh: newRefresh ?? refresh);
+      final validRefresh = newRefresh ?? refresh;
+      _api.setTokens(access: access, refresh: validRefresh);
+      // Persiste i nuovi token in SharedPreferences
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('access_token', access);
+      await prefs.setString('refresh_token', validRefresh);
       return true;
     } catch (_) {
       return false;

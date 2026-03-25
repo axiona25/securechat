@@ -195,6 +195,7 @@
   "apple_signin_soon": "Connexion avec Apple bientôt disponible",
   "original_message": "Message original",
   "encryption_error": "Impossible de chiffrer le message. Réessayez ou redémarrez la conversation.",
+  "encryption_error_peer_no_keys": "Le destinataire n'a pas de clés E2E sur ce serveur. Il doit ouvrir l'app sur le même backend après connexion.",
   "download_model_title": "Télécharger le Modèle",
   "download_model_desc": "Pour traduire les messages en toute sécurité sur votre appareil, le modèle doit être téléchargé (~30Mo). Téléchargement unique.",
   "download": "Télécharger",

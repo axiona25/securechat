@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../../core/theme/app_colors.dart';
+import 'security_monitor_screen.dart';
 
 /// Placeholder screen for the Security tab (Sicurezza) in the bottom nav.
 /// Light theme, shield+lock with pulse and breath animations,
@@ -173,6 +174,25 @@ class _SecurityScreenState extends State<SecurityScreen>
                         color: AppColors.primary,
                         letterSpacing: 0.5,
                       ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 24),
+                TextButton.icon(
+                  onPressed: () {
+                    Navigator.of(context).push<void>(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const SecurityMonitorScreen(),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.shield_outlined, color: AppColors.primary, size: 22),
+                  label: const Text(
+                    'Monitor di sicurezza',
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.primary,
                     ),
                   ),
                 ),

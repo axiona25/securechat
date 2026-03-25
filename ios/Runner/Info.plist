@@ -35,7 +35,9 @@
 	</dict>
 	<key>NSCameraUsageDescription</key>
 	<string>SecureChat needs camera access to take photos and videos</string>
-	<key>NSContactsUsageDescription</key>
+	<key>NSFaceIDUsageDescription</key>
+<string>AXPHONE usa Face ID per proteggere l'accesso alla tua app.</string>
+<key>NSContactsUsageDescription</key>
 	<string>SecureChat usa i contatti per condividere informazioni di contatto in modo cifrato.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>SecureChat needs your location to share it in chats</string>
