@@ -347,18 +347,11 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
 
     async def message_edited(self, event):
         """Forward message edit notification"""
-        raw = event.get('content_encrypted', '')
-        import base64
-        try:
-            b64 = base64.b64encode(
-                raw.encode() if isinstance(raw, str) else raw
-            ).decode() if raw else None
-        except Exception:
-            b64 = None
+        b64 = event.get('content_encrypted') or None
         await self.send_json({
             'type': 'message.edited',
             'message_id': event['message_id'],
-            'content': raw,
+            'content': b64,
             'content_encrypted_b64': b64,
             'edited_at': event['edited_at'],
         })
