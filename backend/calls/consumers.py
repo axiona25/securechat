@@ -67,6 +67,7 @@ class CallSignalingConsumer(AsyncJsonWebsocketConsumer):
             'toggle_mute': self._handle_toggle_mute,
             'toggle_video': self._handle_toggle_video,
             'toggle_speaker': self._handle_toggle_speaker,
+            'ping': self._handle_ping,
         }
         handler = handlers.get(action)
         if handler:
@@ -76,9 +77,13 @@ class CallSignalingConsumer(AsyncJsonWebsocketConsumer):
                 logger.error(f'Call error [{action}] {self.user.email}: {e}')
                 await self.send_json({'error': str(e), 'action': action})
         else:
-            await self.send_json({'error': f'Unknown action: {action}'})
+            logger.warning(f'Unknown call action: {action}')
 
     # ── CALL LIFECYCLE ──
+
+    async def _handle_ping(self, data):
+        """Heartbeat ping - risponde con pong silenziosamente"""
+        await self.send_json({"type": "pong"})
 
     async def _handle_initiate(self, data):
         """Caller initiates a call"""
@@ -107,6 +112,17 @@ class CallSignalingConsumer(AsyncJsonWebsocketConsumer):
         }
         for participant_id in call_data['participant_ids']:
             if participant_id != self.user.id:
+                # Verifica se il destinatario ha un device registrato
+                if not await self._is_user_available(participant_id):
+                    await self._reject_call(call_data['call_id'], 'unavailable')
+                    await self.send_json({
+                        'type': 'call.rejected',
+                        'call_id': call_data['call_id'],
+                        'reason': 'unavailable',
+                        'message': 'Utente non disponibile. Riprova più tardi.',
+                    })
+                    self.active_calls.discard(call_data['call_id'])
+                    return
                 await self._send_voip_push_for_user(participant_id, voip_call_data)
                 await self._send_android_call_data_for_user(participant_id, voip_call_data)
 
@@ -371,6 +387,21 @@ class CallSignalingConsumer(AsyncJsonWebsocketConsumer):
         })
 
     # ── DATABASE OPERATIONS ──
+
+    @database_sync_to_async
+    def _is_user_available(self, participant_id):
+        """Controlla se utente ha device registrati nel notify server."""
+        import urllib.request, json
+        try:
+            url = f"http://securechat_notify:8002/websocket/status/{participant_id}"
+            req = urllib.request.urlopen(url, timeout=3)
+            data = json.loads(req.read().decode())
+            total = data.get("total_devices", 0)
+            logger.info(f"[_is_user_available] user={participant_id} devices={total}")
+            return total > 0
+        except Exception as e:
+            logger.warning(f"[_is_user_available] notify fail user={participant_id}: {e}")
+            return True
 
     @database_sync_to_async
     def _send_voip_push_for_user(self, participant_id, call_data_dict):

@@ -199,15 +199,21 @@ class _SplashScreenState extends State<SplashScreen>
       iOptions: IOSOptions(accessibility: KeychainAccessibility.first_unlock_this_device),
       aOptions: AndroidOptions(encryptedSharedPreferences: true),
     );
-    String? access = await tokenStorage.read(key: 'access_token');
-    String? refresh = await tokenStorage.read(key: 'refresh_token');
+    String? access;
+    String? refresh;
+    try {
+      access = await tokenStorage.read(key: 'access_token').timeout(const Duration(seconds: 3));
+      refresh = await tokenStorage.read(key: 'refresh_token').timeout(const Duration(seconds: 3));
+    } catch (e) {
+      debugPrint('[Splash] SecureStorage read timeout/error: \$e');
+    }
     // Migrazione da SharedPreferences a secure storage
     if ((access == null || refresh == null)) {
       access = prefs.getString('access_token');
       refresh = prefs.getString('refresh_token');
       if (access != null && refresh != null) {
-        await tokenStorage.write(key: 'access_token', value: access);
-        await tokenStorage.write(key: 'refresh_token', value: refresh);
+        await tokenStorage.write(key: 'access_token', value: access).timeout(const Duration(seconds: 3));
+        await tokenStorage.write(key: 'refresh_token', value: refresh).timeout(const Duration(seconds: 3));
         await prefs.remove('access_token');
         await prefs.remove('refresh_token');
         debugPrint('[Splash] JWT migrati da SharedPreferences a SecureStorage');

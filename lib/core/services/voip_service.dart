@@ -338,6 +338,10 @@ class VoipService {
       _onAccept(body, eventName: eventName);
     } else if (eventName.contains('Decline') || eventName.contains('decline')) {
       _onDecline(body);
+    } else if (eventName.contains('Incoming') || eventName.contains('incoming')) {
+      ApiService().postLog(
+        '[REMOTE-DEBUG] [VoipService._onCallKitEvent] actionCallIncoming acknowledged callId=$bid (native CallKit handling)',
+      );
     } else {
       ApiService().postLog(
         '[REMOTE-DEBUG] [VoipService._onCallKitEvent] no callId for event=$eventName, handling non-call-specific event (e.g. ACTION_CALL_TOGGLE_AUDIO_SESSION)',
@@ -614,6 +618,16 @@ class VoipService {
       ApiService().postLog('[VoipService._onDecline] no callId in body, skipping bridge/WS');
     }
     if (id.isEmpty) return;
+
+    final activeCallId = CallService().state.callId;
+    if (activeCallId != null && activeCallId != id) {
+      ApiService().postLog(
+        '[VoipService._onDecline] SKIP rejectCall: declining old call $id but active is $activeCallId',
+      );
+      FlutterCallkitIncoming.endCall(id);
+      return;
+    }
+
     CallService().ensureConnected();
     CallService().rejectCall(id);
     FlutterCallkitIncoming.endCall(id);

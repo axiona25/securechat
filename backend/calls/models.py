@@ -14,13 +14,14 @@ class Call(models.Model):
         ('rejected', 'Rejected'),
         ('busy', 'Busy'),
         ('failed', 'Failed'),
+        ('unavailable', 'Unavailable'),
     ]
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     conversation = models.ForeignKey(
         'chat.Conversation', on_delete=models.CASCADE, related_name='calls'
     )
     call_type = models.CharField(max_length=10, choices=CALL_TYPES)
-    status = models.CharField(max_length=10, choices=CALL_STATUS, default='ringing')
+    status = models.CharField(max_length=20, choices=CALL_STATUS, default='ringing')
     initiated_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='initiated_calls'
     )

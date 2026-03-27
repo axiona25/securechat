@@ -27,8 +27,8 @@ const _tokenStorage = FlutterSecureStorage(
 );
 
 Future<void> _saveTokensSecure(String access, String refresh) async {
-  await _tokenStorage.write(key: 'access_token', value: access);
-  await _tokenStorage.write(key: 'refresh_token', value: refresh);
+  await _tokenStorage.write(key: 'access_token', value: access).timeout(const Duration(seconds: 3));
+  await _tokenStorage.write(key: 'refresh_token', value: refresh).timeout(const Duration(seconds: 3));
 }
 
 Future<void> _deleteTokensSecure() async {
@@ -62,6 +62,9 @@ class AuthService {
   static final AuthService _instance = AuthService._internal();
   factory AuthService() => _instance;
   AuthService._internal();
+
+  /// Evita logout ricorsivo / parallelo (401 → API durante logout → altro 401).
+  static bool _isLoggingOut = false;
 
   final ApiService _api = ApiService();
 
@@ -253,43 +256,50 @@ class AuthService {
 
   /// Logout: rimuovi token VoIP dal backend, clear E2E sessions, notifica backend, cancella token e prefs.
   Future<void> logout() async {
+    if (_isLoggingOut) return;
+    _isLoggingOut = true;
     try {
-      await _api.delete('/auth/voip-token/');
-    } catch (_) {}
-    try {
-      await _api.delete('/auth/apns-token/');
-    } catch (_) {}
-    try {
-      final sessionMgr = SessionManager(
-        apiService: _api,
-        cryptoService: CryptoService(apiService: _api),
-      );
-      await sessionMgr.clearAllSessions();
-    } catch (_) {}
-    // NON cancellare le chiavi crittografiche al logout:
-    // devono persistere per decifrare messaggi precedenti.
-    try {
-      final refresh = _api.refreshToken;
-      await _api.post('/auth/logout/', body: refresh != null ? {'refresh': refresh} : {});
-    } catch (_) {
-      // Procedi comunque con clear locale (es. offline)
-    }
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.remove('access_token');
-      await prefs.remove('refresh_token');
-      await _deleteTokensSecure();
-      _api.clearTokens();
       try {
-        final userId = await AuthService.getCurrentUserId();
-        if (userId != null) await E2EKeyStore.clearForUser(userId);
+        await _api.delete('/auth/voip-token/');
       } catch (_) {}
-      await prefs.remove(_keyCurrentUserId);
-      await ProfileCacheService.instance.clear();
+      try {
+        await _api.delete('/auth/apns-token/');
+      } catch (_) {}
+      try {
+        final sessionMgr = SessionManager(
+          apiService: _api,
+          cryptoService: CryptoService(apiService: _api),
+        );
+        await sessionMgr.clearAllSessions();
+      } catch (_) {}
+      // NON cancellare le chiavi crittografiche al logout:
+      // devono persistere per decifrare messaggi precedenti.
+      try {
+        final refresh = _api.refreshToken;
+        await _api.post('/auth/logout/', body: refresh != null ? {'refresh': refresh} : {});
+      } catch (_) {
+        // Procedi comunque con clear locale (es. offline)
+      }
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.remove('access_token');
+        await prefs.remove('refresh_token');
+        await _deleteTokensSecure();
+        _api.clearTokens();
+        try {
+          final userId = await AuthService.getCurrentUserId();
+          if (userId != null) await E2EKeyStore.clearForUser(userId);
+        } catch (_) {}
+        await prefs.remove(_keyCurrentUserId);
+        await ProfileCacheService.instance.clear();
+      } finally {
+        SecurityService().stopMonitoring();
+        securityEnabledNotifier.value = false;
+        debugPrint('[Auth] SecurityService fermato al logout');
+      }
     } finally {
-      SecurityService().stopMonitoring();
-      securityEnabledNotifier.value = false;
-      debugPrint('[Auth] SecurityService fermato al logout');
+      _isLoggingOut = false;
+      ApiService.resetUnauthorizedLogoutGate();
     }
   }
 

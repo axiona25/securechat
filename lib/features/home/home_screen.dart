@@ -457,7 +457,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
             'Authorization': 'Bearer $token',
           },
           body: jsonEncode({
-            'user_id': userId,
+            'user_id': userId.toString(),
             'total_unread': 0,
             'chat_unread': 0,
             'source': 'app_foreground',

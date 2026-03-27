@@ -52,26 +52,21 @@ class _SecureChatAppState extends State<SecureChatApp>
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: localeProvider,
-      builder: (context, child) {
-        return MaterialApp(
-          navigatorKey: widget.navigatorKey,
-          title: AppConstants.appName,
-          debugShowCheckedModeBanner: false,
-          theme: AppTheme.lightTheme,
-          locale: localeProvider.locale,
-          localizationsDelegates: const [
-            AppLocalizations.delegate,
-            GlobalMaterialLocalizations.delegate,
-            GlobalWidgetsLocalizations.delegate,
-            GlobalCupertinoLocalizations.delegate,
-          ],
-          supportedLocales: AppLocalizations.supportedLocales,
-          initialRoute: AppRouter.splash,
-          onGenerateRoute: AppRouter.generateRoute,
-        );
-      },
+    return MaterialApp(
+      navigatorKey: widget.navigatorKey,
+      title: AppConstants.appName,
+      debugShowCheckedModeBanner: false,
+      theme: AppTheme.lightTheme,
+      locale: localeProvider.locale,
+      localizationsDelegates: const [
+        AppLocalizations.delegate,
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      supportedLocales: AppLocalizations.supportedLocales,
+      initialRoute: AppRouter.splash,
+      onGenerateRoute: AppRouter.generateRoute,
     );
   }
 }

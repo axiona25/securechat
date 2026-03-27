@@ -28,6 +28,7 @@ class SecureChatNotifyService {
   Timer? _pollingTimer;
   Timer? _heartbeatTimer;
   bool _isConnected = false;
+  bool _isConnecting = false;
   bool _isInitialized = false;
   String? _deviceToken;
   String? _apnsToken;
@@ -56,6 +57,7 @@ class SecureChatNotifyService {
       _wsChannel?.sink.close();
       _wsChannel = null;
       _isConnected = false;
+      _isConnecting = false;
       _reconnectTimer?.cancel();
       _heartbeatTimer?.cancel();
       _pollingTimer?.cancel();
@@ -88,18 +90,25 @@ class SecureChatNotifyService {
     await _wsChannel?.sink.close();
     _wsChannel = null;
     _isConnected = false;
+    _isConnecting = false;
     debugPrint('[NotifyService] Servizio chiuso');
   }
 
   Future<void> _initDeviceToken() async {
     final prefs = await SharedPreferences.getInstance();
-    _deviceToken = prefs.getString('securechat_device_token');
-    if (_deviceToken == null) {
+    final savedToken = prefs.getString('securechat_device_token');
+    final savedUserId = prefs.getInt('securechat_device_token_user_id');
+
+    if (savedToken == null || savedUserId != _userId) {
       final ts = DateTime.now().millisecondsSinceEpoch;
-      _deviceToken = 'securechat_ios_$ts';
+      _deviceToken = 'securechat_ios_${ts}_$_userId';
       await prefs.setString('securechat_device_token', _deviceToken!);
+      await prefs.setInt('securechat_device_token_user_id', _userId!);
+      debugPrint('[NotifyService] NUOVO device token (user cambiato): $_deviceToken');
+    } else {
+      _deviceToken = savedToken;
+      debugPrint('[NotifyService] Device token esistente: $_deviceToken');
     }
-    debugPrint('[NotifyService] Device token: $_deviceToken');
   }
 
   Future<void> _requestApnsPermissionsAndToken() async {
@@ -180,13 +189,19 @@ class SecureChatNotifyService {
         _wsChannel?.sink.close();
         _wsChannel = null;
         _isConnected = false;
+        _isConnecting = false;
         _connectWebSocket();
       }
     });
   }
 
   void _connectWebSocket() {
-    if (_deviceToken == null) return;
+    if (_isConnecting || _isConnected) return;
+    _isConnecting = true;
+    if (_deviceToken == null) {
+      _isConnecting = false;
+      return;
+    }
     try {
       final wsUrl = _notifyBaseUrl
           .replaceFirst('https://', 'wss://')
@@ -202,12 +217,14 @@ class SecureChatNotifyService {
         onError: _handleWebSocketError,
         onDone: _handleWebSocketDone,
       );
+      _isConnecting = false;
       _isConnected = true;
       _pollingTimer?.cancel();
       _startHeartbeat();
       debugPrint('[NotifyService] WebSocket connesso');
     } catch (e) {
       debugPrint('[NotifyService] Errore WebSocket: $e');
+      _isConnecting = false;
       _isConnected = false;
       _startPolling();
     }
@@ -257,12 +274,14 @@ class SecureChatNotifyService {
 
   void _handleWebSocketError(dynamic error) {
     debugPrint('[NotifyService] WebSocket errore: $error');
+    _isConnecting = false;
     _isConnected = false;
     _scheduleReconnect();
   }
 
   void _handleWebSocketDone() {
     debugPrint('[NotifyService] WebSocket chiuso');
+    _isConnecting = false;
     _isConnected = false;
     _scheduleReconnect();
   }

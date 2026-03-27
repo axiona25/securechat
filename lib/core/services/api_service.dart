@@ -27,6 +27,14 @@ class ApiService {
   factory ApiService() => _instance;
   ApiService._internal();
 
+  /// Evita loop 401 → callback logout → altre API → 401 → callback…
+  static bool _isLoggingOut = false;
+
+  /// Azzerato da [AuthService.logout] in `finally` dopo il clear token.
+  static void resetUnauthorizedLogoutGate() {
+    _isLoggingOut = false;
+  }
+
   String? _accessToken;
   String? _refreshToken;
   VoidCallback? _onUnauthorized;
@@ -111,9 +119,15 @@ class ApiService {
         }
       } catch (_) {}
     }
-    // Se ancora 401 dopo refresh, notifica logout
+    // Se ancora 401 dopo refresh, notifica logout (una sola sequenza alla volta)
     if (response.statusCode == 401) {
-      _onUnauthorized?.call();
+      if (!_isLoggingOut) {
+        _isLoggingOut = true;
+        debugPrint('[ApiService] 401 non recuperabile - logout automatico');
+        _onUnauthorized?.call();
+      } else {
+        debugPrint('[ApiService] 401 ignorato - logout già in corso');
+      }
     }
     return response;
   }

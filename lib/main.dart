@@ -201,7 +201,11 @@ void main() async {
   await LocalNotificationService.instance.init();
 
   // VoIP / CallKit for incoming calls (iOS PushKit, Android)
-  await VoipService.instance.init();
+  try {
+    await VoipService.instance.init();
+  } catch (e) {
+    debugPrint('[Main] VoipService init failed: \$e');
+  }
 
   // Init SecureChatNotifyService se utente già loggato
   try {

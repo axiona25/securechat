@@ -150,9 +150,11 @@ class CallService {
 
   /// Ensures WebSocket is connected (e.g. when Home loads to receive incoming calls).
   Future<void> ensureConnected() async {
-    _remoteLog('[CallService.ensureConnected] called, isConnected=$_isConnected channel=${_channel != null} isConnecting=$_isConnecting');
+    _remoteLog('[CallService.ensureConnected] called, isConnected=$_isConnected channel=${_channel != null} isConnecting=$_isConnecting disposed=$_disposed');
     if (_channel != null && _isConnected) return;
-    if (_disposed) return;
+    // Singleton: se disposed, riattiviamo — non verrà mai ricreato
+    _disposed = false;
+    _reconnectScheduled = false;
     if (_isConnecting) {
       // Aspetta che la connessione in corso sia completata
       await _connectingCompleter?.future;

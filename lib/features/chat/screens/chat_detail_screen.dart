@@ -436,7 +436,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
   }
 
   static Color _getStatusColor(bool isOnline) {
-    if (isOnline) return const Color(0xFF4CAF50); // Online - verde
+    if (isOnline) return _teal; // Allineato a icone chiamata audio/video in AppBar
     return const Color(0xFF9E9E9E); // Assente - grigio
   }
 
@@ -455,11 +455,11 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
         children: [
           TextSpan(
             text: '● ',
-            style: TextStyle(fontSize: 9, color: Color(0xFF4CAF50)),
+            style: TextStyle(fontSize: 9, color: _teal),
           ),
           TextSpan(
             text: '$onlineCount online  ',
-            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: Color(0xFF4CAF50)),
+            style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: _teal),
           ),
           TextSpan(
             text: '● ',
@@ -588,7 +588,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
       await p.setAudioContext(ap.AudioContext(
         android: const ap.AudioContextAndroid(isSpeakerphoneOn: true),
         iOS: ap.AudioContextIOS(
-          category: ap.AVAudioSessionCategory.playAndRecord,
+          category: ap.AVAudioSessionCategory.playback,
           options: {ap.AVAudioSessionOptions.defaultToSpeaker},
         ),
       ));
@@ -6761,7 +6761,7 @@ class _AudioRecorderSheetState extends State<_AudioRecorderSheet> {
       await _player.setAudioContext(ap.AudioContext(
         android: const ap.AudioContextAndroid(isSpeakerphoneOn: true),
         iOS: ap.AudioContextIOS(
-          category: ap.AVAudioSessionCategory.playAndRecord,
+          category: ap.AVAudioSessionCategory.playback,
           options: {ap.AVAudioSessionOptions.defaultToSpeaker},
         ),
       ));
