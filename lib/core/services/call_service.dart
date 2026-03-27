@@ -1043,25 +1043,20 @@ class CallService {
     if (kIsWeb || !Platform.isIOS) return;
     final cid = _callId;
     if (cid == null || cid.isEmpty) {
-      _remoteLog('[AUDIO-RETRIGGER] skip: no callId context=$context');
       return;
     }
     final pc = _peerConnection;
     if (pc == null) {
-      _remoteLog('[AUDIO-RETRIGGER] skip: no peerConnection context=$context callId=$cid');
       return;
     }
     if (pc.connectionState != RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
-      _remoteLog('[AUDIO-RETRIGGER] skip: pc not connected state=${pc.connectionState} context=$context callId=$cid');
       return;
     }
     final hasRemoteAudio = (_remoteStream?.getAudioTracks().isNotEmpty ?? false);
     if (!hasRemoteAudio) {
-      _remoteLog('[AUDIO-RETRIGGER] skip: no remote audio tracks context=$context callId=$cid');
       return;
     }
     if (!_iosAudioRetriggerCallIds.add(cid)) {
-      _remoteLog('[AUDIO-RETRIGGER] skip: already retriggered callId=$cid context=$context');
       return;
     }
     try {
@@ -1149,7 +1144,7 @@ class CallService {
     }
     _isCreatingPeerConnection = true;
     try {
-      _remoteLog('[CallService._createPeerConnection] _iceServers=${_iceServers != null ? _iceServers!.length.toString() + " servers" : "NULL"} callId=$_callId');
+      _remoteLog('[CallService._createPeerConnection] iceServers=${_iceServers?.length ?? 0} callId=$_callId');
       final config = <String, dynamic>{
       'iceServers': _iceServers ?? [
         {'urls': 'stun:stun.l.google.com:19302'},
@@ -1400,7 +1395,7 @@ class CallService {
   }
 
   void _cleanup() {
-    _remoteLog('[CallService._cleanup] called, callId=$_callId iceServers=${_iceServers != null ? "present" : "NULL"} stackTrace=${StackTrace.current.toString().split("\n").take(5).join(" | ")}');
+    _remoteLog('[CallService._cleanup] called, callId=$_callId');
     final endedId = _callId;
     if (endedId != null && endedId.isNotEmpty) {
       _iosSpeakerForcedCallIds.remove(endedId);
