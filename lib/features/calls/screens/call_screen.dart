@@ -48,7 +48,7 @@ class CallScreen extends StatefulWidget {
   State<CallScreen> createState() => _CallScreenState();
 }
 
-class _CallScreenState extends State<CallScreen> {
+class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
   final CallService _callService = CallService();
   StreamSubscription<CallState>? _stateSub;
   Timer? _durationTimer;
@@ -57,6 +57,7 @@ class _CallScreenState extends State<CallScreen> {
   final RTCVideoRenderer _remoteRenderer = RTCVideoRenderer();
   bool _renderersInitialized = false;
   bool _hasPopped = false;
+  bool _pendingClose = false;
   /// True se UI incoming ringing va soppressa (CallKit / skipRingingSound).
   late final bool _suppressIncomingRingingUi;
   bool _nativeAcceptFlowScheduled = false;
@@ -76,6 +77,7 @@ class _CallScreenState extends State<CallScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _registerCallUiWithBridge();
     final cid = normalizeCallId(widget.callId);
     final bridgeAnswered = widget.answeredFromCallKit ||
@@ -263,10 +265,30 @@ class _CallScreenState extends State<CallScreen> {
 
   void _closeScreen() {
     if (_hasPopped) return;
+    if (!mounted) {
+      _pendingClose = true;
+      return;
+    }
     _hasPopped = true;
-    if (!mounted) return;
     final nav = Navigator.of(context);
     if (nav.canPop()) nav.pop();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      final currentStatus = CallService().state.status;
+      if (_pendingClose ||
+          currentStatus == CallStatus.ended ||
+          currentStatus == CallStatus.idle) {
+        ApiService().postLog(
+          '[REMOTE-DEBUG] [CallScreen] resumed with pendingClose=$_pendingClose status=$currentStatus, closing',
+        );
+        _pendingClose = false;
+        _hasPopped = false;
+        _closeScreen();
+      }
+    }
   }
 
   void _startDurationTimer() {
@@ -308,6 +330,7 @@ class _CallScreenState extends State<CallScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     // Ripristina status bar predefinita (icone scure)
     SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
@@ -330,6 +353,21 @@ class _CallScreenState extends State<CallScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Se la chiamata è terminata in background, non mostrare nulla
+    if (_pendingClose || _hasPopped) {
+      return const SizedBox.shrink();
+    }
+    // Se la chiamata è già terminata (ended/idle) e non stiamo iniziando una nuova, nascondi
+    final buildStatus = CallService().state.status;
+    final buildCallId = CallService().state.callId;
+    final expectedId = normalizeCallId(widget.callId);
+    if ((buildStatus == CallStatus.ended || buildStatus == CallStatus.idle) &&
+        (expectedId.isEmpty || buildCallId != expectedId)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && !_hasPopped) _closeScreen();
+      });
+      return const SizedBox.shrink();
+    }
     return PopScope(
       canPop: _callService.state.status != CallStatus.connected &&
           _callService.state.status != CallStatus.connecting &&

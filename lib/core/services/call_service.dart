@@ -594,6 +594,16 @@ class CallService {
   Future<void> _onCallOffer(Map<String, dynamic> map) async {
     _remoteLog('[CallService._handleOffer] received offer');
     final sdpMap = map['sdp'];
+    // Se _iceServers è null (receiver da background, _onCallInitiated mai ricevuto), leggili dall'offer
+    if (_iceServers == null) {
+      final ice = map['ice_servers'];
+      if (ice is List) {
+        _iceServers = List<Map<String, dynamic>>.from(
+          ice.map((e) => e is Map ? Map<String, dynamic>.from(e) : <String, dynamic>{}),
+        );
+        _remoteLog('[CallService._onCallOffer] iceServers loaded from offer: $_iceServers');
+      }
+    }
     if (sdpMap is! Map) return;
     final callId = normalizeCallId(map['call_id']?.toString());
     if (!kIsWeb && Platform.isIOS) {
@@ -1139,6 +1149,7 @@ class CallService {
     }
     _isCreatingPeerConnection = true;
     try {
+      _remoteLog('[CallService._createPeerConnection] _iceServers=${_iceServers != null ? _iceServers!.length.toString() + " servers" : "NULL"} callId=$_callId');
       final config = <String, dynamic>{
       'iceServers': _iceServers ?? [
         {'urls': 'stun:stun.l.google.com:19302'},
@@ -1389,6 +1400,7 @@ class CallService {
   }
 
   void _cleanup() {
+    _remoteLog('[CallService._cleanup] called, callId=$_callId iceServers=${_iceServers != null ? "present" : "NULL"} stackTrace=${StackTrace.current.toString().split("\n").take(5).join(" | ")}');
     final endedId = _callId;
     if (endedId != null && endedId.isNotEmpty) {
       _iosSpeakerForcedCallIds.remove(endedId);

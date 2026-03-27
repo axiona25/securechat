@@ -211,17 +211,41 @@ class CallSignalingConsumer(AsyncJsonWebsocketConsumer):
             })
 
     async def _handle_offer(self, data):
-        """Forward SDP offer to the other peer"""
+        """Forward SDP offer to the other peer (with ICE servers)"""
         call_id = data.get('call_id')
         target_user_id = data.get('target_user_id')
         sdp = data.get('sdp')
+        
+        ice_config = await self._get_ice_config()
         
         await self.channel_layer.group_send(f'user_{target_user_id}', {
             'type': 'call.offer',
             'call_id': call_id,
             'sdp': sdp,
             'from_user_id': self.user.id,
+            'ice_servers': ice_config,
         })
+    
+    @database_sync_to_async
+    def _get_ice_config(self):
+        from .models import ICEServer
+        servers = list(ICEServer.objects.filter(is_active=True).values(
+            'server_type', 'url', 'username', 'credential'
+        ))
+        config = []
+        for s in servers:
+            c = {'urls': s['url']}
+            if s['username']:
+                c['username'] = s['username']
+            if s['credential']:
+                c['credential'] = s['credential']
+            config.append(c)
+        if not config:
+            config = [
+                {'urls': 'stun:stun.l.google.com:19302'},
+                {'urls': 'stun:stun1.l.google.com:19302'},
+            ]
+        return config
 
     async def _handle_answer(self, data):
         """Forward SDP answer to the caller"""
