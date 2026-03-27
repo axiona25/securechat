@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http_parser/http_parser.dart';
 import '../constants/app_constants.dart';
 
@@ -80,6 +81,33 @@ class ApiService {
     return headers;
   }
 
+  Future<http.Response> _executeWithRefresh(Future<http.Response> Function() call) async {
+    var response = await call();
+    if (response.statusCode == 401 && _refreshToken != null) {
+      try {
+        final url = Uri.parse('${AppConstants.baseUrl}/auth/token/refresh/');
+        final refreshResponse = await http.post(
+          url,
+          headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
+          body: jsonEncode({'refresh': _refreshToken}),
+        );
+        if (refreshResponse.statusCode == 200) {
+          final data = jsonDecode(refreshResponse.body) as Map<String, dynamic>;
+          final access = data['access'] as String?;
+          final newRefresh = (data['refresh'] as String?) ?? _refreshToken!;
+          if (access != null) {
+            setTokens(access: access, refresh: newRefresh);
+            final prefs = await SharedPreferences.getInstance();
+            await prefs.setString('access_token', access);
+            await prefs.setString('refresh_token', newRefresh);
+            response = await call();
+          }
+        }
+      } catch (_) {}
+    }
+    return response;
+  }
+
   Future<Map<String, dynamic>> post(
     String endpoint, {
     Map<String, dynamic>? body,
@@ -88,11 +116,11 @@ class ApiService {
     final url = Uri.parse('${AppConstants.baseUrl}$endpoint');
 
     try {
-      final response = await http.post(
+      final response = await _executeWithRefresh(() => http.post(
         url,
         headers: _headers,
         body: body != null ? jsonEncode(body) : null,
-      );
+      ));
 
       final data = jsonDecode(response.body) as Map<String, dynamic>;
 
@@ -122,11 +150,11 @@ class ApiService {
   }) async {
     final url = Uri.parse('${AppConstants.baseUrl}$endpoint');
     try {
-      final response = await http.put(
+      final response = await _executeWithRefresh(() => http.put(
         url,
         headers: _headers,
         body: body != null ? jsonEncode(body) : null,
-      );
+      ));
       final data = jsonDecode(response.body) as Map<String, dynamic>;
       if (response.statusCode >= 200 && response.statusCode < 300) {
         return data;
@@ -152,11 +180,11 @@ class ApiService {
   }) async {
     final url = Uri.parse('${AppConstants.baseUrl}$endpoint');
     try {
-      final response = await http.patch(
+      final response = await _executeWithRefresh(() => http.patch(
         url,
         headers: _headers,
         body: body != null ? jsonEncode(body) : null,
-      );
+      ));
       final data = jsonDecode(response.body) as Map<String, dynamic>;
       if (response.statusCode >= 200 && response.statusCode < 300) {
         return data;
@@ -210,7 +238,7 @@ class ApiService {
     }
 
     try {
-      final response = await http.get(url, headers: _headers);
+      final response = await _executeWithRefresh(() => http.get(url, headers: _headers));
       final data = jsonDecode(response.body) as Map<String, dynamic>;
 
       if (response.statusCode >= 200 && response.statusCode < 300) {

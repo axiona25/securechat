@@ -874,14 +874,16 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
     }
   }
 
+  int _lastBadgeCount = -1;
+
   void _updateAppBadge() {
     final totalUnread = _conversations.fold<int>(0, (sum, c) => sum + (c.unreadCount));
+    if (totalUnread == _lastBadgeCount) return;
+    _lastBadgeCount = totalUnread;
     if (totalUnread > 0) {
       FlutterAppBadger.updateBadgeCount(totalUnread);
-      debugPrint('[Badge] sync unread count = $totalUnread');
     } else {
       FlutterAppBadger.removeBadge();
-      debugPrint('[Badge] clear badge');
     }
   }
 

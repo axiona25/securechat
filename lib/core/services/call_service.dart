@@ -177,7 +177,7 @@ class CallService {
         _wsPingTimer?.cancel();
         _wsPingTimer = Timer.periodic(const Duration(seconds: 20), (_) {
           try {
-            _channel?.add(jsonEncode({'type': 'ping'}));
+            _channel?.add(jsonEncode({'action': 'ping'}));
           } catch (_) {}
         });
         _wsSubscription = _channel!.listen(

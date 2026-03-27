@@ -244,7 +244,8 @@ class AuthService {
     // NON cancellare le chiavi crittografiche al logout:
     // devono persistere per decifrare messaggi precedenti.
     try {
-      await _api.post('/auth/logout/', body: {});
+      final refresh = _api.refreshToken;
+      await _api.post('/auth/logout/', body: refresh != null ? {'refresh': refresh} : {});
     } catch (_) {
       // Procedi comunque con clear locale (es. offline)
     }

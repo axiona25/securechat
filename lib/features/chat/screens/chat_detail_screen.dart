@@ -1305,6 +1305,15 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
             statusesChanged = true;
             break;
           }
+          // Rileva anche messaggi editati (edited_at cambiato)
+          if ((existing['edited_at'] ?? '') != (newMsg['edited_at'] ?? '')) {
+            statusesChanged = true;
+            break;
+          }
+          if ((existing['is_edited'] ?? false) != (newMsg['is_edited'] ?? false)) {
+            statusesChanged = true;
+            break;
+          }
         }
       }
       debugPrint('[POLL] hasNew=$hasNewMessages, statusChanged=$statusesChanged, newCount=$quickNewCount, oldCount=${_messages.length}, newLastId=$quickLastId');
@@ -1319,6 +1328,20 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
               final idx = _messages.indexWhere((m) => m['id']?.toString() == id);
               if (idx >= 0) {
                 _messages[idx]['statuses'] = newMsg['statuses'];
+                // Aggiorna anche edited_at e is_edited se cambiati
+                if ((newMsg['is_edited'] ?? false) == true &&
+                    (_messages[idx]['edited_at'] ?? '') != (newMsg['edited_at'] ?? '')) {
+                  _messages[idx]['is_edited'] = true;
+                  _messages[idx]['edited_at'] = newMsg['edited_at'];
+                  // Non sovrascrivere content se già decriptato (non vuoto)
+                  final existingContent = _messages[idx]['content']?.toString() ?? '';
+                  if (existingContent.isEmpty || existingContent.contains('cifrato')) {
+                    final newContent = newMsg['content']?.toString() ?? '';
+                    if (newContent.isNotEmpty && !newContent.contains('cifrato')) {
+                      _messages[idx]['content'] = newContent;
+                    }
+                  }
+                }
               }
             }
           });
@@ -5643,7 +5666,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
 
   @override
   Widget build(BuildContext context) {
-    debugPrint('[APPBAR] isGroup=${_conversation?.isGroup}, convType=${_conversation?.convType}, conversationId=$_conversationId');
     return Scaffold(
       backgroundColor: _bodyBg,
       appBar: AppBar(
