@@ -1562,6 +1562,14 @@ class GroupJoinView(APIView):
 class MessageEditView(APIView):
     permission_classes = [IsAuthenticated]
 
+    def get(self, request, message_id):
+        try:
+            message = Message.objects.get(id=message_id)
+        except Message.DoesNotExist:
+            return Response({'error': 'Messaggio non trovato.'}, status=404)
+        serializer = MessageSerializer(message, context={'request': request})
+        return Response(serializer.data)
+
     def patch(self, request, message_id):
         try:
             message = Message.objects.get(id=message_id, sender=request.user)
@@ -1589,20 +1597,17 @@ class MessageEditView(APIView):
         from channels.layers import get_channel_layer
         from asgiref.sync import async_to_sync
         channel_layer = get_channel_layer()
-        participants = ConversationParticipant.objects.filter(
-            conversation=message.conversation
-        ).exclude(user=request.user).values_list('user_id', flat=True)
-        for pid in participants:
-            async_to_sync(channel_layer.group_send)(
-                f'user_{pid}',
-                {
-                    'type': 'chat.message_edited',
-                    'message_id': str(message.id),
-                    'content': content,
-                    'content_encrypted_b64': content_encrypted_b64,
-                    'edited_at': message.edited_at.isoformat(),
-                }
-            )
+        conv_group = f'conv_{message.conversation_id}'
+        async_to_sync(channel_layer.group_send)(
+            conv_group,
+            {
+                'type': 'message.edited',
+                'message_id': str(message.id),
+                'content': content_encrypted_b64 or '',
+                'content_encrypted_b64': content_encrypted_b64,
+                'edited_at': message.edited_at.isoformat(),
+            }
+        )
 
         return Response({
             'id': str(message.id),

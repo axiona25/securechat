@@ -318,3 +318,43 @@ def unregister_device(
     except Exception as e:
         logger.exception(f"Errore deregistrazione dispositivo user {user_id}: {e}")
         return False
+
+
+def send_push_to_conversation_participants(conversation, sender, title, body, data=None):
+    """
+    Invia notifica push a tutti i partecipanti di una conversazione
+    eccetto il mittente.
+    """
+    try:
+        participants = conversation.participants.exclude(id=sender.id)
+        for user in participants:
+            send_push_notification(
+                user_id=user.id,
+                title=title,
+                body=body,
+                data=data or {},
+            )
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).exception(f"send_push_to_conversation_participants error: {e}")
+
+
+def send_android_incoming_call_data(user, call_data_dict):
+    """
+    Invia notifica chiamata entrante ad Android via notify server.
+    Sostituisce la vecchia implementazione Firebase.
+    """
+    try:
+        send_push_notification(
+            user_id=user.id,
+            title=call_data_dict.get('caller_name', 'Chiamata in arrivo'),
+            body='Chiamata in arrivo',
+            data=call_data_dict,
+            notification_type='call' if call_data_dict.get('call_type') == 'audio' else 'video_call',
+            sender_id=call_data_dict.get('caller_id'),
+        )
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).exception(
+            f"send_android_incoming_call_data error for user {user.id}: {e}"
+        )

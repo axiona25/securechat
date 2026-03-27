@@ -23,12 +23,12 @@ logger = logging.getLogger(__name__)
 
 class KeyUploadThrottle(UserRateThrottle):
     """Limit key uploads to prevent abuse"""
-    rate = '10/hour'
+    rate = "100/hour"
 
 
 class KeyFetchThrottle(UserRateThrottle):
     """Limit key fetches to detect enumeration attacks"""
-    rate = '60/hour'
+    rate = '300/hour'
 
 
 class UploadKeyBundleView(APIView):
@@ -131,10 +131,15 @@ class UploadKeyBundleView(APIView):
                 created_at = timezone.now()
 
             # Save or update key bundle
+            # Calcola prossima key_version
+            existing = UserKeyBundle.objects.filter(user=request.user).first()
+            next_key_version = (existing.key_version + 1) if existing else 1
+
             bundle, created = UserKeyBundle.objects.update_or_create(
                 user=request.user,
                 defaults={
                     'crypto_version': crypto_version,
+                    'key_version': next_key_version,
                     'identity_key_public': identity_key,
                     'identity_dh_public': identity_dh_key,
                     'signed_prekey_public': signed_prekey,
@@ -143,6 +148,8 @@ class UploadKeyBundleView(APIView):
                     'signed_prekey_created_at': created_at,
                 }
             )
+            # Notifica contatti che le chiavi sono cambiate
+            _notify_keys_changed(request.user.id, next_key_version)
 
             # Save one-time prekeys (support both list of {key_id, public_key} and list of b64 strings)
             created_count = 0
@@ -181,6 +188,7 @@ class UploadKeyBundleView(APIView):
                 'prekeys_available': available,
                 'signed_prekey_id': signed_prekey_id,
                 'crypto_version': crypto_version,
+                'key_version': bundle.key_version,
             }, status=status.HTTP_201_CREATED)
 
         except KeyError as e:
@@ -268,6 +276,7 @@ class GetKeyBundleView(APIView):
         response_data = {
             'user_id': user_id,
             'crypto_version': getattr(bundle, 'crypto_version', 1),
+            'key_version': bundle.key_version,
             'identity_key': base64.b64encode(bytes(bundle.identity_key_public)).decode(),
             'identity_dh_key': base64.b64encode(bytes(bundle.identity_dh_public)).decode() if bundle.identity_dh_public else None,
             'signed_prekey': base64.b64encode(bytes(bundle.signed_prekey_public)).decode(),
@@ -521,19 +530,6 @@ class E2EKeyBackupView(APIView):
         return Response({'detail': 'No backup found.'}, status=status.HTTP_404_NOT_FOUND)
 
 
-class ResetOtpView(APIView):
-    """
-    Delete all OneTimePreKey for the current user (used and unused).
-    Called before uploading a new key bundle so server OTP list matches client indices.
-    """
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request):
-        deleted = OneTimePreKey.objects.filter(user=request.user).delete()[0]
-        logger.info(f'[ResetOtp] user={request.user.id} deleted {deleted} OTP keys')
-        return Response({'deleted': deleted}, status=status.HTTP_200_OK)
-
-
 class E2EResetView(APIView):
     """
     Hard reset E2E for the authenticated user (test/recovery).
@@ -564,3 +560,52 @@ class E2EResetView(APIView):
                 {'error': 'Reset E2E non riuscito.'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+
+
+
+def _notify_keys_changed(user_id, key_version):
+    """Notifica il notify server che le chiavi di user_id sono cambiate."""
+    import requests as _requests
+    import os
+    notify_url = os.getenv('NOTIFY_BASE_URL', 'http://notify-server:8002').rstrip('/')
+    service_key = os.getenv('NOTIFY_SERVICE_KEY', '')
+    try:
+        _requests.post(
+            f'{notify_url}/keys-changed',
+            json={'user_id': str(user_id), 'key_version': key_version},
+            headers={'X-Notify-Service-Key': service_key, 'Content-Type': 'application/json'},
+            timeout=3,
+        )
+    except Exception as e:
+        logger.warning(f'[E2E] Impossibile notificare keys_changed per user {user_id}: {e}')
+
+
+class KeyVersionView(APIView):
+    """GET /encryption/key-version/<user_id>/ — restituisce key_version corrente.
+    Usato dal client come fallback quando la decifratura fallisce."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, user_id):
+        bundle = UserKeyBundle.objects.filter(user_id=user_id).first()
+        if not bundle:
+            return Response({'error': 'Bundle non trovato.'}, status=status.HTTP_404_NOT_FOUND)
+        return Response({
+            'user_id': user_id,
+            'key_version': bundle.key_version,
+            'uploaded_at': bundle.uploaded_at.isoformat(),
+        })
+
+class DebugLogView(APIView):
+    permission_classes = [IsAuthenticated]
+    def post(self, request):
+        message = request.data.get('message', '')
+        print(f'[REMOTE-DEBUG] {message}', flush=True)
+        return Response({'ok': True})
+
+class ResetOtpView(APIView):
+    permission_classes = [IsAuthenticated]
+    def post(self, request):
+        from .models import OneTimePreKey
+        deleted, _ = OneTimePreKey.objects.filter(user=request.user).delete()
+        print(f'[ResetOtp] deleted {deleted} OTP keys for user {request.user.id}', flush=True)
+        return Response({'ok': True, 'deleted': deleted})

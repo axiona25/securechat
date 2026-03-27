@@ -485,6 +485,13 @@ class ApnsTokenView(APIView):
         return Response({"registered": True}, status=status.HTTP_200_OK)
 
 
+    def delete(self, request):
+        """De-registra il token APNs al logout."""
+        request.user.apns_token = None
+        request.user.save(update_fields=["apns_token"])
+        return Response({"unregistered": True}, status=status.HTTP_200_OK)
+
+
 class VoipTokenView(APIView):
     """Registra il token VoIP (PushKit) per chiamate in arrivo su iOS."""
     permission_classes = [IsAuthenticated]
@@ -496,6 +503,13 @@ class VoipTokenView(APIView):
         request.user.voip_token = token
         request.user.save(update_fields=['voip_token'])
         return Response({'registered': True}, status=status.HTTP_200_OK)
+
+
+    def delete(self, request):
+        """De-registra il token VoIP al logout."""
+        request.user.voip_token = None
+        request.user.save(update_fields=["voip_token"])
+        return Response({"unregistered": True}, status=status.HTTP_200_OK)
 
 
 class DeviceRegisterView(APIView):
