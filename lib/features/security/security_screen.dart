@@ -5,7 +5,7 @@ import 'security_monitor_screen.dart';
 
 /// Placeholder screen for the Security tab (Sicurezza) in the bottom nav.
 /// Light theme, shield+lock with pulse and breath animations,
-/// subtle matrix-style lines, and "Coming Soon" badge.
+/// Security tab — realtime device threat monitoring.
 class SecurityScreen extends StatefulWidget {
   const SecurityScreen({super.key});
 
@@ -55,7 +55,6 @@ class _SecurityScreenState extends State<SecurityScreen>
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context).textTheme;
     return Stack(
       children: [
         // Subtle matrix-style falling lines (light theme)
@@ -70,136 +69,10 @@ class _SecurityScreenState extends State<SecurityScreen>
             ),
           ),
         ),
-        // Content
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 32),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-                // Shield + lock with pulse and breath
-                SizedBox(
-                  width: 180,
-                  height: 180,
-                  child: Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      AnimatedBuilder(
-                        animation: _pulseController,
-                        builder: (context, child) => CustomPaint(
-                          size: const Size(180, 180),
-                          painter: _PulseCirclesPainter(
-                            progress: _pulseController.value,
-                            color: _accent,
-                          ),
-                        ),
-                      ),
-                      AnimatedBuilder(
-                        animation: _breathController,
-                        builder: (context, child) {
-                          final curve = Curves.easeInOut;
-                          final t = curve.transform(_breathController.value);
-                          final scale = 0.95 + (1.05 - 0.95) * t;
-                          return Transform.scale(
-                            scale: scale,
-                            child: child,
-                          );
-                        },
-                        child: CustomPaint(
-                          size: const Size(100, 120),
-                          painter: _ShieldLockPainter(color: _accent),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 32),
-                Text(
-                  'Protezione Avanzata',
-                  style: theme.headlineMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.textPrimary,
-                  ) ?? const TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.textPrimary,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  'Stiamo costruendo qualcosa di straordinario per proteggere '
-                  'le tue conversazioni. Una nuova funzionalità di sicurezza '
-                  'è in arrivo. 🔐',
-                  style: theme.bodyMedium?.copyWith(
-                    fontSize: 14,
-                    color: _subtitleColor,
-                    height: 1.5,
-                  ) ?? const TextStyle(
-                    fontSize: 14,
-                    color: _subtitleColor,
-                    height: 1.5,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 28),
-                AnimatedBuilder(
-                  animation: _badgeFadeController,
-                  builder: (context, child) {
-                    final curve = Curves.easeInOut;
-                    final t = curve.transform(_badgeFadeController.value);
-                    final opacity = 0.4 + (1.0 - 0.4) * t;
-                    return Opacity(
-                      opacity: opacity,
-                      child: child,
-                    );
-                  },
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 20,
-                      vertical: 10,
-                    ),
-                    decoration: BoxDecoration(
-                      color: _accent.withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(24),
-                      border: Border.all(
-                        color: _accent.withValues(alpha: 0.5),
-                        width: 1,
-                      ),
-                    ),
-                    child: const Text(
-                      'Coming Soon',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.primary,
-                        letterSpacing: 0.5,
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 24),
-                TextButton.icon(
-                  onPressed: () {
-                    Navigator.of(context).push<void>(
-                      MaterialPageRoute<void>(
-                        builder: (_) => const SecurityMonitorScreen(),
-                      ),
-                    );
-                  },
-                  icon: const Icon(Icons.shield_outlined, color: AppColors.primary, size: 22),
-                  label: const Text(
-                    'Monitor di sicurezza',
-                    style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.primary,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
+        Positioned.fill(
+          child: SecurityMonitorScreen(),
+        ),
+      ],
     );
   }
 }

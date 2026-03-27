@@ -7,12 +7,13 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../main.dart' show initNotifyForLoggedInUser, securityEnabledNotifier;
 import '../constants/app_constants.dart';
 import 'api_service.dart';
 import 'crypto_service.dart';
 import 'device_service.dart';
 import 'profile_cache_service.dart';
-import 'securechat_notify_service.dart';
+import 'security_service.dart';
 import 'session_manager.dart';
 import 'voip_service.dart';
 
@@ -85,6 +86,12 @@ class AuthService {
           final prefs = await SharedPreferences.getInstance();
           final id = userId is int ? userId : int.tryParse(userId.toString()) ?? 0;
           await prefs.setInt(_keyCurrentUserId, id);
+          try {
+            await initNotifyForLoggedInUser(id);
+            debugPrint('[Auth] Notify inizializzato dopo login (security da preferenze)');
+          } catch (e) {
+            debugPrint('[Auth] initNotifyForLoggedInUser failed: $e');
+          }
           debugPrint('[AuthUser] source=login, currentUserId=$id');
           try {
             final crypto = CryptoService(apiService: _api);
@@ -92,13 +99,6 @@ class AuthService {
             print('[Auth] E2E status: $e2eStatus');
           } catch (e) {
             print('[Auth] E2E check failed: $e');
-          }
-          try {
-            final userId2 = id;
-            await SecureChatNotifyService().init(userId: userId2);
-            print('[Auth] NotifyService inizializzato per user $id');
-          } catch (e) {
-            print('[Auth] NotifyService init failed: $e');
           }
         }
         try {
@@ -248,12 +248,18 @@ class AuthService {
     } catch (_) {
       // Procedi comunque con clear locale (es. offline)
     }
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('access_token');
-    await prefs.remove('refresh_token');
-    _api.clearTokens();
-    await prefs.remove(_keyCurrentUserId);
-    await ProfileCacheService.instance.clear();
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('access_token');
+      await prefs.remove('refresh_token');
+      _api.clearTokens();
+      await prefs.remove(_keyCurrentUserId);
+      await ProfileCacheService.instance.clear();
+    } finally {
+      SecurityService().stopMonitoring();
+      securityEnabledNotifier.value = false;
+      debugPrint('[Auth] SecurityService fermato al logout');
+    }
   }
 
   /// Refresh access token using refresh token. Call before authenticated requests

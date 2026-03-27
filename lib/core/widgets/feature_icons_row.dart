@@ -1,14 +1,18 @@
 import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
 
-/// Riga di 3 icone feature (lucchetto+scudo, chat, scudo+check)
+/// Riga di 3 icone feature (lucchetto [+ scudo opz.], chat, scudo+check)
 /// con linee tratteggiate tra loro. Usata nella splash e nella login.
 class FeatureIconsRow extends StatelessWidget {
   final double iconSize;
 
+  /// Se false, il primo cerchio mostra solo il lucchetto (niente mini-scudo).
+  final bool showShieldOverlayOnLock;
+
   const FeatureIconsRow({
     super.key,
     this.iconSize = 44,
+    this.showShieldOverlayOnLock = true,
   });
 
   @override
@@ -16,7 +20,10 @@ class FeatureIconsRow extends StatelessWidget {
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        _buildIcon(Icons.lock_outline, Icons.shield_outlined),
+        _buildIcon(
+          Icons.lock_outline,
+          showShieldOverlayOnLock ? Icons.shield_outlined : null,
+        ),
         _buildDashedLine(),
         _buildIcon(Icons.chat_bubble_outline, null),
         _buildDashedLine(),

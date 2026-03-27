@@ -42,7 +42,7 @@ import '../auth/widgets/change_password_modal.dart';
 import 'package:flutter_callkit_incoming/flutter_callkit_incoming.dart';
 import '../calls/screens/call_screen.dart';
 import '../calls/screens/calls_history_screen.dart';
-import '../security/security_screen.dart';
+import '../security/security_monitor_screen.dart';
 import '../../core/l10n/app_localizations.dart';
 import '../../main.dart' show navigatorKey;
 
@@ -2335,7 +2335,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin, 
                                 lockAnimation: _lockAnimController,
                                 onLockTap: _showExitLockModal,
                               ),
-                              Expanded(child: SecurityScreen()),
+                              Expanded(child: SecurityMonitorScreen()),
                             ],
                           ),
                         ),
@@ -2640,7 +2640,7 @@ class _SingleChatSheetContentState extends State<_SingleChatSheetContent> {
   final TextEditingController _searchController = TextEditingController();
   List<Map<String, dynamic>> _allUsers = [];
   List<Map<String, dynamic>> _filteredUsers = [];
-  bool _loading = true;
+  bool _loading = false;
   bool _creating = false;
   Timer? _debounce;
 
@@ -2968,7 +2968,7 @@ class _GroupChatSheetContentState extends State<_GroupChatSheetContent> {
   List<Map<String, dynamic>> _allUsers = [];
   List<Map<String, dynamic>> _filteredUsers = [];
   final Set<int> _selectedIds = {};
-  bool _loading = true;
+  bool _loading = false;
   bool _step2 = false;
   bool _creating = false;
   Timer? _debounce;
@@ -3444,7 +3444,7 @@ class _BroadcastSheetContentState extends State<_BroadcastSheetContent> {
   List<Map<String, dynamic>> _allUsers = [];
   List<Map<String, dynamic>> _filteredUsers = [];
   final Set<int> _selectedIds = {};
-  bool _loading = true;
+  bool _loading = false;
   bool _step2 = false;
   bool _creating = false;
   Timer? _debounce;

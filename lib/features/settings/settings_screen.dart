@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
 import '../../core/constants/app_constants.dart';
@@ -17,6 +18,8 @@ import 'account_screen.dart';
 import 'privacy_screen.dart';
 import 'chat_settings_screen.dart';
 import '../../core/services/biometric_service.dart';
+import '../../core/services/security_service.dart';
+import '../../main.dart' show registerSecurityServiceCallbacks, securityEnabledNotifier;
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key, this.onBack});
@@ -33,6 +36,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _loading = true;
   bool _biometricAvailable = false;
   bool _biometricEnabled = false;
+  SharedPreferences? _prefs;
   // (rimosso: cache buster locale sostituito da AvatarCacheService globale)
 
   static const Color _teal = Color(0xFF2ABFBF);
@@ -42,6 +46,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   void initState() {
     super.initState();
+    SharedPreferences.getInstance().then((p) => _prefs = p);
     _loadProfile();
     _loadBiometricState();
   }
@@ -479,40 +484,78 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     const SizedBox(height: 24),
 
                     // Sezione 1 — Account settings
-                    _buildSection([
-                      _buildMenuItem(
-                        icon: Icons.person_outline_rounded,
-                        iconColor: _teal,
-                        title: l10n.t('account'),
-                        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AccountScreen())),
-                      ),
-                      _buildDivider(),
-                      _buildMenuItem(
-                        icon: Icons.shield_outlined,
-                        iconColor: const Color(0xFF4CAF50),
-                        title: l10n.t('privacy'),
-                        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PrivacyScreen())),
-                      ),
-                      _buildDivider(),
-                      _buildMenuItem(
-                        icon: Icons.chat_bubble_outline_rounded,
-                        iconColor: _teal,
-                        title: l10n.t('chat_settings'),
-                        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ChatSettingsScreen())),
-                      ),
-                      _buildDivider(),
-                      _buildMenuItem(
-                        icon: Icons.language_rounded,
-                        iconColor: _teal,
-                        title: l10n.t('language'),
-                        trailing: Text(_currentLanguageName, style: TextStyle(color: Colors.grey[400], fontSize: 14)),
-                        onTap: () => _showLanguageSelector(context),
-                      ),
-                      if (_biometricAvailable) ...[
-                        _buildDivider(),
-                        _buildBiometricTile(),
-                      ],
-                    ]),
+                    ValueListenableBuilder<bool>(
+                      valueListenable: securityEnabledNotifier,
+                      builder: (context, secEnabled, _) {
+                        return _buildSection([
+                          _buildMenuItem(
+                            icon: Icons.person_outline_rounded,
+                            iconColor: _teal,
+                            title: l10n.t('account'),
+                            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AccountScreen())),
+                          ),
+                          _buildDivider(),
+                          _buildMenuItem(
+                            icon: Icons.shield_outlined,
+                            iconColor: const Color(0xFF4CAF50),
+                            title: l10n.t('privacy'),
+                            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PrivacyScreen())),
+                          ),
+                          _buildDivider(),
+                          _buildMenuItem(
+                            icon: Icons.chat_bubble_outline_rounded,
+                            iconColor: _teal,
+                            title: l10n.t('chat_settings'),
+                            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ChatSettingsScreen())),
+                          ),
+                          _buildDivider(),
+                          _buildMenuItem(
+                            icon: Icons.language_rounded,
+                            iconColor: _teal,
+                            title: l10n.t('language'),
+                            trailing: Text(_currentLanguageName, style: TextStyle(color: Colors.grey[400], fontSize: 14)),
+                            onTap: () => _showLanguageSelector(context),
+                          ),
+                          _buildDivider(),
+                          _buildMenuItem(
+                            icon: Icons.security_rounded,
+                            iconColor: secEnabled
+                                ? const Color(0xFF2ABFBF)
+                                : Colors.grey,
+                            title: 'Security',
+                            showChevron: false,
+                            trailing: Transform.scale(
+                              scale: 0.85,
+                              child: Switch(
+                                value: secEnabled,
+                                onChanged: (val) async {
+                                  securityEnabledNotifier.value = val;
+                                  final security = SecurityService();
+                                  if (val) {
+                                    registerSecurityServiceCallbacks();
+                                    await security.startMonitoring();
+                                  } else {
+                                    security.stopMonitoring();
+                                  }
+                                  final prefs =
+                                      _prefs ?? await SharedPreferences.getInstance();
+                                  await prefs.setBool(
+                                    'security_monitoring_enabled',
+                                    val,
+                                  );
+                                },
+                                activeColor: const Color(0xFF2ABFBF),
+                              ),
+                            ),
+                            onTap: () {},
+                          ),
+                          if (_biometricAvailable) ...[
+                            _buildDivider(),
+                            _buildBiometricTile(),
+                          ],
+                        ]);
+                      },
+                    ),
                     const SizedBox(height: 16),
 
                     // Sezione Logout

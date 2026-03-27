@@ -13,9 +13,17 @@ import 'core/services/local_notification_service.dart';
 import 'core/services/securechat_notify_service.dart';
 import 'core/services/voip_service.dart';
 import 'core/utils/call_id_utils.dart';
+import 'core/services/security_service.dart';
 
 /// Global navigator key for navigation from outside the widget tree (e.g. incoming call).
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+
+/// True quando SecurityService ha rilevato una minaccia critica
+/// e ha bloccato l'invio messaggi.
+final ValueNotifier<bool> messagingBlockedNotifier = ValueNotifier<bool>(false);
+
+/// True quando il monitoraggio sicurezza è attivo (default: true).
+final ValueNotifier<bool> securityEnabledNotifier = ValueNotifier<bool>(false);
 
 /// IDs dei messaggi già mostrati come notifica (deduplicazione).
 final Set<String> _shownMessageIds = {};
@@ -109,7 +117,37 @@ Future<void> _showCallKitFromPushData(Map<String, dynamic> data) async {
   await FlutterCallkitIncoming.showCallkitIncoming(params);
 }
 
-Future<void> initNotifyService(int userId) async {
+/// Registra i callback globali su [SecurityService] (logout, alert, messaging block).
+void registerSecurityServiceCallbacks() {
+  final security = SecurityService();
+  security.onForcedLogout = () async {
+    debugPrint('[Security] Logout forzato per minaccia critica');
+    await AuthService().logout();
+    navigatorKey.currentState?.pushNamedAndRemoveUntil(
+      AppRouter.login, (route) => false,
+    );
+  };
+  security.onThreatAlert = (String message) {
+    debugPrint('[Security] ALERT: $message');
+    final context = navigatorKey.currentContext;
+    if (context != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 6),
+        ),
+      );
+    }
+  };
+  security.onMessagingBlocked = (bool blocked) {
+    debugPrint('[Security] Messaggistica bloccata: $blocked');
+    messagingBlockedNotifier.value = blocked;
+  };
+}
+
+/// Notify + APNs + callback messaggi/chiamate — senza SecurityService.
+Future<void> initNotifyOnly(int userId) async {
   await SecureChatNotifyService().init(userId: userId);
   // Registra APNs token al backend Django per push messaggi
   try {
@@ -136,6 +174,27 @@ Future<void> initNotifyService(int userId) async {
   };
 }
 
+Future<void> initNotifyService(int userId) async {
+  await initNotifyOnly(userId);
+  registerSecurityServiceCallbacks();
+  securityEnabledNotifier.value = true;
+  await SecurityService().startMonitoring();
+}
+
+/// Avvio dopo login o cold start: rispetta [security_monitoring_enabled] (default off).
+Future<void> initNotifyForLoggedInUser(int userId) async {
+  final prefs = await SharedPreferences.getInstance();
+  final secEnabled = prefs.getBool('security_monitoring_enabled') ?? false;
+  securityEnabledNotifier.value = secEnabled;
+  if (!secEnabled) {
+    await initNotifyOnly(userId);
+    debugPrint('[Notify] Security OFF — solo notify (user $userId)');
+  } else {
+    await initNotifyService(userId);
+    debugPrint('[Notify] Security ON — notify + security (user $userId)');
+  }
+}
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -150,8 +209,7 @@ void main() async {
     final prefs = await SharedPreferences.getInstance();
     final userId = prefs.getInt('current_user_id');
     if (userId != null) {
-      await initNotifyService(userId);
-      debugPrint('[Main] NotifyService inizializzato per user $userId');
+      await initNotifyForLoggedInUser(userId);
     }
   } catch (e) {
     debugPrint('[Main] NotifyService init failed: $e');

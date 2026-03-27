@@ -83,7 +83,9 @@ class LoginScreen extends StatelessWidget {
 
                         const Padding(
                           padding: EdgeInsets.only(bottom: 20),
-                          child: FeatureIconsRow(),
+                          child: FeatureIconsRow(
+                            showShieldOverlayOnLock: false,
+                          ),
                         ),
                       ],
                     ),

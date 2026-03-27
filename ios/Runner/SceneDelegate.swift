@@ -20,6 +20,7 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 
     // Registra plugin PRIMA di creare il ViewController
     GeneratedPluginRegistrant.register(with: engine)
+    SecurityChannel.register(with: engine)
     print("[NATIVE-CALLKIT] SceneDelegate: Flutter engine + CallKit plugin registered here; VoIP PushKit delivery still goes to AppDelegate.pushRegistry (not SceneDelegate)")
 
     // Mantieni riferimento forte al canale eventi CallKit

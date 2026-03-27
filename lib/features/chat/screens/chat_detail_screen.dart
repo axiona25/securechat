@@ -22,6 +22,8 @@ import 'package:geolocator/geolocator.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart' as ll;
 import 'package:url_launcher/url_launcher.dart';
+import 'package:flutter/gestures.dart';
+import 'package:flutter/gestures.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/models/conversation_model.dart';
@@ -37,6 +39,7 @@ import '../../../core/services/sound_service.dart';
 import '../../../core/services/chat_sound_service.dart';
 import '../../../core/services/local_notification_service.dart';
 import '../../../core/l10n/app_localizations.dart';
+import '../../../main.dart' show messagingBlockedNotifier;
 import '../widgets/audio_player_widget.dart';
 import '../../calls/screens/call_screen.dart';
 import 'document_viewer_screen.dart';
@@ -47,25 +50,27 @@ const String kMessageUndecryptablePlaceholder = 'Messaggio storico non decifrabi
 
 bool _looksLikeEmojiGrapheme(String g) {
   if (g.isEmpty) return false;
+  bool hasEmojiCore = false;
   for (final r in g.runes) {
-    final ok = (r >= 0x1F300 && r <= 0x1FAFF) ||
+    final isEmojiCore = (r >= 0x1F300 && r <= 0x1FAFF) ||
         (r >= 0x2600 && r <= 0x26FF) ||
         (r >= 0x2700 && r <= 0x27BF) ||
         (r >= 0x1F000 && r <= 0x1F9FF) ||
-        (r >= 0xFE00 && r <= 0xFE0F) ||
-        r == 0x200D ||
-        r == 0x20E3 ||
         (r >= 0x1F1E6 && r <= 0x1F1FF) ||
         (r >= 0x1F3FB && r <= 0x1F3FF) ||
         (r >= 0x2300 && r <= 0x23FF) ||
         (r >= 0x2B50 && r <= 0x2B55) ||
         (r >= 0x3030 && r <= 0x303F) ||
         (r >= 0x3297 && r <= 0x3299);
-    if (ok) continue;
-    if (r >= 0x30 && r <= 0x39) continue;
+    final isModifier = (r >= 0xFE00 && r <= 0xFE0F) ||
+        r == 0x200D ||
+        r == 0x20E3;
+    final isDigit = r >= 0x30 && r <= 0x39;
+    if (isEmojiCore) { hasEmojiCore = true; continue; }
+    if (isModifier || isDigit) continue;
     return false;
   }
-  return true;
+  return hasEmojiCore;
 }
 
 bool _isOnlyEmojiMessage(String raw) {
@@ -237,6 +242,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
     _scrollController.addListener(_onScrollForScrollToBottomButton);
     _textController.addListener(_onTextChanged);
     _audioPlayer = ap.AudioPlayer();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _configureChatAudioForSpeaker();
+    });
     _audioPlayer!.onDurationChanged.listen((d) {
       _audioDurationNotifier.value = d;
     });
@@ -565,6 +573,23 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
     } catch (_) {}
   }
 
+  /// Riproduzione messaggi vocali/audio in chat: forza vivavoce (non auricolare).
+  Future<void> _configureChatAudioForSpeaker() async {
+    final p = _audioPlayer;
+    if (p == null) return;
+    try {
+      await p.setAudioContext(ap.AudioContext(
+        android: const ap.AudioContextAndroid(isSpeakerphoneOn: true),
+        iOS: ap.AudioContextIOS(
+          category: ap.AVAudioSessionCategory.playAndRecord,
+          options: {ap.AVAudioSessionOptions.defaultToSpeaker},
+        ),
+      ));
+    } catch (e) {
+      debugPrint('[Audio] speaker context failed: $e');
+    }
+  }
+
   Future<void> _downloadAndPlayAudio(String messageId, String audioUrl, String? token) async {
     if (_downloadingAudioIds.contains(messageId)) return;
     if (_audioPlayer == null || token == null) return;
@@ -579,6 +604,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
         final file = File('${dir.path}/securechat_${messageId}_audio.m4a');
         await file.writeAsBytes(response.bodyBytes);
         if (mounted) {
+          await _configureChatAudioForSpeaker();
           await _audioPlayer?.play(ap.DeviceFileSource(file.path));
           await _audioPlayer?.setPlaybackRate(_audioPlaybackSpeed);
         }
@@ -704,44 +730,53 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
             }
             if (type == 'message.edited') {
               final editedMsgId = map['message_id']?.toString();
-              final editedContentB64 = map['content_encrypted_b64']?.toString();
-              final editedContentPlain = map['content']?.toString();
               final editedAt = map['edited_at']?.toString();
-              if (editedMsgId != null && editedMsgId.isNotEmpty && mounted) {
-                final idx = _messages.indexWhere((m) => m['id']?.toString() == editedMsgId);
-                if (idx >= 0) {
-                  // Prova a decifrare il contenuto cifrato
-                  String? decryptedContent;
-                  if (editedContentB64 != null && editedContentB64.isNotEmpty) {
+              if (editedMsgId != null && editedMsgId.isNotEmpty && mounted && map['content_encrypted_b64'] != null) {
+                try {
+                  debugPrint('[E2E-Edit] fetching GET msgId=$editedMsgId');
+                  final refreshed = await ApiService().get(
+                    '/chat/messages/$editedMsgId/',
+                  );
+                  final serverB64 =
+                      (map['content_encrypted_b64']?.toString().isNotEmpty == true)
+                          ? map['content_encrypted_b64'].toString()
+                          : refreshed['content_encrypted_b64']?.toString();
+                  String serverContent = refreshed['content']?.toString() ?? '';
+                  final senderId = refreshed['sender']?['id'];
+                  final senderIdInt = senderId is int ? senderId : (senderId != null ? int.tryParse(senderId.toString()) : null);
+                  final currentUserId = _currentUserId;
+                  debugPrint('[E2E-Edit] serverContent before check: ' + serverContent.substring(0, serverContent.length > 50 ? 50 : serverContent.length));
+                  final isPlaceholder = serverContent.contains('cifrato') || serverContent.contains('encrypted') || serverContent.contains('\u{1F512}') || serverContent.isEmpty;
+                  if (isPlaceholder && serverB64 != null && serverB64.isNotEmpty && senderIdInt != null && senderIdInt != currentUserId) {
                     try {
-                      final otherUser = _getOtherUserId();
-                      if (otherUser != null) {
-                        final encrypted = base64Decode(editedContentB64);
-                        decryptedContent = await _sessionManager.decryptMessage(
-                          otherUser,
-                          encrypted,
-                        );
-                      } else {
-                        decryptedContent = editedContentPlain;
-                      }
+                      serverContent = await _sessionManager.decryptMessage(
+                          senderIdInt, base64Decode(serverB64));
+                      debugPrint('[E2E-Edit] decrypted ok: $serverContent');
                     } catch (e) {
-                      debugPrint('[E2E-Edit] Decrypt failed: $e');
-                      decryptedContent = editedContentPlain;
+                      debugPrint('[E2E-Edit] decrypt failed: $e');
                     }
-                  } else {
-                    decryptedContent = editedContentPlain;
                   }
-                  if (mounted) {
+                  debugPrint('[E2E-Edit] final content=$serverContent');
+                  final idx = _messages.indexWhere(
+                    (m) => m['id']?.toString() == editedMsgId);
+                  if (idx >= 0 && mounted) {
                     setState(() {
                       _messages[idx] = {
                         ..._messages[idx],
-                        if (decryptedContent != null) 'content': decryptedContent,
+                        'content': serverContent,
                         'is_edited': true,
                         if (editedAt != null) 'edited_at': editedAt,
-                        if (editedContentB64 != null) 'content_encrypted_b64': editedContentB64,
+                        if (serverB64 != null)
+                          'content_encrypted_b64': serverB64,
                       };
                     });
+                    // Aggiorna preview home se è l'ultimo messaggio
+                    if (idx == 0 && serverContent.isNotEmpty) {
+                      _saveHomePreview(_messages);
+                    }
                   }
+                } catch (e) {
+                  debugPrint('[E2E-Edit] REST refresh failed: $e');
                 }
               }
             }
@@ -1729,7 +1764,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
             for (final updated in newMessages) {
               final id = updated['id']?.toString();
               final idx = _messages.indexWhere((m) => m['id']?.toString() == id);
-              if (idx >= 0 && _messages[idx]['content'] != updated['content']) {
+              if (idx >= 0 && _messages[idx]['content'] != updated['content'] && !(updated['content']?.toString().isEmpty == true && _messages[idx]['is_edited'] == true)) {
                 _messages[idx] = Map<String, dynamic>.from(updated);
               }
             }
@@ -2138,6 +2173,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
   }
 
   Future<void> _sendForwardToUsers(Map<String, dynamic> message, List<int> userIds) async {
+    if (messagingBlockedNotifier.value) {
+      debugPrint('[Security] Invio bloccato da security guard');
+      return;
+    }
     final content = message['content']?.toString() ?? '';
     int successCount = 0;
 
@@ -2253,6 +2292,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
   }
 
   Future<void> _addReaction(Map<String, dynamic> message, String emoji) async {
+    if (messagingBlockedNotifier.value) {
+      debugPrint('[Security] Invio bloccato da security guard');
+      return;
+    }
     final messageId = message['id'];
     if (messageId == null) return;
     final messageIdStr = messageId.toString();
@@ -3301,6 +3344,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
                               await _audioPlayer?.stop();
                               _playingAudioIdNotifier.value = messageId;
                               _isPlayingMedia = true;
+                              await _configureChatAudioForSpeaker();
                               if (decryptedFile != null) {
                                 await _audioPlayer?.play(ap.DeviceFileSource(decryptedFile.path));
                                 await _audioPlayer?.setPlaybackRate(_audioPlaybackSpeed);
@@ -3509,6 +3553,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
                           await _audioPlayer?.stop();
                           _playingAudioIdNotifier.value = messageId;
                           _isPlayingMedia = true;
+                          await _configureChatAudioForSpeaker();
                           if (resolvedAudioUrl.isNotEmpty) {
                             if (resolvedAudioUrl.contains('chat/media')) {
                               _downloadAndPlayAudio(messageId, resolvedAudioUrl, ApiService().accessToken);
@@ -3740,7 +3785,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
       );
       return RepaintBoundary(
         child: Dismissible(
-          key: Key(message['id']?.toString() ?? index.toString()),
+          key: Key('${message["id"]}_${message["is_edited"]}_${message["edited_at"] ?? ""}'),
           direction: DismissDirection.startToEnd,
           confirmDismiss: (direction) async {
             _setReplyMessage(message);
@@ -3935,10 +3980,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
     for (final g in baseText.characters) {
       if (_looksLikeEmojiGrapheme(g)) {
         if (buffer.isNotEmpty) {
-          spans.add(TextSpan(
-            text: buffer.toString(),
-            style: TextStyle(color: baseColor, fontSize: baseFont, height: 1.25),
-          ));
+          _addTextWithLinks(spans, buffer.toString(), baseColor, baseFont);
           buffer.clear();
         }
         spans.add(TextSpan(
@@ -3950,15 +3992,47 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
       }
     }
     if (buffer.isNotEmpty) {
-      spans.add(TextSpan(
-        text: buffer.toString(),
-        style: TextStyle(color: baseColor, fontSize: baseFont, height: 1.25),
-      ));
+      final remaining = buffer.toString();
+      _addTextWithLinks(spans, remaining, baseColor, baseFont);
     }
 
     return RichText(
       text: TextSpan(children: spans),
     );
+  }
+
+  void _addTextWithLinks(List<InlineSpan> spans, String text, Color baseColor, double fontSize) {
+    final urlRegex = RegExp(r'https?://[^\s]+', caseSensitive: false);
+    int last = 0;
+    for (final match in urlRegex.allMatches(text)) {
+      if (match.start > last) {
+        spans.add(TextSpan(
+          text: text.substring(last, match.start),
+          style: TextStyle(color: baseColor, fontSize: fontSize, height: 1.25),
+        ));
+      }
+      final url = match.group(0)!;
+      spans.add(TextSpan(
+        text: url,
+        style: TextStyle(
+          color: baseColor,
+          fontSize: fontSize,
+          height: 1.25,
+          decoration: TextDecoration.underline,
+        ),
+        recognizer: TapGestureRecognizer()..onTap = () async {
+          final uri = Uri.parse(url);
+          if (await canLaunchUrl(uri)) launchUrl(uri, mode: LaunchMode.externalApplication);
+        },
+      ));
+      last = match.end;
+    }
+    if (last < text.length) {
+      spans.add(TextSpan(
+        text: text.substring(last),
+        style: TextStyle(color: baseColor, fontSize: fontSize, height: 1.25),
+      ));
+    }
   }
 
   Widget _buildLocationWidget(double lat, double lng, bool isMe) {
@@ -4345,7 +4419,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
     );
 
     return Dismissible(
-      key: Key(message['id']?.toString() ?? index.toString()),
+      key: Key('${message["id"]}_${message["is_edited"]}_${message["edited_at"] ?? ""}'),
       direction: DismissDirection.startToEnd,
       confirmDismiss: (direction) async {
         _setReplyMessage(message);
@@ -4398,6 +4472,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
   }
 
   Future<void> _sendMessage() async {
+    if (messagingBlockedNotifier.value) {
+      debugPrint('[Security] Invio bloccato da security guard');
+      return;
+    }
     final text = _textController.text.trim();
     if (text.isEmpty || _conversationId == null || _conversationId!.isEmpty) return;
     _typingTimer?.cancel();
@@ -4422,12 +4500,24 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
           }
         }
 
+        final editingId = _editingMessageId!;
         await ApiService().patch(
-          '/chat/messages/$_editingMessageId/',
+          '/chat/messages/$editingId/',
           body: patchBody,
         );
+
+        // Broadcast via WebSocket così il destinatario
+        // riceve la modifica in tempo reale
+        _webSocket?.add(jsonEncode({
+          'action': 'edit_message',
+          'message_id': editingId,
+          'content_encrypted': patchBody['content_encrypted_b64'] ?? '',
+        }));
+
         setState(() {
-          final idx = _messages.indexWhere((m) => m['id']?.toString() == _editingMessageId);
+          final idx = _messages.indexWhere(
+            (m) => m['id']?.toString() == editingId,
+          );
           if (idx >= 0) {
             _messages[idx] = {
               ..._messages[idx],
@@ -4435,7 +4525,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
               'is_edited': true,
               'edited_at': DateTime.now().toIso8601String(),
               if (patchBody.containsKey('content_encrypted_b64'))
-                'content_encrypted_b64': patchBody['content_encrypted_b64'],
+                'content_encrypted_b64':
+                    patchBody['content_encrypted_b64'],
             };
           }
           _editingMessageId = null;
@@ -4704,6 +4795,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
   }
 
   void _showAudioRecorder() {
+    if (messagingBlockedNotifier.value) {
+      debugPrint('[Security] Invio bloccato da security guard');
+      return;
+    }
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -4729,6 +4824,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
   }
 
   Future<void> _sendLocation() async {
+    if (messagingBlockedNotifier.value) {
+      debugPrint('[Security] Invio bloccato da security guard');
+      return;
+    }
     if (_conversationId == null || _conversationId!.isEmpty) return;
     final otherUser = _getOtherUserId();
     final isGroup = _conversation != null && _conversation!.isGroup;
@@ -4925,6 +5024,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
   }
 
   Future<void> _sendContactMessage({required String name, String phone = '', String email = ''}) async {
+    if (messagingBlockedNotifier.value) {
+      debugPrint('[Security] Invio bloccato da security guard');
+      return;
+    }
     final convId = _conversationId;
     final otherUserId = _getOtherUserId();
     final isGroup = _conversation != null && _conversation!.isGroup;
@@ -5188,6 +5291,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
   }
 
   Future<void> _uploadAndSendFile(File file, String messageType) async {
+    if (messagingBlockedNotifier.value) {
+      debugPrint('[Security] Invio bloccato da security guard');
+      return;
+    }
     if (_conversationId == null || _conversationId!.isEmpty) return;
     final otherUserId = _getOtherUserId();
     final isGroup = _conversation != null && _conversation!.isGroup;
@@ -5354,6 +5461,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
   }
 
   Future<void> _uploadAndSendFileLegacy(File file, String messageType) async {
+    if (messagingBlockedNotifier.value) {
+      debugPrint('[Security] Invio bloccato da security guard');
+      return;
+    }
     if (_conversationId == null || _conversationId!.isEmpty) return;
 
     setState(() => _isUploading = true);
@@ -5867,99 +5978,133 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
                 ],
               ),
             ),
-          Container(
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.only(
-                topLeft: Radius.circular(8),
-                topRight: Radius.circular(8),
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: Color(0x10000000),
-                  blurRadius: 6,
-                  offset: Offset(0, -1),
-                ),
-              ],
-            ),
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            child: SafeArea(
-              top: false,
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: SizedBox(
-                      width: 44,
-                      height: 44,
-                      child: IconButton(
-                        onPressed: _showAttachmentBottomSheet,
-                        icon: const Icon(Icons.attach_file_rounded, color: Color(0xFF2ABFBF), size: 26),
-                        color: AppColors.blue700,
-                        padding: EdgeInsets.zero,
-                      ),
-                    ),
+          ValueListenableBuilder<bool>(
+            valueListenable: messagingBlockedNotifier,
+            builder: (context, isBlocked, child) {
+              if (isBlocked) {
+                return Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 12,
                   ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Container(
-                      constraints: const BoxConstraints(minHeight: 44),
-                      decoration: BoxDecoration(
-                        color: _inputBg,
-                        borderRadius: BorderRadius.circular(22),
-                      ),
-                      child: TextField(
-                        controller: _textController,
-                        focusNode: _messageFocusNode,
-                        maxLines: 4,
-                        minLines: 1,
-                        textCapitalization: TextCapitalization.sentences,
-                        autocorrect: true,
-                        enableSuggestions: true,
-                        decoration: InputDecoration(
-                          hintText: l10n.t('type_message'),
-                          hintStyle: TextStyle(color: Color(0xFF9E9E9E), fontSize: 15),
-                          border: InputBorder.none,
-                          contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                          isDense: true,
-                        ),
-                        style: const TextStyle(fontSize: 15),
-                        onChanged: (_) => setState(() {}),
-                        onSubmitted: (_) => _sendMessage(),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Padding(
-                    padding: const EdgeInsets.only(left: 8),
-                    child: ValueListenableBuilder<TextEditingValue>(
-                      valueListenable: _textController,
-                      builder: (context, value, _) {
-                        final hasText = value.text.trim().isNotEmpty;
-                        return SizedBox(
-                          width: 44,
-                          height: 44,
-                          child: Container(
-                            decoration: const BoxDecoration(
-                              color: _teal,
-                              shape: BoxShape.circle,
-                            ),
-                            child: IconButton(
-                              onPressed: hasText ? _sendMessage : _showAudioRecorder,
-                              icon: Icon(
-                                hasText ? Icons.send_rounded : Icons.mic_rounded,
-                                size: 22,
-                                color: Colors.white,
-                              ),
-                              padding: EdgeInsets.zero,
+                  color: Colors.red.shade900,
+                  child: const SafeArea(
+                    top: false,
+                    child: Row(
+                      children: [
+                        Icon(Icons.security, color: Colors.white, size: 20),
+                        SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Invio messaggi bloccato — minaccia di sicurezza rilevata',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500,
                             ),
                           ),
-                        );
-                      },
+                        ),
+                      ],
                     ),
                   ),
+                );
+              }
+              return child!;
+            },
+            child: Container(
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.only(
+                  topLeft: Radius.circular(8),
+                  topRight: Radius.circular(8),
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Color(0x10000000),
+                    blurRadius: 6,
+                    offset: Offset(0, -1),
+                  ),
                 ],
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              child: SafeArea(
+                top: false,
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: SizedBox(
+                        width: 44,
+                        height: 44,
+                        child: IconButton(
+                          onPressed: _showAttachmentBottomSheet,
+                          icon: const Icon(Icons.attach_file_rounded, color: Color(0xFF2ABFBF), size: 26),
+                          color: AppColors.blue700,
+                          padding: EdgeInsets.zero,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Container(
+                        constraints: const BoxConstraints(minHeight: 44),
+                        decoration: BoxDecoration(
+                          color: _inputBg,
+                          borderRadius: BorderRadius.circular(22),
+                        ),
+                        child: TextField(
+                          controller: _textController,
+                          focusNode: _messageFocusNode,
+                          maxLines: 4,
+                          minLines: 1,
+                          textCapitalization: TextCapitalization.sentences,
+                          autocorrect: true,
+                          enableSuggestions: true,
+                          decoration: InputDecoration(
+                            hintText: l10n.t('type_message'),
+                            hintStyle: TextStyle(color: Color(0xFF9E9E9E), fontSize: 15),
+                            border: InputBorder.none,
+                            contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                            isDense: true,
+                          ),
+                          style: const TextStyle(fontSize: 15),
+                          onChanged: (_) => setState(() {}),
+                          onSubmitted: (_) => _sendMessage(),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Padding(
+                      padding: const EdgeInsets.only(left: 8),
+                      child: ValueListenableBuilder<TextEditingValue>(
+                        valueListenable: _textController,
+                        builder: (context, value, _) {
+                          final hasText = value.text.trim().isNotEmpty;
+                          return SizedBox(
+                            width: 44,
+                            height: 44,
+                            child: Container(
+                              decoration: const BoxDecoration(
+                                color: _teal,
+                                shape: BoxShape.circle,
+                              ),
+                              child: IconButton(
+                                onPressed: hasText ? _sendMessage : _showAudioRecorder,
+                                icon: Icon(
+                                  hasText ? Icons.send_rounded : Icons.mic_rounded,
+                                  size: 22,
+                                  color: Colors.white,
+                                ),
+                                padding: EdgeInsets.zero,
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -6524,6 +6669,20 @@ class _AudioRecorderSheetState extends State<_AudioRecorderSheet> {
   final _recorder = record.AudioRecorder();
   final _player = ap.AudioPlayer();
 
+  Future<void> _configureRecorderPreviewSpeaker() async {
+    try {
+      await _player.setAudioContext(ap.AudioContext(
+        android: const ap.AudioContextAndroid(isSpeakerphoneOn: true),
+        iOS: ap.AudioContextIOS(
+          category: ap.AVAudioSessionCategory.playAndRecord,
+          options: {ap.AVAudioSessionOptions.defaultToSpeaker},
+        ),
+      ));
+    } catch (e) {
+      debugPrint('[Audio] recorder preview speaker: $e');
+    }
+  }
+
   bool _isRecording = false;
   bool _hasRecording = false;
   bool _isPlaying = false;
@@ -6536,6 +6695,9 @@ class _AudioRecorderSheetState extends State<_AudioRecorderSheet> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _configureRecorderPreviewSpeaker();
+    });
     _player.onPositionChanged.listen((p) {
       if (mounted) setState(() => _playPosition = p);
     });
@@ -6605,6 +6767,7 @@ class _AudioRecorderSheetState extends State<_AudioRecorderSheet> {
       await _player.pause();
       setState(() => _isPlaying = false);
     } else {
+      await _configureRecorderPreviewSpeaker();
       await _player.play(ap.DeviceFileSource(_filePath!));
       setState(() => _isPlaying = true);
     }

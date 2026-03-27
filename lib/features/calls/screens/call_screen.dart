@@ -544,6 +544,30 @@ class _CallScreenState extends State<CallScreen> {
               child: _buildBottomActions(audioOnly: false),
             ),
           ),
+        if (_callService.state.status == CallStatus.connected)
+          Positioned(
+            top: MediaQuery.of(context).padding.top + 12,
+            left: 0,
+            right: 0,
+            child: Center(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.45),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  _statusText,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 1.2,
+                  ),
+                ),
+              ),
+            ),
+          ),
       ],
     );
   }
