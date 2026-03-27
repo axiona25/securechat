@@ -45,6 +45,7 @@ class CryptoService {
   static const String _otpkCount = '${_storagePrefix}otpk_count';
   static const String _keysGenerated = '${_storagePrefix}keys_generated';
   static const String _keysUploaded = '${_storagePrefix}keys_uploaded';
+  static const String _keysOwnerUserId = '${_storagePrefix}keys_owner_user_id';
 
   /// SharedPreferences key for "needs manual recovery" (local keys missing but server has bundle).
   static const String _prefNeedsManualRecovery = 'e2e_needs_manual_recovery';
@@ -162,6 +163,13 @@ class CryptoService {
 
     await _secureStorage.write(key: _keysGenerated, value: 'true');
 
+    // Salva anche l'owner userId
+    final ownerPrefs = await SharedPreferences.getInstance();
+    final ownerId = ownerPrefs.getInt('current_user_id') ?? 0;
+    if (ownerId > 0) {
+      await _secureStorage.write(key: _keysOwnerUserId, value: ownerId.toString());
+    }
+
     debugPrint('[CryptoService] generateAndStoreKeyBundle SUCCESS');
     // 7. Return public bundle for upload
     return {
@@ -234,6 +242,21 @@ class CryptoService {
           debugPrint('[CryptoBootstrap] app_installed=false but keys already exist — skipping deleteAll');
         }
         await prefs.setBool('app_installed', true);
+      }
+
+      // Controlla se le chiavi nel Keychain appartengono a un utente diverso
+      final prefs2 = await SharedPreferences.getInstance();
+      final currentUserId = prefs2.getInt('current_user_id') ?? 0;
+      if (currentUserId > 0) {
+        final savedOwner = await _secureStorage.read(key: _keysOwnerUserId);
+        final savedOwnerInt = int.tryParse(savedOwner ?? '') ?? 0;
+        if (savedOwnerInt > 0 && savedOwnerInt != currentUserId) {
+          debugPrint('[CryptoBootstrap] KEY OWNER MISMATCH: keychain owner=$savedOwnerInt current=$currentUserId — wiping keys');
+          await _secureStorage.deleteAll();
+          debugPrint('[CryptoBootstrap] Keychain wiped for user change');
+        }
+        // Salva/aggiorna l'owner corrente
+        await _secureStorage.write(key: _keysOwnerUserId, value: currentUserId.toString());
       }
 
       await _keychainAuditLog();

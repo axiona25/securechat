@@ -206,6 +206,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
 
   // WebSocket typing/recording
   WebSocket? _webSocket;
+  Timer? _wsPingTimer;
   bool _isTyping = false;
   bool _otherUserIsTyping = false;
   bool _otherUserIsRecording = false;
@@ -645,6 +646,12 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
         return;
       }
       _webSocket = ws;
+      _wsPingTimer?.cancel();
+      _wsPingTimer = Timer.periodic(const Duration(seconds: 20), (_) {
+        try {
+          _webSocket?.add(jsonEncode({'action': 'ping'}));
+        } catch (_) {}
+      });
       _webSocket!.listen(
         (data) async {
           final rawStr = data is String ? data : String.fromCharCodes(data as List<int>);
@@ -949,13 +956,33 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
             }
           } catch (_) {}
         },
-        onError: (e) => debugPrint('WebSocket error: $e'),
-        onDone: () {
+        onError: (e) {
+          debugPrint('WebSocket error: $e');
+          _wsPingTimer?.cancel();
           _webSocket = null;
-          if (mounted) setState(() {
-            _otherUserIsTyping = false;
-            _otherUserIsRecording = false;
-          });
+          if (mounted) {
+            setState(() {
+              _otherUserIsTyping = false;
+              _otherUserIsRecording = false;
+            });
+            Future.delayed(const Duration(seconds: 2), () {
+              if (mounted) _connectWebSocket();
+            });
+          }
+          _stopTypingDotsAnimation();
+        },
+        onDone: () {
+          _wsPingTimer?.cancel();
+          _webSocket = null;
+          if (mounted) {
+            setState(() {
+              _otherUserIsTyping = false;
+              _otherUserIsRecording = false;
+            });
+            Future.delayed(const Duration(seconds: 2), () {
+              if (mounted) _connectWebSocket();
+            });
+          }
           _stopTypingDotsAnimation();
         },
         cancelOnError: false,
@@ -4529,6 +4556,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
     });
     _typingTimer?.cancel();
     _typingDotsTimer?.cancel();
+    _wsPingTimer?.cancel();
     _typingDotsPhase.dispose();
     _textController.removeListener(_onTextChanged);
     _webSocket?.close();
