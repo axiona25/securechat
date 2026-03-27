@@ -15,6 +15,8 @@ import 'widgets/dashed_line_painter.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../../core/services/biometric_service.dart';
 import '../../core/services/e2e_key_store.dart';
+import '../../core/services/voip_service.dart';
+import '../../main.dart' show initNotifyForLoggedInUser;
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -333,6 +335,25 @@ class _SplashScreenState extends State<SplashScreen>
       }
       if (!mounted) return;
       debugPrint('[Splash] navigation to Home');
+      // Inizializza notify service + registra APNs token a Django
+      final prefs3 = await SharedPreferences.getInstance();
+      final currentUserId = prefs3.getInt('current_user_id') ?? 0;
+      if (currentUserId > 0) {
+        try {
+          await initNotifyForLoggedInUser(currentUserId);
+          debugPrint('[Splash] initNotifyForLoggedInUser OK user=$currentUserId');
+        } catch (e) {
+          debugPrint('[Splash] initNotifyForLoggedInUser failed: $e');
+        }
+        // Ri-registra VoIP token (potrebbe essere cambiato dopo reinstallazione)
+        try {
+          await VoipService.instance.retryVoipTokenRegistration();
+          debugPrint('[Splash] VoIP token retry OK');
+        } catch (e) {
+          debugPrint('[Splash] VoIP token retry failed: $e');
+        }
+      }
+      if (!mounted) return;
       // Connetti Call WebSocket immediatamente per ricevere chiamate
       CallService().ensureConnected();
       Navigator.of(context).pushReplacementNamed(AppRouter.home);

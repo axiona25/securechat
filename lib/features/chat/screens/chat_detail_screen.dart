@@ -2506,6 +2506,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
   void _showMessageActions(BuildContext context, Map<String, dynamic> message, bool isMe) {
     final messageText = message['content']?.toString() ?? '';
 
+    FocusScope.of(context).unfocus();
+    _messageFocusNode.unfocus();
+
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -5759,7 +5762,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return GestureDetector(
+      onTap: () => FocusScope.of(context).unfocus(),
+      child: Scaffold(
       backgroundColor: _bodyBg,
       appBar: AppBar(
         backgroundColor: Colors.white,
@@ -6276,6 +6281,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
           ],
         ),
       ),
+    ),
     );
   }
 }
