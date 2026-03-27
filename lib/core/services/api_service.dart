@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http_parser/http_parser.dart';
@@ -28,6 +29,11 @@ class ApiService {
 
   String? _accessToken;
   String? _refreshToken;
+  VoidCallback? _onUnauthorized;
+
+  void setUnauthorizedCallback(VoidCallback callback) {
+    _onUnauthorized = callback;
+  }
 
   void setTokens({required String access, required String refresh}) {
     _accessToken = access;
@@ -104,6 +110,10 @@ class ApiService {
           }
         }
       } catch (_) {}
+    }
+    // Se ancora 401 dopo refresh, notifica logout
+    if (response.statusCode == 401) {
+      _onUnauthorized?.call();
     }
     return response;
   }
@@ -207,7 +217,7 @@ class ApiService {
   Future<Map<String, dynamic>> delete(String endpoint) async {
     final url = Uri.parse('${AppConstants.baseUrl}$endpoint');
     try {
-      final response = await http.delete(url, headers: _headers);
+      final response = await _executeWithRefresh(() => http.delete(url, headers: _headers));
       final data = response.body.isNotEmpty
           ? (jsonDecode(response.body) as Map<String, dynamic>)
           : <String, dynamic>{};
@@ -325,7 +335,7 @@ class ApiService {
       url = url.replace(queryParameters: queryParams);
     }
     try {
-      final response = await http.get(url, headers: _headers);
+      final response = await _executeWithRefresh(() => http.get(url, headers: _headers));
       if (response.statusCode < 200 || response.statusCode >= 300) {
         throw ApiException(
           statusCode: response.statusCode,

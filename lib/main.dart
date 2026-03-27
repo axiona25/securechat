@@ -4,7 +4,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'app.dart';
 import 'core/routes/app_router.dart';
-import 'package:flutter_app_badger/flutter_app_badger.dart';
 import 'package:flutter_callkit_incoming/entities/entities.dart';
 import 'package:flutter_callkit_incoming/flutter_callkit_incoming.dart';
 import 'core/services/api_service.dart';
@@ -228,6 +227,16 @@ void main() async {
     statusBarColor: Colors.transparent,
     statusBarIconBrightness: Brightness.dark,
   ));
+
+  // Registra callback 401 per logout automatico
+  ApiService().setUnauthorizedCallback(() async {
+    debugPrint('[ApiService] 401 non recuperabile - logout automatico');
+    await AuthService().logout();
+    navigatorKey.currentState?.pushNamedAndRemoveUntil(
+      AppRouter.login,
+      (route) => false,
+    );
+  });
 
   runApp(SecureChatApp(navigatorKey: navigatorKey));
 
