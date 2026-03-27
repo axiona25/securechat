@@ -1032,32 +1032,34 @@ class CallService {
   Future<void> _maybeRetriggerIosAudioSessionIfReady({required String context}) async {
     if (kIsWeb || !Platform.isIOS) return;
     final cid = _callId;
-    if (cid == null || cid.isEmpty) return;
+    if (cid == null || cid.isEmpty) {
+      _remoteLog('[AUDIO-RETRIGGER] skip: no callId context=$context');
+      return;
+    }
     final pc = _peerConnection;
-    if (pc == null) return;
+    if (pc == null) {
+      _remoteLog('[AUDIO-RETRIGGER] skip: no peerConnection context=$context callId=$cid');
+      return;
+    }
     if (pc.connectionState != RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
+      _remoteLog('[AUDIO-RETRIGGER] skip: pc not connected state=${pc.connectionState} context=$context callId=$cid');
       return;
     }
     final hasRemoteAudio = (_remoteStream?.getAudioTracks().isNotEmpty ?? false);
-    if (!hasRemoteAudio) return;
+    if (!hasRemoteAudio) {
+      _remoteLog('[AUDIO-RETRIGGER] skip: no remote audio tracks context=$context callId=$cid');
+      return;
+    }
     if (!_iosAudioRetriggerCallIds.add(cid)) {
-      debugPrint(
-        '[AUDIO-RETRIGGER-DART] skip duplicate retrigger callId=$cid context=$context',
-      );
+      _remoteLog('[AUDIO-RETRIGGER] skip: already retriggered callId=$cid context=$context');
       return;
     }
     try {
-      debugPrint(
-        '[AUDIO-RETRIGGER-DART] calling retriggerAudioEnabled for callId=$cid',
-      );
+      _remoteLog('[AUDIO-RETRIGGER] FIRING retriggerAudioEnabled callId=$cid context=$context');
       await _iosVoipChannel.invokeMethod<dynamic>('retriggerAudioEnabled');
-      debugPrint(
-        '[AUDIO-RETRIGGER-DART] retriggerAudioEnabled completed for callId=$cid',
-      );
+      _remoteLog('[AUDIO-RETRIGGER] SUCCESS callId=$cid context=$context');
     } catch (e) {
-      debugPrint(
-        '[AUDIO-RETRIGGER-DART] retriggerAudioEnabled FAILED: $e',
-      );
+      _remoteLog('[AUDIO-RETRIGGER] FAILED: $e callId=$cid context=$context');
     }
   }
 
