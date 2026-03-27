@@ -12,6 +12,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'api_service.dart';
 import 'crypto_service.dart';
+import 'e2e_key_store.dart';
 
 /// Manages E2E encryption sessions between users.
 /// Each pair of users has one session (identified by the other user's ID).
@@ -25,6 +26,7 @@ class SessionManager {
   static const String _cachePrefix = 'scp_msg_cache_';
   static const String _failedPrefix = 'e2e_failed_';
   static const String _e2eInstallIdKey = 'e2e_install_id';
+  static const String _prefsCurrentUserIdKey = 'current_user_id';
 
   /// No automatic wipe or key regeneration. Keys persist in Keychain across reinstall/update.
   /// Only updates install id for logging; never clears sessions or keys.
@@ -218,25 +220,34 @@ class SessionManager {
     return true;
   }
 
-  /// Cache the plaintext of a message (sent or decrypted) — persists to disk.
+  /// Cache the plaintext of a message (sent or decrypted); memoria + secure storage per utente.
   Future<void> cacheSentMessage(String messageId, String plaintext) async {
     _sentMessagePlaintexts[messageId] = plaintext;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('$_cachePrefix$messageId', plaintext);
-    final verify = prefs.getString('$_cachePrefix$messageId');
-    debugPrint('[SessionManager] Cached plaintext for message $messageId (verified: ${verify != null})');
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final userId = prefs.getInt(_prefsCurrentUserIdKey);
+      if (userId != null && userId > 0) {
+        await E2EKeyStore.saveMessagePlaintext(userId, messageId, plaintext);
+      }
+    } catch (_) {}
+    debugPrint('[SessionManager] Cached plaintext for message $messageId (verified: true)');
   }
 
-  /// Get cached plaintext for a message. Checks memory first, then disk.
+  /// Get cached plaintext for a message: memoria, poi E2EKeyStore (Keychain/Keystore).
   Future<String?> getCachedPlaintext(String messageId) async {
     final mem = _sentMessagePlaintexts[messageId];
     if (mem != null) return mem;
-    final prefs = await SharedPreferences.getInstance();
-    final disk = prefs.getString('$_cachePrefix$messageId');
-    if (disk != null) {
-      _sentMessagePlaintexts[messageId] = disk;
-      return disk;
-    }
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final userId = prefs.getInt(_prefsCurrentUserIdKey);
+      if (userId != null && userId > 0) {
+        final stored = await E2EKeyStore.getMessagePlaintext(userId, messageId);
+        if (stored != null && stored.isNotEmpty) {
+          _sentMessagePlaintexts[messageId] = stored;
+          return stored;
+        }
+      }
+    } catch (_) {}
     if (_loggedCacheMisses.add(messageId)) {
       debugPrint('[SessionManager] Cache MISS for $messageId');
     }
@@ -836,7 +847,8 @@ class SessionManager {
       );
       debugPrint('[SessionManager] Signed prekey verification OK');
     } catch (e) {
-      debugPrint('[SessionManager] WARNING: Signed prekey verification failed: $e');
+      debugPrint('[SessionManager] ERROR: Signed prekey verification failed: $e');
+      throw Exception('Signed prekey verification failed — possibile MITM. Connessione interrotta.');
     }
 
     final ephemeralPrivate = PrivateKey.generate();

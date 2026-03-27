@@ -35,6 +35,7 @@ import '../../../core/services/chat_service.dart';
 import '../../../core/services/crypto_service.dart';
 import '../../../core/services/media_encryption_service.dart';
 import '../../../core/services/session_manager.dart';
+import '../../../core/services/e2e_key_store.dart';
 import '../../../core/services/sound_service.dart';
 import '../../../core/services/chat_sound_service.dart';
 import '../../../core/services/local_notification_service.dart';
@@ -226,6 +227,12 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
   static const int _maxConcurrentDecryptions = 2;
   static const double _scrollToBottomThreshold = 200;
   static const double _scrollToBottomButtonBottom = 140;
+
+  Future<int> _e2eUserId() async {
+    if (_currentUserId != null && _currentUserId! > 0) return _currentUserId!;
+    final id = await AuthService.getCurrentUserId();
+    return id ?? 0;
+  }
 
   void _onScrollForScrollToBottomButton() {
     if (!mounted || !_scrollController.hasClients) return;
@@ -898,6 +905,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
                       if (decrypted.isNotEmpty) {
                         msgData['content'] = decrypted;
                         await _sessionManager.cacheSentMessage(msgId, decrypted);
+                        await E2EKeyStore.saveMessagePlaintext(await _e2eUserId(), msgId, decrypted);
                       }
                     } catch (_) {}
                   }
@@ -1016,6 +1024,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
   /// Carica da SharedPreferences le caption degli allegati E2E per mostrare il nome file corretto (es. dopo riavvio).
   Future<void> _preloadAttachmentCaptionsFromPrefs() async {
     final prefs = await SharedPreferences.getInstance();
+    final uid = await _e2eUserId();
     bool updated = false;
     for (final msg in _messages) {
       final atts = msg['attachments'] as List? ?? [];
@@ -1024,11 +1033,24 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
         if (a['is_encrypted'] != true) continue;
         final attId = a['id']?.toString();
         if (attId == null || attId.isEmpty) continue;
-        if (_attachmentCaptionCache.containsKey(attId)) continue;
-        final caption = prefs.getString('scp_att_caption_$attId');
-        if (caption != null && caption.isNotEmpty) {
+        var caption = prefs.getString('scp_att_caption_$attId');
+        if ((caption == null || caption.isEmpty) && uid > 0) {
+          final c2 = await E2EKeyStore.getAttachmentCaption(uid, attId);
+          if (c2 != null && c2.isNotEmpty) caption = c2;
+        }
+        if (caption != null && caption.isNotEmpty && !_attachmentCaptionCache.containsKey(attId)) {
           _attachmentCaptionCache[attId] = caption;
           updated = true;
+        }
+        // Carica anche la chiave di cifratura allegato
+        if (!_attachmentKeyCache.containsKey(attId)) {
+          var fk = prefs.getString('scp_att_key_$attId');
+          if ((fk == null || fk.isEmpty) && uid > 0) {
+            fk = await E2EKeyStore.getAttachmentKey(uid, attId);
+          }
+          if (fk != null && fk.isNotEmpty) {
+            _attachmentKeyCache[attId] = fk;
+          }
         }
       }
     }
@@ -1381,7 +1403,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
           final sendCachedSilent = prefsForCacheSilent.getString('scp_msg_cache_$messageId');
           if (sendCachedSilent != null) {
             msg['content'] = sendCachedSilent;
-            _sessionManager.cacheSentMessage(messageId, sendCachedSilent);
+            await _sessionManager.cacheSentMessage(messageId, sendCachedSilent);
+            await E2EKeyStore.saveMessagePlaintext(await _e2eUserId(), messageId, sendCachedSilent);
             continue;
           }
           // Cache miss totale: preserva contenuto esistente in _messages se disponibile
@@ -1451,6 +1474,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
                 _attachmentCaptionCache[attId] = caption;
                 await prefsForCacheSilent.setString('scp_att_key_$attId', fk);
                 await prefsForCacheSilent.setString('scp_att_caption_$attId', caption);
+                await E2EKeyStore.saveAttachmentKey(await _e2eUserId(), attId, fk, caption);
                 // Avvia decrypt allegato in background subito dopo aver salvato la chiave
                 if (attId != null && atts.isNotEmpty && atts[0] is Map) {
                   final attMap = Map<String, dynamic>.from(atts[0] as Map);
@@ -1459,6 +1483,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
               }
             }
             await _sessionManager.cacheSentMessage(messageId, msg['content'] as String);
+            await E2EKeyStore.saveMessagePlaintext(await _e2eUserId(), messageId, msg['content'] as String);
           } else {
             msg['content'] = decrypted;
             if (SessionManager.parseContactPayload(decrypted) != null) {
@@ -1467,6 +1492,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
               msg['message_type'] = 'location';
             }
             await _sessionManager.cacheSentMessage(messageId, decrypted);
+            await E2EKeyStore.saveMessagePlaintext(await _e2eUserId(), messageId, decrypted);
           }
           _decryptedMessageIds.add(messageId);
           contentDecrypted = true;
@@ -1742,6 +1768,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
                 final prefs = await SharedPreferences.getInstance();
                 await prefs.setString('scp_att_key_$attId', fk);
                 await prefs.setString('scp_att_caption_$attId', caption);
+                await E2EKeyStore.saveAttachmentKey(await _e2eUserId(), attId, fk, caption);
                 // Avvia decrypt allegato in background subito dopo aver salvato la chiave
                 if (attId != null && atts.isNotEmpty && atts[0] is Map) {
                   final attMap = Map<String, dynamic>.from(atts[0] as Map);
@@ -1750,6 +1777,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
               }
             }
             await _sessionManager.cacheSentMessage(messageId, msg['content'] as String);
+            await E2EKeyStore.saveMessagePlaintext(await _e2eUserId(), messageId, msg['content'] as String);
           } else {
             msg['content'] = decrypted;
             if (SessionManager.parseContactPayload(decrypted) != null) {
@@ -1758,6 +1786,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
               msg['message_type'] = 'location';
             }
             await _sessionManager.cacheSentMessage(messageId, decrypted);
+            await E2EKeyStore.saveMessagePlaintext(await _e2eUserId(), messageId, decrypted);
           }
           _decryptedMessageIds.add(messageId);
         } catch (e) {
@@ -1906,7 +1935,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
           final sendCached = prefsForCache.getString('scp_msg_cache_$messageId');
           if (sendCached != null) {
             msg['content'] = sendCached;
-            _sessionManager.cacheSentMessage(messageId, sendCached);
+            await _sessionManager.cacheSentMessage(messageId, sendCached);
+            await E2EKeyStore.saveMessagePlaintext(await _e2eUserId(), messageId, sendCached);
             continue;
           }
           // Cache miss totale: non tentare decifratura (non abbiamo sessione self-recipient)
@@ -1982,6 +2012,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
                 final prefs = await SharedPreferences.getInstance();
                 await prefs.setString('scp_att_key_$attId', fk);
                 await prefs.setString('scp_att_caption_$attId', caption);
+                await E2EKeyStore.saveAttachmentKey(await _e2eUserId(), attId, fk, caption);
                 // Avvia decrypt allegato in background subito dopo aver salvato la chiave
                 if (attId != null && atts.isNotEmpty && atts[0] is Map) {
                   final attMap = Map<String, dynamic>.from(atts[0] as Map);
@@ -1990,6 +2021,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
               }
             }
             await _sessionManager.cacheSentMessage(messageId, msg['content'] as String);
+            await E2EKeyStore.saveMessagePlaintext(await _e2eUserId(), messageId, msg['content'] as String);
           } else {
             msg['content'] = decrypted;
             if (SessionManager.parseContactPayload(decrypted) != null) {
@@ -1998,6 +2030,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
               msg['message_type'] = 'location';
             }
             await _sessionManager.cacheSentMessage(messageId, decrypted);
+            await E2EKeyStore.saveMessagePlaintext(await _e2eUserId(), messageId, decrypted);
           }
           _decryptedMessageIds.add(messageId);
         } catch (e) {
@@ -2657,12 +2690,19 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
         final prefs = await SharedPreferences.getInstance();
         fileKeyB64 = prefs.getString('scp_att_key_$attachmentId');
       }
+      if ((fileKeyB64 == null || fileKeyB64.isEmpty)) {
+        fileKeyB64 = await E2EKeyStore.getAttachmentKey(await _e2eUserId(), attachmentId);
+      }
       if (fileKeyB64 == null || fileKeyB64.isEmpty) return null;
       // Nome file con estensione: caption dal payload E2E (cache/prefs) o da mime_type
       String fileName = _attachmentCaptionCache[attachmentId]?.trim() ?? '';
       if (fileName.isEmpty) {
         final prefs = await SharedPreferences.getInstance();
         fileName = prefs.getString('scp_att_caption_$attachmentId')?.trim() ?? '';
+      }
+      if (fileName.isEmpty) {
+        final cap = await E2EKeyStore.getAttachmentCaption(await _e2eUserId(), attachmentId);
+        fileName = cap?.trim() ?? '';
       }
       if (fileName.isEmpty) {
         final mimeType = att['mime_type']?.toString() ?? '';
@@ -4699,6 +4739,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
           final messageId = response['id']?.toString();
           if (messageId != null && body.containsKey('content_encrypted')) {
             await _sessionManager.cacheSentMessage(messageId, savedText);
+            await E2EKeyStore.saveMessagePlaintext(await _e2eUserId(), messageId, savedText);
             response['content'] = savedText;
           }
           if (!mounted) return;
@@ -4903,6 +4944,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
         final messageMap = Map<String, dynamic>.from(response);
         if (messageId != null) {
           await _sessionManager.cacheSentMessage(messageId, payload);
+          await E2EKeyStore.saveMessagePlaintext(await _e2eUserId(), messageId, payload);
           messageMap['content'] = payload;
         }
         if (mounted) {
@@ -5093,6 +5135,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
       final messageMap = Map<String, dynamic>.from(response);
       if (messageId != null) {
         await _sessionManager.cacheSentMessage(messageId, payload);
+        await E2EKeyStore.saveMessagePlaintext(await _e2eUserId(), messageId, payload);
         messageMap['content'] = payload;
       }
 
@@ -5408,6 +5451,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('scp_att_key_$attachmentId', fileKeyB64);
       await prefs.setString('scp_att_caption_$attachmentId', fileName);
+      await E2EKeyStore.saveAttachmentKey(await _e2eUserId(), attachmentId, fileKeyB64, fileName);
       final contentEncryptedB64 = isGroup
           ? (recipientsEncrypted!.values.isNotEmpty ? recipientsEncrypted.values.first : '')
           : base64Encode(encryptedPayload!);
@@ -5443,6 +5487,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
       final newMessageId = response['id']?.toString();
       if (newMessageId != null) {
         await _sessionManager.cacheSentMessage(newMessageId, fileName);
+        await E2EKeyStore.saveMessagePlaintext(await _e2eUserId(), newMessageId, fileName);
       }
       debugPrint('[ATTACH] response body: $responseBody');
       debugPrint('[ATTACH] attachments in response: ${response['attachments']}');

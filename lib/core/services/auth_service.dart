@@ -16,8 +16,31 @@ import 'profile_cache_service.dart';
 import 'security_service.dart';
 import 'session_manager.dart';
 import 'voip_service.dart';
+import 'e2e_key_store.dart';
 
 const String _keyCurrentUserId = 'current_user_id';
+
+// Secure storage per JWT tokens
+const _tokenStorage = FlutterSecureStorage(
+  iOptions: IOSOptions(accessibility: KeychainAccessibility.first_unlock_this_device),
+  aOptions: AndroidOptions(encryptedSharedPreferences: true),
+);
+
+Future<void> _saveTokensSecure(String access, String refresh) async {
+  await _tokenStorage.write(key: 'access_token', value: access);
+  await _tokenStorage.write(key: 'refresh_token', value: refresh);
+}
+
+Future<void> _deleteTokensSecure() async {
+  await _tokenStorage.delete(key: 'access_token');
+  await _tokenStorage.delete(key: 'refresh_token');
+}
+
+Future<({String? access, String? refresh})> _readTokensSecure() async {
+  final access = await _tokenStorage.read(key: 'access_token');
+  final refresh = await _tokenStorage.read(key: 'refresh_token');
+  return (access: access, refresh: refresh);
+}
 
 class AuthResult {
   final bool success;
@@ -45,13 +68,11 @@ class AuthService {
   bool get isLoggedIn => _api.isAuthenticated;
 
   Future<void> _remoteLog(String message) async {
+    // SECURITY: remote logging disabilitato in release per evitare leak di materiale crittografico
+    if (kReleaseMode) return;
     try {
       await _api.post('/encryption/debug/log/', body: {'message': message}, requiresAuth: true);
-    } catch (_) {
-      try {
-        await _api.post('/encryption/debug/log/', body: {'message': message}, requiresAuth: false);
-      } catch (_) {}
-    }
+    } catch (_) {}
   }
 
   Future<AuthResult> login({
@@ -69,15 +90,16 @@ class AuthService {
 
       if (access != null && refresh != null) {
         _api.setTokens(access: access, refresh: refresh);
+        await _saveTokensSecure(access, refresh);
+        // Rimuovi eventuali token legacy da SharedPreferences
         final prefs = await SharedPreferences.getInstance();
-        await prefs.setString('access_token', access);
-        await prefs.setString('refresh_token', refresh);
+        await prefs.remove('access_token');
+        await prefs.remove('refresh_token');
         // Registra il device
         final deviceOk = await DeviceService.instance.registerDevice();
         if (!deviceOk) {
           _api.clearTokens();
-          await prefs.remove('access_token');
-          await prefs.remove('refresh_token');
+          await _deleteTokensSecure();
           throw ApiException(statusCode: 403, message: 'device_blocked');
         }
         final user = data['user'] as Map<String, dynamic>?;
@@ -235,6 +257,9 @@ class AuthService {
       await _api.delete('/auth/voip-token/');
     } catch (_) {}
     try {
+      await _api.delete('/auth/apns-token/');
+    } catch (_) {}
+    try {
       final sessionMgr = SessionManager(
         apiService: _api,
         cryptoService: CryptoService(apiService: _api),
@@ -253,7 +278,12 @@ class AuthService {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove('access_token');
       await prefs.remove('refresh_token');
+      await _deleteTokensSecure();
       _api.clearTokens();
+      try {
+        final userId = await AuthService.getCurrentUserId();
+        if (userId != null) await E2EKeyStore.clearForUser(userId);
+      } catch (_) {}
       await prefs.remove(_keyCurrentUserId);
       await ProfileCacheService.instance.clear();
     } finally {
@@ -287,6 +317,7 @@ class AuthService {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('access_token', access);
       await prefs.setString('refresh_token', validRefresh);
+      await _saveTokensSecure(access, validRefresh);
       return true;
     } catch (_) {
       return false;

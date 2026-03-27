@@ -13,6 +13,7 @@ import 'widgets/animated_feature_icon.dart';
 import 'widgets/dashed_line_painter.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../../core/services/biometric_service.dart';
+import '../../core/services/e2e_key_store.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -193,12 +194,54 @@ class _SplashScreenState extends State<SplashScreen>
     await Future.delayed(const Duration(milliseconds: 1000));
     if (!mounted) return;
     final prefs = await SharedPreferences.getInstance();
-    final access = prefs.getString('access_token');
-    final refresh = prefs.getString('refresh_token');
+    // Leggi token prima da secure storage, poi fallback a SharedPreferences (migrazione)
+    const tokenStorage = FlutterSecureStorage(
+      iOptions: IOSOptions(accessibility: KeychainAccessibility.first_unlock_this_device),
+      aOptions: AndroidOptions(encryptedSharedPreferences: true),
+    );
+    String? access = await tokenStorage.read(key: 'access_token');
+    String? refresh = await tokenStorage.read(key: 'refresh_token');
+    // Migrazione da SharedPreferences a secure storage
+    if ((access == null || refresh == null)) {
+      access = prefs.getString('access_token');
+      refresh = prefs.getString('refresh_token');
+      if (access != null && refresh != null) {
+        await tokenStorage.write(key: 'access_token', value: access);
+        await tokenStorage.write(key: 'refresh_token', value: refresh);
+        await prefs.remove('access_token');
+        await prefs.remove('refresh_token');
+        debugPrint('[Splash] JWT migrati da SharedPreferences a SecureStorage');
+      }
+    }
     if (access != null && refresh != null) {
       ApiService().setTokens(access: access, refresh: refresh);
     }
     if (AuthService().isLoggedIn) {
+      // SECURITY: rimuovi cache plaintext messaggi legacy da SharedPreferences
+      final allKeys = prefs.getKeys();
+      final cacheKeys = allKeys.where((k) => k.startsWith('scp_msg_cache_')).toList();
+      if (cacheKeys.isNotEmpty) {
+        for (final k in cacheKeys) await prefs.remove(k);
+        debugPrint('[Splash] Rimossi ${cacheKeys.length} plaintext cache da SharedPreferences');
+      }
+      // Migrazione chiavi allegati da SharedPreferences a E2EKeyStore
+      final userId = prefs.getInt('current_user_id') ?? 0;
+      if (userId > 0) {
+        final attKeys = prefs.getKeys().where((k) => k.startsWith('scp_att_key_')).toList();
+        for (final k in attKeys) {
+          final attId = k.replaceFirst('scp_att_key_', '');
+          final keyVal = prefs.getString(k);
+          final caption = prefs.getString('scp_att_caption_$attId') ?? '';
+          if (keyVal != null) {
+            await E2EKeyStore.saveAttachmentKey(userId, attId, keyVal, caption);
+            await prefs.remove(k);
+            await prefs.remove('scp_att_caption_$attId');
+          }
+        }
+        if (attKeys.isNotEmpty) {
+          debugPrint('[Splash] Migrate ${attKeys.length} attachment keys to E2EKeyStore');
+        }
+      }
       debugPrint('[Splash] startup begin');
       if (!mounted) return;
 

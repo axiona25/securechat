@@ -219,7 +219,20 @@ class _CallScreenState extends State<CallScreen> {
       WakelockPlus.disable();
       _durationTimer?.cancel();
       _durationTimer = null;
-      _closeScreen();
+      // Mostra messaggio se utente non disponibile
+      final endReason = s.endReason;
+      if (endReason != null && endReason.isNotEmpty && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(endReason),
+            duration: const Duration(seconds: 4),
+            backgroundColor: const Color(0xFF1A2B4A),
+          ),
+        );
+        Future.delayed(const Duration(seconds: 4), _closeScreen);
+      } else {
+        _closeScreen();
+      }
       return;
     }
     if (s.status == CallStatus.busy) {

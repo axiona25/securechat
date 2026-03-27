@@ -31,6 +31,7 @@ class CallState {
   final MediaStream? localStream;
   final MediaStream? remoteStream;
   final Duration? duration;
+  final String? endReason;
 
   const CallState({
     required this.status,
@@ -47,6 +48,7 @@ class CallState {
     this.localStream,
     this.remoteStream,
     this.duration,
+    this.endReason,
   });
 
   CallState copyWith({
@@ -64,6 +66,7 @@ class CallState {
     MediaStream? localStream,
     MediaStream? remoteStream,
     Duration? duration,
+    String? endReason,
   }) {
     return CallState(
       status: status ?? this.status,
@@ -80,6 +83,7 @@ class CallState {
       localStream: localStream ?? this.localStream,
       remoteStream: remoteStream ?? this.remoteStream,
       duration: duration ?? this.duration,
+      endReason: endReason ?? this.endReason,
     );
   }
 }
@@ -569,9 +573,16 @@ class CallService {
 
   void _onCallRejected(Map<String, dynamic> map) {
     final reason = map['reason']?.toString();
+    final message = map['message']?.toString();
     if (reason == 'busy') {
       CallSoundService().playBusy();
       _emit(_state.copyWith(status: CallStatus.busy));
+    } else if (reason == 'unavailable') {
+      _emit(_state.copyWith(
+        status: CallStatus.ended,
+        endReason: message ?? 'Utente non disponibile. Riprova più tardi.',
+      ));
+      _cleanup();
     } else {
       _emit(_state.copyWith(status: CallStatus.ended));
       _cleanup();
