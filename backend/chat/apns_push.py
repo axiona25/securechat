@@ -98,6 +98,7 @@ def send_message_push(user, title, body, data=None):
             'sound': 'default',
             'badge': badge_count,
             'mutable-content': 1,
+            
         },
     }
     if data:
