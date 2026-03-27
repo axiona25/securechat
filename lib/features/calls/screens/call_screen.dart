@@ -171,7 +171,13 @@ class _CallScreenState extends State<CallScreen> {
     try {
       await _localRenderer.initialize();
       await _remoteRenderer.initialize();
-      if (mounted) setState(() => _renderersInitialized = true);
+      if (mounted) {
+        // Assegna stream già disponibili prima che setState aggiorni la UI
+        final s = _callService.state;
+        if (s.remoteStream != null) _remoteRenderer.srcObject = s.remoteStream;
+        if (s.localStream != null && widget.callType == 'video') _localRenderer.srcObject = s.localStream;
+        setState(() => _renderersInitialized = true);
+      }
     } catch (e) {
       debugPrint('[CallScreen] renderer init error: $e');
     }
@@ -206,11 +212,16 @@ class _CallScreenState extends State<CallScreen> {
       WakelockPlus.enable();
       _startDurationTimer();
     }
-    if (s.remoteStream != null && _renderersInitialized) {
-      _remoteRenderer.srcObject = s.remoteStream;
+    if (s.remoteStream != null) {
+      if (_renderersInitialized) {
+        _remoteRenderer.srcObject = s.remoteStream;
+      }
+      // renderer non ancora pronti: verranno assegnati in _initRenderers
     }
-    if (s.localStream != null && _renderersInitialized && widget.callType == 'video') {
-      _localRenderer.srcObject = s.localStream;
+    if (s.localStream != null && widget.callType == 'video') {
+      if (_renderersInitialized) {
+        _localRenderer.srcObject = s.localStream;
+      }
     }
     if (s.status == CallStatus.ended) {
       debugPrint('[CallScreen] Call ended received, closing screen');

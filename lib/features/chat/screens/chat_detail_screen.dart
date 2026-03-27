@@ -903,7 +903,27 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
                         messageId: msgId,
                       );
                       if (decrypted.isNotEmpty) {
-                        msgData['content'] = decrypted;
+                        // Estrai chiave allegato se presente nel payload E2E
+                        final attachPayload = SessionManager.parseAttachmentPayload(decrypted);
+                        if (attachPayload != null) {
+                          final caption = attachPayload['caption']?.toString() ?? '';
+                          msgData['content'] = caption;
+                          final atts = msgData['attachments'] as List? ?? [];
+                          if (atts.isNotEmpty && atts[0] is Map) {
+                            final attId = (atts[0] as Map)['id']?.toString();
+                            final fk = attachPayload['file_key_b64'] as String?;
+                            if (attId != null && fk != null) {
+                              _attachmentKeyCache[attId] = fk;
+                              _attachmentCaptionCache[attId] = caption;
+                              final uid = await _e2eUserId();
+                              await E2EKeyStore.saveAttachmentKey(uid, attId, fk, caption);
+                              final attMap = Map<String, dynamic>.from(atts[0] as Map);
+                              _decryptFutureCache.putIfAbsent(attId, () => _decryptAttachmentToFile(attMap, msgData));
+                            }
+                          }
+                        } else {
+                          msgData['content'] = decrypted;
+                        }
                         await _sessionManager.cacheSentMessage(msgId, decrypted);
                         await E2EKeyStore.saveMessagePlaintext(await _e2eUserId(), msgId, decrypted);
                       }
