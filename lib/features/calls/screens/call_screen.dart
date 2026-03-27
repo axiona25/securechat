@@ -357,17 +357,6 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
     if (_pendingClose || _hasPopped) {
       return const SizedBox.shrink();
     }
-    // Se la chiamata è già terminata (ended/idle) e non stiamo iniziando una nuova, nascondi
-    final buildStatus = CallService().state.status;
-    final buildCallId = CallService().state.callId;
-    final expectedId = normalizeCallId(widget.callId);
-    if ((buildStatus == CallStatus.ended || buildStatus == CallStatus.idle) &&
-        (expectedId.isEmpty || buildCallId != expectedId)) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && !_hasPopped) _closeScreen();
-      });
-      return const SizedBox.shrink();
-    }
     return PopScope(
       canPop: _callService.state.status != CallStatus.connected &&
           _callService.state.status != CallStatus.connecting &&

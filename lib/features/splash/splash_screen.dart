@@ -6,6 +6,7 @@ import '../../core/l10n/app_localizations.dart';
 import '../../core/routes/app_router.dart';
 import '../../core/services/api_service.dart';
 import '../../core/services/auth_service.dart';
+import '../../core/services/call_service.dart';
 import '../../core/services/crypto_service.dart';
 import '../../core/services/device_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -332,6 +333,8 @@ class _SplashScreenState extends State<SplashScreen>
       }
       if (!mounted) return;
       debugPrint('[Splash] navigation to Home');
+      // Connetti Call WebSocket immediatamente per ricevere chiamate
+      CallService().ensureConnected();
       Navigator.of(context).pushReplacementNamed(AppRouter.home);
     } else {
       Navigator.of(context).pushReplacementNamed(AppRouter.login);
