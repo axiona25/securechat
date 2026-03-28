@@ -518,16 +518,18 @@ class DeviceRegisterView(APIView):
     def post(self, request):
         from .models import UserDevice
         data = request.data
-        device_id = data.get('device_id')
-        if not device_id:
-            return Response({'error': 'device_id required'}, status=400)
-        blocked = UserDevice.objects.filter(user=request.user, device_id=device_id, is_blocked=True).exists()
+        imei = (data.get('imei') or data.get('device_id') or '').strip()
+        if not imei:
+            return Response({'error': 'imei required'}, status=400)
+        blocked = UserDevice.objects.filter(user=request.user, imei=imei, is_blocked=True).exists()
         if blocked:
             return Response({'error': 'device_blocked'}, status=403)
+        device_id = (data.get('device_id') or imei).strip()
         device, created = UserDevice.objects.update_or_create(
             user=request.user,
-            device_id=device_id,
+            imei=imei,
             defaults={
+                'device_id': device_id,
                 'platform': data.get('platform', 'ios'),
                 'device_name': data.get('device_name', ''),
                 'device_model': data.get('device_model', ''),
@@ -548,7 +550,8 @@ class DeviceListView(APIView):
         devices = UserDevice.objects.filter(user=request.user).order_by('-last_seen')
         data = [{
             'id': d.id,
-            'device_id': d.device_id,
+            'imei': d.imei,
+            'device_id': d.device_id or d.imei,
             'platform': d.platform,
             'device_name': d.device_name,
             'device_model': d.device_model,

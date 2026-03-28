@@ -4,6 +4,7 @@ All endpoints require IsAdminUser. Errors are caught, logged, and returned as JS
 """
 import logging
 import traceback
+import uuid
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAdminUser
@@ -151,7 +152,7 @@ class AdminPanelConversationMessagesView(APIView):
 
 
 class AdminPanelCallsView(APIView):
-    """GET /api/admin-panel/calls/ — list all calls with caller, callee, type, status, duration."""
+    """GET /api/admin/calls/ — list calls; optional ?conversation_id=<uuid> limits to that chat."""
     authentication_classes = ADMIN_AUTH
     permission_classes = [IsAdminUser]
 
@@ -162,6 +163,13 @@ class AdminPanelCallsView(APIView):
             from chat.models import ConversationParticipant
 
             calls = Call.objects.select_related('initiated_by', 'conversation').prefetch_related('participants__user').order_by('-created_at')
+            conv_id = request.query_params.get('conversation_id') or request.query_params.get('chat_id')
+            if conv_id:
+                try:
+                    uuid.UUID(str(conv_id))
+                except (ValueError, TypeError):
+                    return Response({'calls': []})
+                calls = calls.filter(conversation_id=conv_id)
             out = []
             for call in calls:
                 caller = call.initiated_by

@@ -1,9 +1,12 @@
 import { useState, useEffect, useRef, Fragment } from "react";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, PieChart, Pie, Cell, AreaChart, Area } from "recharts";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, PieChart, Pie, Cell, AreaChart, Area, ResponsiveContainer } from "recharts";
 
-const API_BASE = "https://axphone.it/api";
+/** Backend API (es. https://axphone.it/api su DigitalOcean). Override: REACT_APP_API_BASE in .env.development */
+const API_BASE = (process.env.REACT_APP_API_BASE || "https://axphone.it/api").replace(/\/$/, "");
+/** Origine sito per /media/ e avatar (stesso host dell’API senza /api). Override: REACT_APP_SITE_ORIGIN */
+const SITE_ORIGIN = (process.env.REACT_APP_SITE_ORIGIN || API_BASE.replace(/\/api\/?$/i, "")).replace(/\/$/, "");
 
 function getAuthToken() {
   return localStorage.getItem("admin_token");
@@ -67,9 +70,9 @@ const T = {
   radius: "16px", radiusSm: "12px",
 };
 
+/** Recharts 3: dimensioni fisse sul contenitore + ResponsiveContainer (l’hook width spesso resta 0 → grafico mai montato). */
 function DashboardMessageTypesPie({ msgData, total }) {
-  const [wrapRef, w] = useObservedChartWidth(240);
-  if (msgData.length === 0) {
+  if (!msgData || msgData.length === 0) {
     return (
       <div style={{ height: 240, display: "flex", alignItems: "center", justifyContent: "center", color: T.textMuted, fontSize: 14 }}>
         Nessun dato sui tipi di messaggio
@@ -77,33 +80,32 @@ function DashboardMessageTypesPie({ msgData, total }) {
     );
   }
   return (
-    <div
-      ref={wrapRef}
-      style={{ width: "100%", minWidth: 0, minHeight: 240, display: "flex", justifyContent: "center", alignItems: "center" }}
-    >
-      {w > 0 ? (
-        <PieChart width={w} height={240}>
+    <div style={{ width: "100%", minWidth: 200, height: 240, minHeight: 240, position: "relative" }}>
+      <ResponsiveContainer width="100%" height="100%" minWidth={200} minHeight={200}>
+        <PieChart>
           <Pie
             data={msgData}
-            cx={w / 2}
-            cy={120}
-            innerRadius={70}
-            outerRadius={110}
-            paddingAngle={4}
             dataKey="value"
+            nameKey="name"
+            cx="50%"
+            cy="50%"
+            innerRadius="42%"
+            outerRadius="72%"
+            paddingAngle={3}
             stroke="none"
+            isAnimationActive
           >
             {msgData.map((entry, i) => (
-              <Cell key={i} fill={entry.color} />
+              <Cell key={`${entry.name}-${i}`} fill={entry.color} />
             ))}
           </Pie>
           <Tooltip
-            formatter={(v) => [`${v} (${total > 0 ? Math.round((v * 100) / total) : 0}%)`, ""]}
+            formatter={(v) => [`${v} (${total > 0 ? Math.round((Number(v) * 100) / total) : 0}%)`, ""]}
             contentStyle={{ background: T.navy, border: "none", borderRadius: 10, color: "#fff", fontSize: 13 }}
             itemStyle={{ color: "#fff" }}
           />
         </PieChart>
-      ) : null}
+      </ResponsiveContainer>
     </div>
   );
 }
@@ -232,64 +234,69 @@ function CustomTooltip({ active, payload, label }) {
   );
 }
 
-function Sidebar({ active, onSelect, collapsed }) {
+function Sidebar({ active, onSelect }) {
   return (
-    <div style={{ width: collapsed ? 72 : 260, background: T.navy, height: "100vh", position: "fixed", left: 0, top: 0, display: "flex", flexDirection: "column", transition: "width 0.3s cubic-bezier(0.4,0,0.2,1)", zIndex: 100, overflow: "hidden" }}>
-      <div style={{ padding: collapsed ? "24px 16px" : "24px 12px", display: "flex", alignItems: "center", justifyContent: "center", borderBottom: "1px solid rgba(255,255,255,0.08)", minHeight: 80, width: "100%", boxSizing: "border-box" }}>
+    <div style={{ width: 260, background: T.navy, height: "100vh", position: "fixed", left: 0, top: 0, display: "flex", flexDirection: "column", zIndex: 100, overflow: "hidden" }}>
+      <div style={{ padding: "24px 12px", display: "flex", alignItems: "center", justifyContent: "center", borderBottom: "1px solid rgba(255,255,255,0.08)", minHeight: 80, width: "100%", boxSizing: "border-box" }}>
         <img src="/admin-panel/LogoAxphone_W.png" alt="SecureChat" style={{ width: "100%", padding: "0 16px", objectFit: "contain", boxSizing: "border-box" }} />
       </div>
       <div style={{ flex: 1, padding: "16px 12px", display: "flex", flexDirection: "column", gap: 4 }}>
         {Object.keys(labels).map(id => {
           const isActive = active === id;
           return (
-            <button key={id} onClick={() => onSelect(id)} style={{ display: "flex", alignItems: "center", gap: 14, padding: collapsed ? "12px 0" : "12px 16px", justifyContent: collapsed ? "center" : "flex-start", borderRadius: 12, border: "none", cursor: "pointer", background: isActive ? "rgba(42,191,191,0.15)" : "transparent", color: isActive ? T.teal : "rgba(255,255,255,0.5)", fontSize: 14, fontWeight: isActive ? 600 : 500, transition: "all 0.2s ease", width: "100%", position: "relative", fontFamily: "inherit" }}
+            <button key={id} onClick={() => onSelect(id)} style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 16px", justifyContent: "flex-start", borderRadius: 12, border: "none", cursor: "pointer", background: isActive ? "rgba(42,191,191,0.15)" : "transparent", color: isActive ? T.teal : "rgba(255,255,255,0.5)", fontSize: 14, fontWeight: isActive ? 600 : 500, transition: "all 0.2s ease", width: "100%", position: "relative", fontFamily: "inherit" }}
             onMouseEnter={e => { if (!isActive) { e.currentTarget.style.background = "rgba(255,255,255,0.05)"; e.currentTarget.style.color = "rgba(255,255,255,0.8)"; }}}
             onMouseLeave={e => { if (!isActive) { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "rgba(255,255,255,0.5)"; }}}>
-              {isActive && !collapsed && <div style={{ position: "absolute", left: -12, top: "50%", transform: "translateY(-50%)", width: 4, height: 28, background: T.teal, borderRadius: "0 4px 4px 0" }} />}
+              {isActive && <div style={{ position: "absolute", left: -12, top: "50%", transform: "translateY(-50%)", width: 4, height: 28, background: T.teal, borderRadius: "0 4px 4px 0" }} />}
               <div style={{ flexShrink: 0, display: "flex", alignItems: "center" }}>{iconMap[id]}</div>
-              {!collapsed && <span style={{ whiteSpace: "nowrap" }}>{labels[id]}</span>}
+              <span style={{ whiteSpace: "nowrap" }}>{labels[id]}</span>
             </button>
           );
         })}
       </div>
-      {!collapsed && (
-        <div style={{ padding: "16px 20px", borderTop: "1px solid rgba(255,255,255,0.08)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <div style={{ width: 36, height: 36, borderRadius: 10, background: T.gradient, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 14, fontWeight: 700 }}>RA</div>
-            <div><div style={{ color: "#fff", fontSize: 13, fontWeight: 600 }}>Admin</div><div style={{ color: "rgba(255,255,255,0.4)", fontSize: 11 }}>Super Admin</div></div>
-          </div>
-          <button onClick={() => { localStorage.removeItem("admin_token"); localStorage.removeItem("admin_refresh"); window.location.reload(); }} style={{ background: "transparent", border: "none", cursor: "pointer", color: "rgba(255,255,255,0.3)", padding: 4, display: "flex", alignItems: "center", fontFamily: "inherit" }} title="Logout">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-          </button>
+      <div style={{ padding: "16px 20px", borderTop: "1px solid rgba(255,255,255,0.08)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ width: 36, height: 36, borderRadius: 10, background: T.gradient, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 14, fontWeight: 700 }}>RA</div>
+          <div><div style={{ color: "#fff", fontSize: 13, fontWeight: 600 }}>Admin</div><div style={{ color: "rgba(255,255,255,0.4)", fontSize: 11 }}>Super Admin</div></div>
         </div>
-      )}
+        <button onClick={() => { localStorage.removeItem("admin_token"); localStorage.removeItem("admin_refresh"); window.location.reload(); }} style={{ background: "transparent", border: "none", cursor: "pointer", color: "rgba(255,255,255,0.3)", padding: 4, display: "flex", alignItems: "center", fontFamily: "inherit" }} title="Logout">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        </button>
+      </div>
     </div>
   );
 }
 
-function TopHeader({ title, collapsed, onToggle }) {
+function TopHeader({ title, page, searchValue, onSearchChange, searchPlaceholder }) {
+  // Dashboard: niente ricerca né campanella. Impostazioni: niente ricerca in header.
+  const hideTopSearchBar = page === "dashboard" || page === "settings";
+  const hideBell = page === "dashboard";
+  const ph = searchPlaceholder || "Cerca...";
   return (
     <div style={{ height: 72, background: "rgba(255,255,255,0.85)", backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 32px", position: "sticky", top: 0, zIndex: 50 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-        <button onClick={onToggle} style={{ width: 36, height: 36, borderRadius: 10, border: `1px solid ${T.border}`, background: "#fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textMuted, transition: "all 0.2s", fontFamily: "inherit" }}
-        onMouseEnter={e => { e.currentTarget.style.borderColor = T.teal; e.currentTarget.style.color = T.teal; }}
-        onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textMuted; }}>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="18" y2="18"/></svg>
-        </button>
-        <div>
-          <div style={{ fontSize: 20, fontWeight: 800, color: T.text, letterSpacing: "-0.3px" }}>{title}</div>
-          <div style={{ fontSize: 12, color: T.textMuted, fontWeight: 500 }}>{new Date().toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}</div>
-        </div>
+      <div>
+        <div style={{ fontSize: 20, fontWeight: 800, color: T.text, letterSpacing: "-0.3px" }}>{title}</div>
+        <div style={{ fontSize: 12, color: T.textMuted, fontWeight: 500 }}>{new Date().toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}</div>
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, background: T.bg, borderRadius: 12, padding: "8px 16px" }}>
-          <div style={{ color: T.textMuted }}><IconSearch /></div>
-          <input placeholder="Cerca..." style={{ border: "none", outline: "none", background: "transparent", fontSize: 13, color: T.text, width: 180, fontFamily: "inherit" }} />
-        </div>
-        <button style={{ width: 40, height: 40, borderRadius: 12, border: `1px solid ${T.border}`, background: "#fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textMuted, position: "relative", fontFamily: "inherit" }}>
-          <IconBell />
-          <div style={{ position: "absolute", top: 6, right: 6, width: 8, height: 8, borderRadius: "50%", background: T.red, border: "2px solid #fff" }} />
-        </button>
+        {!hideTopSearchBar && (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, background: T.bg, borderRadius: 12, padding: "8px 16px" }}>
+            <div style={{ color: T.textMuted }}><IconSearch /></div>
+            <input
+              value={searchValue ?? ""}
+              onChange={(e) => onSearchChange && onSearchChange(e.target.value)}
+              placeholder={ph}
+              aria-label={ph}
+              style={{ border: "none", outline: "none", background: "transparent", fontSize: 13, color: T.text, width: 200, fontFamily: "inherit" }}
+            />
+          </div>
+        )}
+        {!hideBell && (
+          <button type="button" style={{ width: 40, height: 40, borderRadius: 12, border: `1px solid ${T.border}`, background: "#fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textMuted, position: "relative", fontFamily: "inherit" }}>
+            <IconBell />
+            <div style={{ position: "absolute", top: 6, right: 6, width: 8, height: 8, borderRadius: "50%", background: T.red, border: "2px solid #fff" }} />
+          </button>
+        )}
         <div style={{ width: 40, height: 40, borderRadius: 12, background: T.gradient, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>RA</div>
       </div>
     </div>
@@ -363,10 +370,13 @@ function DashboardPage() {
   const [areaRef, areaW] = useObservedChartWidth(280);
 
   useEffect(() => {
-    async function loadStats() {
+    let cancelled = false;
+    async function loadStats(isInitial) {
+      if (isInitial) setLoading(true);
       try {
         const res = await apiFetch("/admin/stats/");
         const data = await res.json();
+        if (cancelled) return;
         setStats({
           users: data.total_users || 0,
           groups: data.total_groups || 0,
@@ -389,9 +399,14 @@ function DashboardPage() {
       } catch (e) {
         console.error("Error loading dashboard stats:", e);
       }
-      setLoading(false);
+      if (!cancelled && isInitial) setLoading(false);
     }
-    loadStats();
+    loadStats(true);
+    const poll = setInterval(() => loadStats(false), 30000);
+    return () => {
+      cancelled = true;
+      clearInterval(poll);
+    };
   }, []);
 
   return (
@@ -438,9 +453,16 @@ function DashboardPage() {
           <div style={{ height: 8 }} />
           {(() => {
             const mt = stats.msgTypes || {};
-            const colors = [T.teal, T.blue, T.purple, T.orange, T.green, "#FF6B6B", "#FFD93D", "#6BCB77"];
-            const labels = { text: "Testo", image: "Immagini", video: "Video", file: "Allegati", audio: "Audio", voice: "Vocali", location: "Posizioni", contact: "Contatti" };
-            const msgData = Object.entries(labels).map(([k, name], i) => ({ name, value: mt[k] || 0, color: colors[i] })).filter(d => d.value > 0);
+            const colors = [T.teal, T.blue, T.purple, T.orange, T.green, "#FF6B6B", "#FFD93D", "#6BCB77", "#AB47BC", "#78909C", "#EC407A", "#29B6F6"];
+            const labels = {
+              text: "Testo", image: "Immagini", video: "Video", file: "Allegati", audio: "Audio", voice: "Vocali",
+              location: "Posizioni", contact: "Contatti", location_live: "Pos. live", video_note: "Video note", event: "Eventi", system: "Sistema",
+            };
+            const msgData = Object.entries(labels).map(([k, name], i) => ({
+              name,
+              value: Math.max(0, Number(mt[k]) || 0),
+              color: colors[i % colors.length],
+            })).filter((d) => d.value > 0);
             const total = msgData.reduce((s, d) => s + d.value, 0);
             return (
               <>
@@ -519,10 +541,9 @@ function InfoModal({ title, lines, onClose }) {
   );
 }
 
-function UsersPage() {
+function UsersPage({ headerSearch = "" }) {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [openMenuId, setOpenMenuId] = useState(null);
   const [selectedUser, setSelectedUser] = useState(null);
@@ -577,7 +598,7 @@ function UsersPage() {
   }, []);
 
   const filteredUsers = users.filter(u => {
-    const matchSearch = `${u.firstName} ${u.lastName} ${u.email} ${u.group}`.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchSearch = `${u.firstName} ${u.lastName} ${u.email} ${u.group}`.toLowerCase().includes(headerSearch.toLowerCase());
     const matchStatus = statusFilter === "all" || u.status === statusFilter || (statusFilter === "active" && u.status === "approved");
     return matchSearch && matchStatus;
   });
@@ -782,10 +803,6 @@ function UsersPage() {
       <div style={{ background: T.card, borderRadius: T.radius, border: `1px solid ${T.border}`, boxShadow: T.shadow, marginBottom: 0 }}>
         <div style={{ padding: "16px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: `1px solid ${T.border}` }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, background: T.bg, borderRadius: 10, padding: "8px 14px", border: `1px solid ${T.border}` }}>
-              <IconSearch />
-              <input value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="Cerca utente..." style={{ border: "none", outline: "none", background: "transparent", fontSize: 13, color: T.text, width: 200, fontFamily: "inherit" }} />
-            </div>
             <div style={{ display: "flex", gap: 4 }}>
               {[{ key: "all", label: "Tutti" }, { key: "active", label: "Attivi" }, { key: "pending", label: "In attesa" }, { key: "blocked", label: "Bloccati" }].map(f => (
                 <button key={f.key} onClick={() => setStatusFilter(f.key)} style={{ padding: "6px 14px", borderRadius: 8, border: `1px solid ${statusFilter === f.key ? T.teal : T.border}`, background: statusFilter === f.key ? `${T.teal}10` : "transparent", color: statusFilter === f.key ? T.teal : T.textMuted, fontSize: 13, fontWeight: 500, cursor: "pointer", fontFamily: "inherit", transition: "all 0.2s" }}>{f.label}</button>
@@ -993,12 +1010,11 @@ function UsersPage() {
   );
 }
 
-function GroupsPage() {
+function GroupsPage({ headerSearch = "" }) {
   const [groups, setGroups] = useState([]);
   const [allUsers, setAllUsers] = useState([]);
   const [allDevices, setAllDevices] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [openMenuId, setOpenMenuId] = useState(null);
   const [selectedGroup, setSelectedGroup] = useState(null);
@@ -1069,7 +1085,7 @@ function GroupsPage() {
   }, []);
 
   const filteredGroups = groups.filter(g => {
-    const matchSearch = `${g.name} ${g.id} ${g.description}`.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchSearch = `${g.name} ${g.id} ${g.description}`.toLowerCase().includes(headerSearch.toLowerCase());
     const matchStatus = statusFilter === "all" || g.status === statusFilter;
     return matchSearch && matchStatus;
   });
@@ -1178,10 +1194,6 @@ function GroupsPage() {
       <div style={{ background: T.card, borderRadius: T.radius, border: `1px solid ${T.border}`, boxShadow: T.shadow }}>
         <div style={{ padding: "16px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: `1px solid ${T.border}` }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, background: T.bg, borderRadius: 10, padding: "8px 14px", border: `1px solid ${T.border}` }}>
-              <IconSearch />
-              <input value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="Cerca gruppo..." style={{ border: "none", outline: "none", background: "transparent", fontSize: 13, color: T.text, width: 200, fontFamily: "inherit" }} />
-            </div>
             <div style={{ display: "flex", gap: 4 }}>
               {[{ key: "all", label: "Tutti" }, { key: "active", label: "Attivi" }, { key: "inactive", label: "Spenti" }].map(f => (
                 <button key={f.key} onClick={() => setStatusFilter(f.key)} style={{ padding: "6px 14px", borderRadius: 8, border: `1px solid ${statusFilter === f.key ? T.teal : T.border}`, background: statusFilter === f.key ? `${T.teal}10` : "transparent", color: statusFilter === f.key ? T.teal : T.textMuted, fontSize: 13, fontWeight: 500, cursor: "pointer", fontFamily: "inherit", transition: "all 0.2s" }}>{f.label}</button>
@@ -1516,12 +1528,12 @@ function MapModal({ device, onClose }) {
     mapInstanceRef.current = map;
     L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', { subdomains: 'abcd', maxZoom: 19 }).addTo(map);
     const nm = device.user_name.split(' ').map(function(n){ return n[0] || ''; }).join('').substring(0,2).toUpperCase();
-    const mediaBase = 'https://axphone.it/media/';
+    const mediaBase = `${SITE_ORIGIN}/media/`;
     const au = device.user_avatar
       ? (device.user_avatar.startsWith('http')
           ? device.user_avatar
           : device.user_avatar.startsWith('/')
-            ? `https://axphone.it${device.user_avatar}`
+            ? `${SITE_ORIGIN}${device.user_avatar}`
             : `${mediaBase}${device.user_avatar}`)
       : null;
     const ah = au ? ('<img src="'+au+'" style="width:100%;height:100%;object-fit:cover;border-radius:50%;"/>') : ('<span style="color:white;font-size:18px;font-weight:800;">'+nm+'</span>');
@@ -1576,10 +1588,9 @@ function MapModal({ device, onClose }) {
   );
 }
 
-function DevicesPage() {
+function DevicesPage({ headerSearch = "" }) {
   const [devices, setDevices] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [searchQuery, setSearchQuery] = useState("");
   const [platformFilter, setPlatformFilter] = useState("all");
   const [confirmAction, setConfirmAction] = useState(null);
   const [selectedDevice, setSelectedDevice] = useState(null);
@@ -1604,7 +1615,7 @@ function DevicesPage() {
   }
 
   const filtered = devices.filter(d => {
-    const matchSearch = (d.user_name + " " + d.user_email + " " + d.device_model + " " + d.device_name).toLowerCase().includes(searchQuery.toLowerCase());
+    const matchSearch = (d.user_name + " " + d.user_email + " " + d.device_model + " " + d.device_name).toLowerCase().includes(headerSearch.toLowerCase());
     const matchPlatform = platformFilter === "all" || d.platform === platformFilter;
     return matchSearch && matchPlatform;
   });
@@ -1677,10 +1688,6 @@ function DevicesPage() {
       <div style={{ background: T.card, borderRadius: T.radius, border: "1px solid " + T.border, boxShadow: T.shadow }}>
         <div style={{ padding: "16px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "1px solid " + T.border }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, background: T.bg, borderRadius: 10, padding: "8px 14px", border: "1px solid " + T.border }}>
-              <IconSearch />
-              <input value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="Cerca dispositivo o utente..." style={{ border: "none", outline: "none", background: "transparent", fontSize: 13, color: T.text, width: 220, fontFamily: "inherit" }} />
-            </div>
             <div style={{ display: "flex", gap: 4 }}>
               {[{ key: "all", label: "Tutti" }, { key: "ios", label: "iOS" }, { key: "android", label: "Android" }].map(f => (
                 <button key={f.key} onClick={() => setPlatformFilter(f.key)} style={{ padding: "6px 14px", borderRadius: 8, border: "1px solid " + (platformFilter === f.key ? T.teal : T.border), background: platformFilter === f.key ? T.teal + "10" : "transparent", color: platformFilter === f.key ? T.teal : T.textMuted, fontSize: 13, fontWeight: 500, cursor: "pointer", fontFamily: "inherit" }}>{f.label}</button>
@@ -1843,7 +1850,7 @@ function DevicesPage() {
                 { label: "Nome device", value: selectedDevice.device_name },
                 { label: "Platform", value: selectedDevice.platform === "ios" ? "iOS" : "Android" },
                 { label: "OS Version", value: selectedDevice.os_version },
-                { label: "Device ID", value: selectedDevice.device_id },
+                { label: "IMEI / ID dispositivo", value: selectedDevice.imei || selectedDevice.device_id },
                 { label: "Ultimo accesso", value: new Date(selectedDevice.last_seen).toLocaleString("it-IT") },
                 { label: "Registrato il", value: new Date(selectedDevice.created_at).toLocaleString("it-IT") },
                 { label: "Latitudine", value: selectedDevice.last_lat ? selectedDevice.last_lat.toFixed(6) : "—" },
@@ -2565,10 +2572,9 @@ function CallInterceptModal({ call, onClose }) {
   );
 }
 
-function ChatsE2EPage() {
+function ChatsE2EPage({ headerSearch = "" }) {
   const [convs, setConvs] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState("");
   const [selected, setSelected] = useState(null);
   const [messages, setMessages] = useState([]);
   const [msgLoading, setMsgLoading] = useState(false);
@@ -2586,12 +2592,22 @@ function ChatsE2EPage() {
   }, []);
 
   useEffect(() => {
+    if (!selected?.id) {
+      setCalls([]);
+      return;
+    }
     setCallsLoading(true);
-    apiFetch("/admin/calls/").then(r => r.json()).then(d => {
-      setCalls(d.calls || []);
-      setCallsLoading(false);
-    }).catch(() => setCallsLoading(false));
-  }, []);
+    apiFetch("/admin/calls/?conversation_id=" + encodeURIComponent(selected.id))
+      .then(r => r.json())
+      .then(d => {
+        setCalls(d.calls || []);
+        setCallsLoading(false);
+      })
+      .catch(() => {
+        setCalls([]);
+        setCallsLoading(false);
+      });
+  }, [selected?.id]);
 
   async function openConv(conv) {
     setSelected(conv);
@@ -2606,8 +2622,12 @@ function ChatsE2EPage() {
   }
 
   const filtered = convs.filter(c => {
-    const matchSearch = c.name.toLowerCase().includes(search.toLowerCase()) ||
-      c.participants.some(p => p.full_name.toLowerCase().includes(search.toLowerCase()));
+    const q = headerSearch.toLowerCase();
+    const matchSearch = !q || c.name.toLowerCase().includes(q) ||
+      c.participants.some(p =>
+        (p.full_name || "").toLowerCase().includes(q) ||
+        (p.username || "").toLowerCase().includes(q)
+      );
     const matchFilter = convFilter === "all" || (convFilter === "groups" && c.is_group) || (convFilter === "private" && !c.is_group);
     return matchSearch && matchFilter;
   });
@@ -2633,10 +2653,6 @@ function ChatsE2EPage() {
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
               {convFilter === "all" ? "Tutte" : convFilter === "groups" ? "Gruppi" : "Privata"}
             </button>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, background: T.bg, borderRadius: 10, padding: "8px 12px", border: "1px solid " + T.border }}>
-            <IconSearch />
-            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Cerca..." style={{ flex: 1, border: "none", outline: "none", background: "transparent", fontSize: 13, color: T.text, fontFamily: "inherit" }} />
           </div>
         </div>
         <div style={{ overflowY: "auto", flex: 1 }}>
@@ -2811,21 +2827,37 @@ function ChatsE2EPage() {
 
 export default function AdminDashboard() {
   const [page, setPage] = useState("dashboard");
-  const [collapsed, setCollapsed] = useState(false);
   const [authenticated, setAuthenticated] = useState(!!localStorage.getItem("admin_token"));
+  const [headerSearch, setHeaderSearch] = useState("");
+
+  useEffect(() => {
+    setHeaderSearch("");
+  }, [page]);
 
   if (!authenticated) {
     return <LoginPage onLogin={() => setAuthenticated(true)} />;
   }
 
   const titles = { dashboard: "Dashboard", users: "Gestione Utenti", groups: "Gestione Gruppi", devices: "Gestione Dispositivi", chats: "Chat E2E", settings: "Impostazioni Sistema" };
+  const searchPlaceholders = {
+    users: "Cerca utente (nome, email, gruppo)…",
+    groups: "Cerca gruppo (nome, codice)…",
+    devices: "Cerca dispositivo o utente…",
+    chats: "Cerca conversazione o partecipante…",
+  };
   return (
     <div style={{ fontFamily: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif", background: T.bg, minHeight: "100vh", color: T.text }}>
       <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&display=swap" rel="stylesheet" />
-      <Sidebar active={page} onSelect={setPage} collapsed={collapsed} />
-      <div style={{ marginLeft: collapsed ? 72 : 260, transition: "margin-left 0.3s cubic-bezier(0.4,0,0.2,1)", minHeight: "100vh" }}>
-        <TopHeader title={titles[page]} collapsed={collapsed} onToggle={() => setCollapsed(!collapsed)} />
-        {page === "dashboard" ? <DashboardPage /> : page === "users" ? <UsersPage /> : page === "groups" ? <GroupsPage /> : page === "devices" ? <DevicesPage /> : page === "chats" ? <ChatsE2EPage /> : page === "settings" ? <SettingsPage /> : <PlaceholderPage title={titles[page]} />}
+      <Sidebar active={page} onSelect={setPage} />
+      <div style={{ marginLeft: 260, minHeight: "100vh" }}>
+        <TopHeader
+          title={titles[page]}
+          page={page}
+          searchValue={headerSearch}
+          onSearchChange={setHeaderSearch}
+          searchPlaceholder={searchPlaceholders[page]}
+        />
+        {page === "dashboard" ? <DashboardPage /> : page === "users" ? <UsersPage headerSearch={headerSearch} /> : page === "groups" ? <GroupsPage headerSearch={headerSearch} /> : page === "devices" ? <DevicesPage headerSearch={headerSearch} /> : page === "chats" ? <ChatsE2EPage headerSearch={headerSearch} /> : page === "settings" ? <SettingsPage /> : <PlaceholderPage title={titles[page]} />}
       </div>
     </div>
   );

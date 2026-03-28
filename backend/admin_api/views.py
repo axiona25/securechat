@@ -175,7 +175,12 @@ class AdminDashboardStatsView(APIView):
 
         from django.db.models import Count as DCount
         from chat.models import Message as Msg
-        msg_types = {t['message_type']: t['count'] for t in Msg.objects.values('message_type').annotate(count=DCount('id'))}
+        raw_counts = {t['message_type']: t['count'] for t in Msg.objects.values('message_type').annotate(count=DCount('id'))}
+        msg_type_keys = (
+            'text', 'image', 'video', 'file', 'audio', 'voice', 'video_note',
+            'location', 'location_live', 'contact', 'event', 'system',
+        )
+        msg_types = {k: raw_counts.get(k, 0) for k in msg_type_keys}
 
         import shutil
         disk = shutil.disk_usage('/')
@@ -645,7 +650,8 @@ class AdminDevicesListView(APIView):
             'user_id': d.user.id,
             'user_name': f'{d.user.first_name} {d.user.last_name}'.strip() or d.user.username,
             'user_email': d.user.email, 'user_avatar': d.user.avatar.name if d.user.avatar else None,
-            'device_id': d.device_id,
+            'imei': d.imei,
+            'device_id': d.device_id or d.imei,
             'platform': d.platform,
             'device_name': d.device_name,
             'device_model': d.device_model,
@@ -659,50 +665,6 @@ class AdminDevicesListView(APIView):
         } for d in devices]
         return Response(data)
 
-    def patch(self, request, device_id):
-        from accounts.models import UserDevice
-        from channels.layers import get_channel_layer
-        from asgiref.sync import async_to_sync
-        try:
-            device = UserDevice.objects.get(id=device_id)
-            was_blocked = device.is_blocked
-            device.is_blocked = request.data.get('is_blocked', device.is_blocked)
-            device.save()
-            if device.is_blocked and not was_blocked:
-                try:
-                    channel_layer = get_channel_layer()
-                    async_to_sync(channel_layer.group_send)(
-                        f'user_{device.user.id}',
-                        {'type': 'device.blocked', 'device_id': device.device_id}
-                    )
-                except Exception as e:
-                    print(f'[DeviceBlock] WS notify error: {e}')
-            return Response({'updated': True})
-        except UserDevice.DoesNotExist:
-            return Response({'error': 'Not found'}, status=404)
-
-    def delete(self, request, device_id):
-        from accounts.models import UserDevice
-        try:
-            UserDevice.objects.get(id=device_id).delete()
-            return Response({'deleted': True})
-        except UserDevice.DoesNotExist:
-            return Response({'error': 'Not found'}, status=404)
-
-
-class AdminDevicesListView(APIView):
-    authentication_classes = ADMIN_AUTH
-    permission_classes = [IsAdminUser]
-
-    def get(self, request):
-        from accounts.models import UserDevice
-        devices = UserDevice.objects.select_related('user').order_by('-last_seen')
-        user_filter = request.GET.get('user_id')
-        if user_filter:
-            devices = devices.filter(user_id=user_filter)
-        data = [{'id': d.id, 'user_id': d.user.id, 'user_name': (d.user.first_name + ' ' + d.user.last_name).strip() or d.user.username, 'user_email': d.user.email, 'user_avatar': d.user.avatar.name if d.user.avatar else None, 'device_id': d.device_id, 'platform': d.platform, 'device_name': d.device_name, 'device_model': d.device_model, 'os_version': d.os_version,
-            'app_version': getattr(d, 'app_version', ''), 'last_seen': d.last_seen.isoformat(), 'last_lat': d.last_lat, 'last_lng': d.last_lng, 'is_blocked': d.is_blocked, 'created_at': d.created_at.isoformat()} for d in devices]
-        return Response(data)
 
 class AdminDeviceDetailView(APIView):
     authentication_classes = ADMIN_AUTH
@@ -722,7 +684,7 @@ class AdminDeviceDetailView(APIView):
                     channel_layer = get_channel_layer()
                     async_to_sync(channel_layer.group_send)(
                         f'user_{device.user.id}',
-                        {'type': 'device.blocked', 'device_id': device.device_id}
+                        {'type': 'device.blocked', 'device_id': device.imei or device.device_id}
                     )
                 except Exception as e:
                     print(f'[DeviceBlock] WS notify error: {e}')
@@ -737,7 +699,6 @@ class AdminDeviceDetailView(APIView):
             return Response({'deleted': True})
         except UserDevice.DoesNotExist:
             return Response({'error': 'Not found'}, status=404)
-
 
 
 class AdminTurnLogsView(APIView):

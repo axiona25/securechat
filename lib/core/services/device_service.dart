@@ -1,58 +1,104 @@
 import 'dart:io';
+
+import 'package:android_id/android_id.dart';
 import 'package:device_info_plus/device_info_plus.dart';
+import 'package:device_imei/device_imei.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:package_info_plus/package_info_plus.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:uuid/uuid.dart';
+
 import 'api_service.dart';
 
 class DeviceService {
   static final DeviceService instance = DeviceService._();
   DeviceService._();
 
-  static const String _deviceIdKey = 'axphone_device_id';
+  static const _kRegistrationId = 'axphone_device_registration_imei';
 
-  Future<String?> getDeviceId() async {
-    final prefs = await SharedPreferences.getInstance();
-    if (prefs.containsKey(_deviceIdKey)) return prefs.getString(_deviceIdKey);
-    final info = DeviceInfoPlugin();
-    String? id;
+  /// Keychain / Keystore: dopo il primo valore letto non cambia finché l’utente non
+  /// cancella dati app / reinstalla (su iOS l’IFV letto al primo avvio può comunque
+  /// differire tra reinstall — vedi documentazione Apple su identifierForVendor).
+  static const _secureDevice = FlutterSecureStorage(
+    iOptions: IOSOptions(accessibility: KeychainAccessibility.first_unlock_this_device),
+    aOptions: AndroidOptions(encryptedSharedPreferences: true),
+  );
+
+  /// Identità inviata al server come `imei`: persistita in modo che **ogni sessione**
+  /// usi lo stesso valore (evita letture incoerenti). Android: IMEI o Android ID;
+  /// iOS: IFV (non esiste IMEI pubblico) o UUID di fallback.
+  Future<String?> getStableHardwareIdentity() async {
+    final cached = await _secureDevice.read(key: _kRegistrationId);
+    if (cached != null && cached.isNotEmpty) return cached;
+
+    String? computed;
     if (Platform.isIOS) {
-      final d = await info.iosInfo;
-      id = d.identifierForVendor;
+      final d = await DeviceInfoPlugin().iosInfo;
+      computed = d.identifierForVendor;
+      if (computed == null || computed.isEmpty) {
+        computed = const Uuid().v4();
+      }
     } else if (Platform.isAndroid) {
-      final d = await info.androidInfo;
-      id = d.id;
+      if (await Permission.phone.request().isGranted) {
+        try {
+          final raw = await DeviceImei().getDeviceImei();
+          if (raw != null && raw.isNotEmpty) {
+            final t = raw.trim();
+            if (t.length >= 8) computed = t;
+          }
+        } catch (_) {}
+      }
+      if (computed == null || computed.isEmpty) {
+        try {
+          const plugin = AndroidId();
+          final id = await plugin.getId();
+          if (id != null && id.isNotEmpty) computed = id;
+        } catch (_) {}
+      }
     }
-    if (id != null) await prefs.setString(_deviceIdKey, id);
-    return id;
+    if (computed == null || computed.isEmpty) return null;
+    await _secureDevice.write(key: _kRegistrationId, value: computed);
+    return computed;
   }
+
+  Future<String?> getDeviceId() => getStableHardwareIdentity();
 
   Future<Map<String, dynamic>> getDeviceInfo() async {
     final info = DeviceInfoPlugin();
     final packageInfo = await PackageInfo.fromPlatform();
     final appVersion = '${packageInfo.version}+${packageInfo.buildNumber}';
 
+    final hardwareId = await getStableHardwareIdentity();
+    if (hardwareId == null || hardwareId.isEmpty) {
+      throw StateError('Impossibile determinare identità dispositivo (IMEI/ID)');
+    }
+
     if (Platform.isIOS) {
       final d = await info.iosInfo;
       return {
         'platform': 'ios',
-        'device_id': d.identifierForVendor ?? '',
+        'imei': hardwareId,
+        'device_id': hardwareId,
         'device_name': d.name,
         'device_model': d.model,
         'os_version': d.systemVersion,
         'app_version': appVersion,
       };
-    } else {
+    }
+    if (Platform.isAndroid) {
       final d = await info.androidInfo;
       return {
         'platform': 'android',
-        'device_id': d.id,
+        'imei': hardwareId,
+        'device_id': hardwareId,
         'device_name': d.device,
         'device_model': d.model,
         'os_version': d.version.release,
         'app_version': appVersion,
       };
     }
+    throw UnsupportedError('Piattaforma non supportata');
   }
 
   Future<Position?> getCurrentPosition() async {

@@ -111,7 +111,14 @@ class UserDevice(models.Model):
     PLATFORM_CHOICES = [('ios', 'iOS'), ('android', 'Android')]
 
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='devices')
-    device_id = models.CharField(max_length=255)
+    # Chiave logica insieme a user: IMEI (Android) o identificativo stabile (es. Android ID / iOS IFV).
+    imei = models.CharField(max_length=255)
+    device_id = models.CharField(
+        max_length=255,
+        blank=True,
+        default='',
+        help_text='Etichetta secondaria / legacy; la deduplicazione è su user+imei.',
+    )
     platform = models.CharField(max_length=10, choices=PLATFORM_CHOICES)
     device_name = models.CharField(max_length=255, blank=True, default='')
     device_model = models.CharField(max_length=255, blank=True, default='')
@@ -124,7 +131,8 @@ class UserDevice(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        unique_together = ('user', 'device_id')
+        unique_together = ('user', 'imei')
 
     def __str__(self):
-        return f'{self.user.email} — {self.platform} {self.device_model} ({self.device_id[:8]}...)'
+        key = (self.imei or self.device_id or '')[:8]
+        return f'{self.user.email} — {self.platform} {self.device_model} ({key}...)'
