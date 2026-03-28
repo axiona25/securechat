@@ -619,6 +619,18 @@ class SessionManager {
       } catch (e) {
         debugPrint('[E2E] onSessionResetNeeded error: $e');
       }
+      if (onSessionResetNeeded == null) {
+        try {
+          final prefs = await SharedPreferences.getInstance();
+          final pending = prefs.getStringList('pending_session_resets') ?? [];
+          final peerStr = senderUserId.toString();
+          if (!pending.contains(peerStr)) {
+            pending.add(peerStr);
+            await prefs.setStringList('pending_session_resets', pending);
+            debugPrint('[E2E] session_reset queued for peer $senderUserId (WS not available)');
+          }
+        } catch (_) {}
+      }
       rethrow;
     }
   }

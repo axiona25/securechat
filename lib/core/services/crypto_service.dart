@@ -223,10 +223,10 @@ class CryptoService {
     }
   }
 
-  /// Initialize E2E keys. Never auto-wipes or regenerates identity when server already has a bundle.
+  /// Initialize E2E keys.
   /// 1) If private keys exist in Keychain → load and consider device provisioned.
   /// 2) If no local keys and server has NO bundle → generate new bundle, save to Keychain, upload.
-  /// 3) If no local keys but server HAS bundle → do NOT generate/upload; return needsManualRecovery.
+  /// 3) If no local keys but server HAS bundle → auto-reset server bundle, generate fresh keys, upload.
   Future<CryptoInitResult> initializeKeys() async {
     try {
       // Rileva reinstallazione: UserDefaults viene cancellato
@@ -323,9 +323,26 @@ class CryptoService {
       }
 
       if (serverBundleExists) {
-        debugPrint('[CryptoBootstrap] action=needs_manual_recovery (local keys missing, server has bundle — no auto-regenerate)');
-        await _setNeedsManualRecoveryFlag();
-        return CryptoInitResult.needsManualRecovery;
+        debugPrint('[CryptoBootstrap] action=auto_reset (local keys missing, server has bundle — auto-regenerate)');
+        try {
+          await _apiService.postLog(
+            '[E2E-AUTO-RESET] local keys missing, server bundle exists — auto-resetting for user',
+          );
+        } catch (_) {}
+        try {
+          await _apiService.post('/encryption/reset/', body: <String, dynamic>{});
+          debugPrint('[CryptoBootstrap] server bundle reset OK — generating new keys');
+        } catch (e) {
+          debugPrint('[CryptoBootstrap] server bundle reset failed: $e — generating anyway');
+        }
+        final publicBundle = await generateAndStoreKeyBundle();
+        final uploaded = await uploadKeyBundle(publicBundle);
+        await _clearNeedsManualRecoveryFlag();
+        if (uploaded) {
+          _initialized = true;
+          return CryptoInitResult.generatedAndUploaded;
+        }
+        return CryptoInitResult.error;
       }
 
       debugPrint('[CryptoBootstrap] action=generate_new_bundle');

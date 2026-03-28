@@ -554,8 +554,31 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
         final crypto = CryptoService(apiService: ApiService());
         await crypto.prefetchKeyBundle(otherId);
       }
+      await _flushPendingSessionResets();
     } catch (e) {
       debugPrint('[Chat] _ensureE2ESession error: $e');
+    }
+  }
+
+  /// Sends queued `session_reset` actions once the chat WebSocket is connected.
+  Future<void> _flushPendingSessionResets() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final pending = prefs.getStringList('pending_session_resets') ?? [];
+      if (pending.isNotEmpty && _webSocket != null) {
+        for (final peerStr in pending) {
+          final peerId = int.tryParse(peerStr);
+          if (peerId == null || peerId <= 0) continue;
+          _webSocket!.add(jsonEncode({
+            'action': 'session_reset',
+            'peer_user_id': peerId,
+          }));
+          debugPrint('[E2E] sent queued session_reset to peer $peerStr');
+        }
+        await prefs.setStringList('pending_session_resets', []);
+      }
+    } catch (e) {
+      debugPrint('[E2E] pending session_reset processing error: $e');
     }
   }
 
@@ -656,6 +679,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
           debugPrint('[E2E] session_reset sent via WS to peer $peerId');
         }
       };
+      unawaited(_flushPendingSessionResets());
       _wsPingTimer?.cancel();
       _wsPingTimer = Timer.periodic(const Duration(seconds: 20), (_) {
         try {
@@ -5797,6 +5821,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
+      behavior: HitTestBehavior.translucent,
       onTap: () => FocusScope.of(context).unfocus(),
       child: Scaffold(
       backgroundColor: _bodyBg,

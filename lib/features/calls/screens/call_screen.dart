@@ -80,6 +80,7 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       FocusManager.instance.primaryFocus?.unfocus();
+      SystemChannels.textInput.invokeMethod('TextInput.hide');
     });
     _registerCallUiWithBridge();
     final cid = normalizeCallId(widget.callId);
