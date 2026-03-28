@@ -664,7 +664,7 @@ class CallService {
     await _configureAudioSession();
     await Future.delayed(const Duration(milliseconds: 200));
     await _applySpeakerphoneOnIosLogged(
-      false,
+      _state.isSpeakerOn,
       context: '_onCallAnswer after reconfigure',
       callId: _callId,
     );
@@ -1124,7 +1124,6 @@ class CallService {
         appleAudioCategoryOptions: {
           AppleAudioCategoryOption.allowBluetooth,
           AppleAudioCategoryOption.allowBluetoothA2DP,
-          AppleAudioCategoryOption.defaultToSpeaker,
         },
         appleAudioMode: AppleAudioMode.voiceChat,
       ));
