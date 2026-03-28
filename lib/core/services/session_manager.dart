@@ -21,6 +21,9 @@ import 'e2e_key_store.dart';
 class SessionManager {
   static SessionManager? _instance;
 
+  /// Notifies the peer (via chat WebSocket) to clear their session after local decrypt failure.
+  static void Function(int peerId)? onSessionResetNeeded;
+
   static const String _sessionPrefix = 'scp_session_';
   static const String _sessionPrevPrefix = 'scp_session_prev_';
   static const String _cachePrefix = 'scp_msg_cache_';
@@ -610,6 +613,11 @@ class SessionManager {
         }
       } catch (versionCheckError) {
         debugPrint('[E2E] Auto-recovery version check fallito: $versionCheckError');
+      }
+      try {
+        onSessionResetNeeded?.call(senderUserId);
+      } catch (e) {
+        debugPrint('[E2E] onSessionResetNeeded error: $e');
       }
       rethrow;
     }

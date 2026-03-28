@@ -78,6 +78,9 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      FocusManager.instance.primaryFocus?.unfocus();
+    });
     _registerCallUiWithBridge();
     final cid = normalizeCallId(widget.callId);
     final bridgeAnswered = widget.answeredFromCallKit ||

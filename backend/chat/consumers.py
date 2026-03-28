@@ -108,6 +108,7 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
             'delete_message': self._handle_delete_message,
             'attachment_ready': self._handle_attachment_ready,
             'react': self._handle_reaction,
+            'session_reset': self._handle_session_reset,
             'ping': lambda d: self.send_json({'type': 'pong'}),
         }
         
@@ -380,6 +381,18 @@ class ChatConsumer(AsyncJsonWebsocketConsumer):
             'conversation_id': event['conversation_id'],
             'deleted_by': event['deleted_by'],
         })
+    async def _handle_session_reset(self, data):
+        peer_user_id = data.get("peer_user_id")
+        conversation_id = data.get("conversation_id", "")
+        if not peer_user_id:
+            return
+        logger.info(f"Session reset by {self.user.id} for peer {peer_user_id}")
+        await self.channel_layer.group_send(f"user_{peer_user_id}", {
+            "type": "session.reset",
+            "conversation_id": conversation_id,
+            "reset_user_id": self.user.id,
+        })
+
 
     async def session_reset(self, event):
         """Notifica il client di resettare la sessione E2E con l'utente indicato."""

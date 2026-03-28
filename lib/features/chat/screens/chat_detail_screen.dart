@@ -24,6 +24,7 @@ import 'package:latlong2/latlong.dart' as ll;
 import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/gestures.dart';
+import 'package:flutter_app_badger/flutter_app_badger.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/models/conversation_model.dart';
@@ -646,6 +647,15 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
         return;
       }
       _webSocket = ws;
+      SessionManager.onSessionResetNeeded = (peerId) {
+        if (_webSocket != null) {
+          _webSocket!.add(jsonEncode({
+            'action': 'session_reset',
+            'peer_user_id': peerId,
+          }));
+          debugPrint('[E2E] session_reset sent via WS to peer $peerId');
+        }
+      };
       _wsPingTimer?.cancel();
       _wsPingTimer = Timer.periodic(const Duration(seconds: 20), (_) {
         try {
@@ -676,42 +686,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
                 } else {
                   _stopTypingDotsAnimation();
                 }
-              }
-            }
-            if (type == 'presence.update') {
-              final convId = map['conversation_id']?.toString();
-              if (convId != _conversationId) return;
-              final userId = map['user_id'];
-              final isOnline = map['is_online'] == true;
-              final otherId = userId is int ? userId : int.tryParse(userId?.toString() ?? '');
-              final currentId = _effectiveCurrentUserId;
-              if (otherId != null && otherId != currentId && _conversation != null) {
-                final updatedParticipants = _conversation!.participants.map((p) {
-                  if (p.userId == otherId) {
-                    return ConversationParticipant(
-                      userId: p.userId,
-                      username: p.username,
-                      displayName: p.displayName,
-                      avatar: p.avatar,
-                      isOnline: isOnline,
-                    );
-                  }
-                  return p;
-                }).toList();
-                setState(() {
-                  _conversation = ConversationModel(
-                    id: _conversation!.id,
-                    convType: _conversation!.convType,
-                    name: _conversation!.name,
-                    participants: updatedParticipants,
-                    lastMessage: _conversation!.lastMessage,
-                    unreadCount: _conversation!.unreadCount,
-                    isMuted: _conversation!.isMuted,
-                    isLocked: _conversation!.isLocked,
-                    isFavorite: _conversation!.isFavorite,
-                    createdAt: _conversation!.createdAt,
-                  );
-                });
               }
             }
             if (type == 'conversation.deleted') {
@@ -792,6 +766,57 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
                 } catch (e) {
                   debugPrint('[E2E-Edit] REST refresh failed: $e');
                 }
+              }
+            }
+            if (type == 'session.reset') {
+              final resetUserId = map['reset_user_id'];
+              final resetId = resetUserId is int ? resetUserId : int.tryParse(resetUserId?.toString() ?? '');
+              if (resetId != null) {
+                debugPrint('[E2E] Received session.reset from user $resetId — clearing local session');
+                try {
+                  await SessionManager().deleteSession(resetId, reason: 'remote_session_reset');
+                  await SessionManager().clearRehandshakeFlag(resetId);
+                  if (mounted) _loadMessages();
+                } catch (e) {
+                  debugPrint('[E2E] session.reset handling error: $e');
+                }
+              }
+              return;
+            }
+            if (type == 'presence.update') {
+              final convId = map['conversation_id']?.toString();
+              if (convId != _conversationId) return;
+              final userId = map['user_id'];
+              final isOnline = map['is_online'] == true;
+              final otherId = userId is int ? userId : int.tryParse(userId?.toString() ?? '');
+              final currentId = _effectiveCurrentUserId;
+              if (otherId != null && otherId != currentId && _conversation != null) {
+                final updatedParticipants = _conversation!.participants.map((p) {
+                  if (p.userId == otherId) {
+                    return ConversationParticipant(
+                      userId: p.userId,
+                      username: p.username,
+                      displayName: p.displayName,
+                      avatar: p.avatar,
+                      isOnline: isOnline,
+                    );
+                  }
+                  return p;
+                }).toList();
+                setState(() {
+                  _conversation = ConversationModel(
+                    id: _conversation!.id,
+                    convType: _conversation!.convType,
+                    name: _conversation!.name,
+                    participants: updatedParticipants,
+                    lastMessage: _conversation!.lastMessage,
+                    unreadCount: _conversation!.unreadCount,
+                    isMuted: _conversation!.isMuted,
+                    isLocked: _conversation!.isLocked,
+                    isFavorite: _conversation!.isFavorite,
+                    createdAt: _conversation!.createdAt,
+                  );
+                });
               }
             }
             if (type == 'message.deleted') {
@@ -1111,6 +1136,14 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
         '/chat/conversations/$_conversationId/read/',
         body: {},
       );
+      try {
+        final count = await ChatService().getNotificationBadgeCount();
+        if (count > 0) {
+          FlutterAppBadger.updateBadgeCount(count);
+        } else {
+          FlutterAppBadger.removeBadge();
+        }
+      } catch (_) {}
     } catch (_) {}
   }
 
@@ -4549,6 +4582,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> with WidgetsBinding
 
   @override
   void dispose() {
+    SessionManager.onSessionResetNeeded = null;
     WidgetsBinding.instance.removeObserver(this);
     ChatDetailScreen.currentOpenConversationId = null;
     _chatChannel.invokeMethod('clearActiveConversation');
